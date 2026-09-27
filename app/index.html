@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Smart Glasses AI</title>
+
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+
+<div class="app">
+
+    <header>
+        <div>
+            <h1>Smart Glasses</h1>
+            <p>AI Vision Assistant</p>
+        </div>
+
+        <div class="status">
+            <span class="status-dot"></span>
+            <span id="statusText">Checking...</span>
+        </div>
+    </header>
+
+
+    <main>
+
+        <!-- CAMERA -->
+
+        <section class="camera-card">
+
+            <div class="section-title">
+                <h2>Camera</h2>
+                <span id="cameraStatus">OFF</span>
+            </div>
+
+            <div class="camera-container">
+
+                <video
+                    id="camera"
+                    autoplay
+                    playsinline
+                ></video>
+
+                <div id="cameraPlaceholder">
+                    Camera preview
+                </div>
+
+            </div>
+
+            <div class="camera-buttons">
+
+                <button id="startCamera">
+                    Start Camera
+                </button>
+
+                <button id="captureButton">
+                    Analyze Scene
+                </button>
+
+            </div>
+
+        </section>
+
+
+        <!-- AI -->
+
+        <section class="ai-card">
+
+            <div class="section-title">
+                <h2>AI Assistant</h2>
+
+                <span class="ai-status">
+                    GEMINI
+                </span>
+            </div>
+
+
+            <div
+                id="messages"
+                class="messages"
+            >
+
+                <div class="message ai">
+                    <strong>AI</strong>
+
+                    <p>
+                        Hello! I'm your Smart Glasses AI.
+                        Ask me anything.
+                    </p>
+                </div>
+
+            </div>
+
+
+            <div class="input-area">
+
+                <input
+                    id="messageInput"
+                    type="text"
+                    placeholder="Ask your AI assistant..."
+                >
+
+                <button id="sendButton">
+                    Send
+                </button>
+
+            </div>
+
+        </section>
+
+
+        <!-- QUICK ACTIONS -->
+
+        <section class="quick-actions">
+
+            <button onclick="quickAsk('What can you help me with?')">
+                What can you do?
+            </button>
+
+            <button onclick="quickAsk('Explain artificial intelligence simply.')">
+                Explain AI
+            </button>
+
+            <button onclick="quickAsk('Give me an interesting fact.')">
+                Interesting Fact
+            </button>
+
+        </section>
+
+    </main>
+
+
+    <footer>
+
+        <span>Smart Glasses AI</span>
+
+        <span>
+            ESP32-CAM: <b>Not Connected</b>
+        </span>
+
+    </footer>
+
+</div>
+
+<script src="/static/app.js"></script>
+
+</body>
+</html>

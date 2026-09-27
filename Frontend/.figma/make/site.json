@@ -1,0 +1,10 @@
+{
+  "description": "Experience a premium AI control interface for smart glasses, featuring real-time device monitoring, advanced AI interactions, and a visually stunning design.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
