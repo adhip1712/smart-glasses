@@ -28,9 +28,11 @@ from sqlalchemy.orm import Session
 try:
     from backend.database import engine, SessionLocal, Base
     from backend.models import Conversation, Message
+    from backend.device_api import router as device_router
 except ImportError:
     from database import engine, SessionLocal, Base
     from models import Conversation, Message
+    from device_api import router as device_router
 
 
 # =========================================================
@@ -948,6 +950,16 @@ app = FastAPI(
     title="VISIONARY NEXUS API",
     version="7.0.0"
 )
+
+
+# =========================================================
+# DEVICE LIFECYCLE ROUTES
+# =========================================================
+#
+# Provisioning / registration / heartbeat live in backend/device_api.py.
+# They are deliberately idempotent: one physical device == one row.
+
+app.include_router(device_router)
 
 
 # =========================================================

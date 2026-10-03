@@ -1,3 +1,15 @@
 .env
 .env.*
 !.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Local databases and generated credential keys
+*.db
+backend/.device_token_key
+backend/.device_token_pepper
+.device_sim_state.json

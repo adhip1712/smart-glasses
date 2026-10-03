@@ -71,7 +71,12 @@ type NavigationResult = {
 // API
 // =========================================================
 
-const API_URL = "http://127.0.0.1:8000"
+// Relative by default: the Vite dev/preview server proxies /api to the
+// backend (see vite.config.ts), which also keeps the app usable when the
+// browser is not running inside the sandbox.
+const API_URL =
+  (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_API_URL ??
+  ""
 
 // =========================================================
 // COMPONENT

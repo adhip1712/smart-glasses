@@ -34,6 +34,19 @@ react(),
       host: process.env.FIGMA_DEV_SERVER_HOST || '0.0.0.0',
       port: parseInt(process.env.PORT || '8443'),
       strictPort: true,
+      // The dev server is reached through a remote proxy host in this
+      // environment, so host checking must not reject those requests.
+      allowedHosts: true,
+      // The browser only ever talks to this dev server; /api (and therefore
+      // every device endpoint) is proxied to the FastAPI backend. This keeps
+      // the app working when it is embedded in a remote preview host instead
+      // of calling 127.0.0.1 from the browser.
+      proxy: {
+        '/api': {
+          target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',
+          changeOrigin: true,
+        },
+      },
       watch: {
         ignored: [
           '**/.figma/**',
@@ -43,6 +56,12 @@ react(),
     preview: {
       host: process.env.FIGMA_DEV_SERVER_HOST || '0.0.0.0',
       port: parseInt(process.env.PORT || '8443'),
+      proxy: {
+        '/api': {
+          target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',
+          changeOrigin: true,
+        },
+      },
     },
   }
 })
