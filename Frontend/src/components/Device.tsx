@@ -405,15 +405,30 @@ export default function Device() {
 
   const components = [
     {
-      name: 'ESP32-CAM',
-      model: 'AI-Thinker v2',
+      // Camera readiness comes from the ESP32's own OV2640 initialisation
+      // (reported as camera_ready) and never from Wi-Fi or registration.
+      name: 'OV2640 Camera',
+      model: `AI-Thinker ESP32-CAM${primary?.camera_sensor ? ` · PID ${primary.camera_sensor}` : ''}`,
+      status: primary?.camera_ready ? 'CAMERA READY' : online ? 'INITIALISING' : 'IDLE',
+      statusColor: primary?.camera_ready ? '#4ade80' : online ? '#f59e0b' : '#6b7280',
+      details: [
+        { label: 'Firmware', value: primary?.firmware ?? '—' },
+        { label: 'Sensor', value: primary?.camera_sensor ?? '—' },
+        { label: 'Camera init', value: primary?.camera_ready ? 'ok' : 'pending' },
+        { label: 'Device ID', value: primary?.device_id ?? '—' },
+      ],
+      borderColor: primary?.camera_ready ? 'rgba(74,222,128,0.2)' : 'rgba(255,255,255,0.08)',
+    },
+    {
+      name: 'ESP32 Link',
+      model: 'Device lifecycle',
       status: online ? 'ONLINE' : liveStatus ? (STATUS_LABELS[liveStatus] ?? 'UNKNOWN') : 'NOT PAIRED',
       statusColor: online ? '#4ade80' : liveStatus ? (STATUS_COLORS[liveStatus] ?? '#9ca3af') : '#9ca3af',
       details: [
-        { label: 'Firmware', value: primary?.firmware ?? '—' },
-        { label: 'Resolution', value: '1920×1080' },
-        { label: 'Device ID', value: primary?.device_id ?? '—' },
         { label: 'Token', value: primary?.device_token_last4 ? `••••${primary.device_token_last4}` : '—' },
+        { label: 'Heartbeats', value: String(primary?.heartbeat_count ?? 0) },
+        { label: 'Wi-Fi', value: primary?.wifi_ssid ?? '—' },
+        { label: 'IP', value: primary?.ip_address ?? '—' },
       ],
       borderColor: online ? 'rgba(74,222,128,0.2)' : 'rgba(255,255,255,0.08)',
     },

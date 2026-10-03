@@ -70,6 +70,9 @@ export interface DeviceDetail {
   device_token_last4: string | null
   token_generation: number
   pairing_code_active: boolean
+  camera_ready: boolean
+  camera_sensor: string | null
+  camera_initialized_at: string | null
   claim_state: string | null
   claim_id: string | null
   claim_requested_at: string | null
@@ -104,6 +107,8 @@ export interface DeviceSummary {
   device_token_last4: string | null
   claim_state: string | null
   awaiting_approval: boolean
+  camera_ready: boolean
+  camera_sensor: string | null
 }
 
 export interface DeviceListResponse {

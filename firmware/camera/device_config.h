@@ -23,9 +23,10 @@
 // ---------------------------------------------------------
 //
 // LAST-RESORT compile-time fallback, used only when the app did not push a
-// backend URL and mDNS resolution failed. Override it at build time with
-// -DNEXUS_FALLBACK_BACKEND_HOST=\"192.168.1.100\" so the host lives in one
-// place per site instead of inside the firmware logic.
+// backend URL and mDNS resolution failed. It is a hostname, not an address:
+// set it per site at build time (for example
+// -DNEXUS_FALLBACK_BACKEND_HOST=\"<your-backend-host>\") instead of editing
+// the firmware logic. No LAN IP is ever compiled in.
 #ifndef NEXUS_FALLBACK_BACKEND_HOST
 #define NEXUS_FALLBACK_BACKEND_HOST "nexus-backend.local"
 #endif
@@ -33,6 +34,12 @@
 #ifndef NEXUS_FALLBACK_BACKEND_PORT
 #define NEXUS_FALLBACK_BACKEND_PORT 8000
 #endif
+
+// Ports tried (in order) when the backend address has to be discovered at
+// runtime: whichever port answers /api/device/backend-info wins. This is why
+// running the backend on 8001 needs no rebuild and no typing - the firmware
+// finds it. The app can also push the exact URL over the setup AP.
+#define NEXUS_CANDIDATE_PORTS { 8000, 8001, 8080 }
 
 // mDNS hostname advertised by the backend machine (optional helper).
 #ifndef NEXUS_MDNS_HOST
@@ -49,6 +56,7 @@
 #define NEXUS_REGISTER_PATH    "/api/device/register"
 #define NEXUS_HEARTBEAT_PATH   "/api/device/heartbeat"
 #define NEXUS_BACKEND_INFO     "/api/device/backend-info"
+#define NEXUS_REPORT_PATH      "/api/device/provision/report"
 
 // ---------------------------------------------------------
 // TIMING
@@ -71,6 +79,36 @@
 
 #define NEXUS_SETUP_AP_SSID_PREFIX "VisionaryNexus-"
 #define NEXUS_SETUP_AP_PASSWORD    "nexus-setup"
+
+// ---------------------------------------------------------
+// CAMERA (AI Thinker ESP32-CAM + OV2640)
+// ---------------------------------------------------------
+//
+// Pin map and sensor settings mirror the ESP32 Arduino core's own
+// CameraWebServer example (libraries/ESP32/examples/Camera/CameraWebServer/
+// camera_pins.h, CAMERA_MODEL_AI_THINKER) so the target board is configured
+// exactly as Espressif ships it.
+
+#define NEXUS_CAMERA_PIN_PWDN    32
+#define NEXUS_CAMERA_PIN_RESET   -1
+#define NEXUS_CAMERA_PIN_XCLK     0
+#define NEXUS_CAMERA_PIN_SIOD    26   // SCCB SDA
+#define NEXUS_CAMERA_PIN_SIOC    27   // SCCB SCL
+#define NEXUS_CAMERA_PIN_D7      35   // Y9
+#define NEXUS_CAMERA_PIN_D6      34   // Y8
+#define NEXUS_CAMERA_PIN_D5      39   // Y7
+#define NEXUS_CAMERA_PIN_D4      36   // Y6
+#define NEXUS_CAMERA_PIN_D3      21   // Y5
+#define NEXUS_CAMERA_PIN_D2      19   // Y4
+#define NEXUS_CAMERA_PIN_D1      18   // Y3
+#define NEXUS_CAMERA_PIN_D0       5   // Y2
+#define NEXUS_CAMERA_PIN_VSYNC   25
+#define NEXUS_CAMERA_PIN_HREF    23
+#define NEXUS_CAMERA_PIN_PCLK    22
+#define NEXUS_CAMERA_PIN_FLASH    4   // white LED (active low)
+
+#define NEXUS_CAMERA_XCLK_HZ      20000000
+#define NEXUS_CAMERA_JPEG_QUALITY 12   // 10 when PSRAM is present, see camera.ino
 
 // ---------------------------------------------------------
 // FIRMWARE IDENTITY (informational only - not an authentication factor)

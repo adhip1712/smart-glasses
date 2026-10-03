@@ -40,6 +40,7 @@
 #include <WebServer.h>
 #include <Preferences.h>
 #include <esp_system.h>
+#include "esp_camera.h"          // OV2640 driver, bundled with the ESP32 core
 
 #include "device_config.h"
 
@@ -73,7 +74,12 @@ bool wifiCredentialsKnown = false;
 bool wifiUp = false;
 bool registered = false;
 bool credentialsCaptured = false;
+bool cameraReady = false;
+bool cameraAttempted = false;
 
+String cameraSensor = "";
+
+int cameraFailures = 0;
 int wifiFailures = 0;
 int authFailures = 0;
 int claimFailures = 0;
@@ -84,6 +90,7 @@ unsigned long lastConnectAttemptMs = 0;
 unsigned long lastRegisterAttemptMs = 0;
 unsigned long lastClaimPollMs = 0;
 unsigned long lastHeartbeatMs = 0;
+unsigned long lastCameraAttemptMs = 0;
 
 // =========================================================
 // SMALL HELPERS
@@ -241,27 +248,77 @@ String fallbackBackendUrl() {
          String(NEXUS_FALLBACK_BACKEND_PORT);
 }
 
+/** Ask a candidate address whether the Visionary Nexus API lives there.
+ *  Used while discovering the backend at runtime so the port does not have to
+ *  be compiled in or typed by the user. */
+bool probeBackend(const String &base) {
+  HTTPClient http;
+
+  if (!http.begin(base + NEXUS_BACKEND_INFO)) {
+    return false;
+  }
+
+  http.setTimeout(4000);
+
+  int status = http.GET();
+  String body = http.getString();
+
+  http.end();
+
+  return status == 200 && body.indexOf("\"urls\"") >= 0;
+}
+
+/** Try each candidate port on a host and return the first backend that
+ *  answers /api/device/backend-info. This is how a backend running on 8001
+ *  (or any other port) is found without the user typing anything. */
+String discoverBackendOnHost(const String &host, int fallbackPort) {
+  const int candidatePorts[] = NEXUS_CANDIDATE_PORTS;
+
+  for (unsigned int i = 0; i < sizeof(candidatePorts) / sizeof(candidatePorts[0]); i++) {
+    int port = candidatePorts[i];
+
+    if (port == fallbackPort) {
+      continue;  // tried first, below
+    }
+
+    String url = String("http://") + host + ":" + String(port);
+
+    if (probeBackend(url)) {
+      return url;
+    }
+  }
+
+  String preferred = String("http://") + host + ":" + String(fallbackPort);
+
+  if (probeBackend(preferred)) {
+    return preferred;
+  }
+
+  return String();
+}
+
 /** Priority: value pushed by the app / delivered by the backend (NVS) ->
- *  mDNS name -> single compile-time fallback constant. */
+ *  mDNS name -> compile-time fallback host. In every case the port is
+ *  discovered at runtime, so an environment-driven port (e.g. 8001) needs no
+ *  rebuild and no typing. */
 String resolveBackendUrl() {
   if (backendUrl.length()) {
     return backendUrl;
   }
 
+  // 1. mDNS: the backend machine advertises itself on the local network.
   if (MDNS.begin("nexus-glasses")) {
-    IPAddress resolved;
-
     for (int attempt = 0; attempt < 3; attempt++) {
       if (MDNS.queryService(NEXUS_MDNS_HOST, "tcp") > 0) {
-        resolved = MDNS.IP(0);
+        IPAddress resolved = MDNS.IP(0);
 
         if ((uint32_t)resolved != 0) {
-          String url = String("http://") + resolved.toString() + ":" +
-                       String(NEXUS_FALLBACK_BACKEND_PORT);
+          String url = discoverBackendOnHost(resolved.toString(), NEXUS_FALLBACK_BACKEND_PORT);
 
-          Serial.printf("[backend] resolved via mDNS: %s\n", url.c_str());
-
-          return url;
+          if (url.length()) {
+            Serial.printf("[backend] discovered via mDNS: %s\n", url.c_str());
+            return url;
+          }
         }
       }
 
@@ -269,7 +326,16 @@ String resolveBackendUrl() {
     }
   }
 
-  Serial.println("[backend] using the compile-time fallback host");
+  // 2. Compile-time fallback host (a name, never a hardcoded IP).
+  String host = String(NEXUS_FALLBACK_BACKEND_HOST);
+  String url = discoverBackendOnHost(host, NEXUS_FALLBACK_BACKEND_PORT);
+
+  if (url.length()) {
+    Serial.printf("[backend] discovered at %s\n", url.c_str());
+    return url;
+  }
+
+  Serial.println("[backend] no backend answered - set the address from the app");
   return fallbackBackendUrl();
 }
 
@@ -467,6 +533,9 @@ void handleDeviceStatus() {
   body += "\"has_credential\":" + String(deviceToken.length() ? "true" : "false") + ",";
   body += "\"wifi_configured\":" + String(wifiCredentialsKnown ? "true" : "false") + ",";
   body += "\"phase\":" + String((int)phase) + ",";
+  body += "\"camera_ready\":" + String(cameraReady ? "true" : "false") + ",";
+  body += "\"camera_sensor\":\"" + jsonEscape(cameraSensor) + "\",";
+  body += "\"psram\":" + String(psramFound() ? "true" : "false") + ",";
   body += "\"firmware\":\"" NEXUS_FIRMWARE_VERSION "\"}";
 
   sendCorsHeaders();
@@ -654,6 +723,172 @@ bool fetchClaimCredential() {
 }
 
 // =========================================================
+// CAMERA  (AI Thinker ESP32-CAM + OV2640)
+// =========================================================
+//
+// Camera readiness is decided ONLY by a successful esp_camera_init() on the
+// physical sensor. A connected Wi-Fi link, a registered device or an
+// incoming heartbeat never set this flag.
+//
+// Pin map and sensor settings mirror the ESP32 Arduino core's own
+// CameraWebServer example for CAMERA_MODEL_AI_THINKER.
+
+bool cameraInit() {
+  // Zero-initialised so driver fields we do not set (e.g. sccb_i2c_port)
+  // are defined values rather than stack garbage.
+  camera_config_t config = {};
+
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer = LEDC_TIMER_0;
+
+  config.pin_d0 = NEXUS_CAMERA_PIN_D0;
+  config.pin_d1 = NEXUS_CAMERA_PIN_D1;
+  config.pin_d2 = NEXUS_CAMERA_PIN_D2;
+  config.pin_d3 = NEXUS_CAMERA_PIN_D3;
+  config.pin_d4 = NEXUS_CAMERA_PIN_D4;
+  config.pin_d5 = NEXUS_CAMERA_PIN_D5;
+  config.pin_d6 = NEXUS_CAMERA_PIN_D6;
+  config.pin_d7 = NEXUS_CAMERA_PIN_D7;
+
+  config.pin_xclk = NEXUS_CAMERA_PIN_XCLK;
+  config.pin_pclk = NEXUS_CAMERA_PIN_PCLK;
+  config.pin_vsync = NEXUS_CAMERA_PIN_VSYNC;
+  config.pin_href = NEXUS_CAMERA_PIN_HREF;
+  config.pin_sccb_sda = NEXUS_CAMERA_PIN_SIOD;
+  config.pin_sccb_scl = NEXUS_CAMERA_PIN_SIOC;
+  config.pin_pwdn = NEXUS_CAMERA_PIN_PWDN;
+  config.pin_reset = NEXUS_CAMERA_PIN_RESET;
+
+  config.xclk_freq_hz = NEXUS_CAMERA_XCLK_HZ;
+  config.pixel_format = PIXFORMAT_JPEG;
+  config.frame_size = FRAMESIZE_UXGA;
+  config.jpeg_quality = NEXUS_CAMERA_JPEG_QUALITY;
+  config.fb_count = 1;
+  config.fb_location = CAMERA_FB_IN_PSRAM;
+  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+
+  // The AI Thinker board ships 4 MB of PSRAM; without it, limit the frame
+  // size and keep the frame buffer in DRAM (same logic as Espressif's example).
+  if (psramFound()) {
+    config.jpeg_quality = 10;
+    config.fb_count = 2;
+    config.grab_mode = CAMERA_GRAB_LATEST;
+  } else {
+    config.frame_size = FRAMESIZE_SVGA;
+    config.fb_location = CAMERA_FB_IN_DRAM;
+  }
+
+  Serial.printf(
+    "[camera] OV2640 init: xclk=%dMHz psram=%s fb=%d\n",
+    NEXUS_CAMERA_XCLK_HZ / 1000000,
+    psramFound() ? "yes" : "no",
+    (int)config.fb_count
+  );
+
+  esp_err_t error = esp_camera_init(&config);
+
+  if (error != ESP_OK) {
+    // 0x105 == ESP_ERR_NOT_FOUND: the SCCB bus answered nothing, i.e. the
+    // camera module is absent or badly seated.
+    Serial.printf("[camera] esp_camera_init failed (0x%x)\n", error);
+    return false;
+  }
+
+  sensor_t *sensor = esp_camera_sensor_get();
+
+  if (sensor == NULL) {
+    Serial.println("[camera] no sensor after init");
+    esp_camera_deinit();
+    return false;
+  }
+
+  char pid[16];
+
+  snprintf(pid, sizeof(pid), "0x%02X", sensor->id.PID);
+
+  cameraSensor = String(pid);
+
+  // Probe the sensor once: a real OV2640 must answer with a frame.
+  camera_fb_t *frame = esp_camera_fb_get();
+
+  if (frame == NULL) {
+    Serial.println("[camera] sensor present but produced no frame");
+    esp_camera_deinit();
+    cameraSensor = "";
+    return false;
+  }
+
+  Serial.printf(
+    "[camera] READY: pid=%s frame=%ux%u %u bytes\n",
+    cameraSensor.c_str(),
+    frame->width,
+    frame->height,
+    (unsigned)frame->len
+  );
+
+  esp_camera_fb_return(frame);
+
+  return true;
+}
+
+/** Report the camera state to the backend (same report endpoint the rest of
+ *  the lifecycle uses). Never used to claim readiness without init success. */
+void reportCameraState(bool ready) {
+  if (!deviceId.length()) {
+    return;
+  }
+
+  String payload = "{";
+  payload += "\"device_id\":\"" + jsonEscape(deviceId) + "\",";
+  payload += "\"device_token\":\"" + jsonEscape(deviceToken) + "\",";
+  payload += "\"hardware_uid\":\"" + jsonEscape(hardwareUid) + "\",";
+  payload += "\"firmware\":\"" NEXUS_FIRMWARE_VERSION "\",";
+  payload += "\"event\":\"" + String(ready ? "camera_ready" : "camera_failed") + "\",";
+
+  if (ready) {
+    payload += "\"sensor\":\"" + jsonEscape(cameraSensor) + "\",";
+    payload += "\"psram\":" + String(psramFound() ? "true" : "false") + ",";
+    payload += "\"error\":\"\"}";
+  } else {
+    payload += "\"error\":\"OV2640 did not initialise\"}";
+  }
+
+  String response;
+  postJson(NEXUS_REPORT_PATH, payload, response, true);
+}
+
+/** Called once the device is registered (the flow reaches the camera only
+ *  after the device is online). Retried a few times - a failed init is often
+ *  just a brown-out or a loose ribbon cable. */
+void ensureCameraReady() {
+  if (cameraReady) {
+    return;
+  }
+
+  if (cameraAttempted && (millis() - lastCameraAttemptMs) < 30000UL) {
+    return;
+  }
+
+  lastCameraAttemptMs = millis();
+  cameraAttempted = true;
+
+  bool ready = cameraInit();
+
+  if (ready) {
+    cameraReady = true;
+    cameraFailures = 0;
+    reportCameraState(true);
+    return;
+  }
+
+  cameraFailures++;
+
+  if (cameraFailures == 1) {
+    reportCameraState(false);
+  }
+}
+
+// =========================================================
 // REGISTRATION
 // =========================================================
 
@@ -714,6 +949,13 @@ void sendHeartbeat() {
 
   if (postJson(NEXUS_HEARTBEAT_PATH, payload, response, true)) {
     Serial.println("[heartbeat] ok");
+
+    // ONLINE is reached: bring the camera up (OV2640 initialisation is the
+    // only thing that may report "camera READY").
+    if (!cameraReady) {
+      ensureCameraReady();
+    }
+
     return;
   }
 

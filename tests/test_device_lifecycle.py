@@ -733,3 +733,64 @@ def test_claim_never_creates_a_second_device_for_the_same_hardware(client):
     announce(client)
 
     assert device_count() == 1
+
+
+# =========================================================
+# CAMERA READINESS (must come from the sensor, not from Wi-Fi)
+# =========================================================
+
+def test_camera_ready_only_after_the_device_reports_it(client):
+    setup = esp32_full_setup(client)
+    device_id, token = setup["device_id"], setup["device_token"]
+
+    # Online, registered - but the camera has NOT been initialised yet.
+    before = list_devices(client)["devices"][0]
+
+    assert before["status"] == "online"
+    assert before["camera_ready"] is False
+    assert before["camera_sensor"] is None
+
+    response = client.post(
+        "/api/device/provision/report",
+        json={
+            "device_id": device_id,
+            "event": "camera_ready",
+            "sensor": "0x26",
+            "psram": True,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200, response.text
+
+    after = list_devices(client)["devices"][0]
+
+    assert after["camera_ready"] is True
+    assert after["camera_sensor"] == "0x26"
+    assert after["status"] == "online"       # camera readiness never alters the lifecycle
+    assert device_count() == 1
+
+
+def test_camera_failure_is_reported_without_going_online(client):
+    provisioned = provision(client)
+    device_id = provisioned["device"]["device_id"]
+    token = provisioned["device_token"]
+
+    client.post(
+        "/api/device/register",
+        json={"device_id": device_id, "hardware_uid": HARDWARE_UID},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    failed = client.post(
+        "/api/device/provision/report",
+        json={"device_id": device_id, "event": "camera_failed", "error": "OV2640 did not initialise"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert failed.status_code == 200
+
+    device = list_devices(client)["devices"][0]
+
+    assert device["camera_ready"] is False
+    assert device_count() == 1

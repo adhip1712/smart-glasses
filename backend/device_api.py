@@ -82,7 +82,13 @@ MAX_PAIRING_CODE_FAILURES = int(
 # (status, attempts, token, pairing code). Serialising them in-process keeps
 # double clicks, parallel tabs and a chatty firmware from interleaving:
 # e.g. two concurrent /provision calls must never both mint a token.
-_WRITE_LOCK = threading.RLock()
+#
+# A plain Lock (not RLock) is used deliberately: FastAPI may run the setup and
+# the teardown of a yield-dependency in different threadpool threads, and
+# threading.RLock refuses to be released by a thread that did not acquire it
+# ("cannot release un-acquired lock"). Lock has no thread affinity, so the
+# release always succeeds.
+_WRITE_LOCK = threading.Lock()
 
 
 def _serialize_device_writes() -> Iterator[None]:
@@ -256,6 +262,11 @@ def device_public(device: Device, now: datetime | None = None) -> dict[str, Any]
         "pairing_code_active": code_active,
         "has_pairing_credential": bool(device.pairing_credential_hash),
 
+        # Camera: true only after a successful OV2640 initialisation.
+        "camera_ready": bool(device.camera_ready),
+        "camera_sensor": device.camera_sensor,
+        "camera_initialized_at": _iso(device.camera_initialized_at),
+
         # Zero-input claim flow (device announces itself, user approves).
         "claim_state": device.claim_state,
         "claim_id": device.claim_id,
@@ -303,6 +314,8 @@ def device_summary(device: Device, now: datetime | None = None) -> dict[str, Any
         "device_token_last4": device.device_token_last4,
         "claim_state": device.claim_state,
         "awaiting_approval": device.claim_state == "pending_approval",
+        "camera_ready": bool(device.camera_ready),
+        "camera_sensor": device.camera_sensor,
     }
 
 
@@ -738,6 +751,8 @@ class CredentialRequest(BaseModel):
 
 class ProvisionReport(BaseModel):
     event: str
+    sensor: Optional[str] = None
+    psram: Optional[bool] = None
     device_id: Optional[str] = None
     hardware_uid: Optional[str] = None
     pairing_code: Optional[str] = None
@@ -1082,12 +1097,13 @@ _REPORT_TRANSITIONS = {
     "camera_failed": (DeviceStatus.CAMERA_FAILED.value, "Camera self-test failed"),
 }
 
-SUPPORTED_REPORT_EVENTS = set(_REPORT_TRANSITIONS) | {"wifi_connected"}
+SUPPORTED_REPORT_EVENTS = set(_REPORT_TRANSITIONS) | {"wifi_connected", "camera_ready"}
 
 
 @router.post("/device/provision/report", dependencies=[Depends(_serialize_device_writes)])
 def provisioning_report(
     payload: ProvisionReport,
+    authorization: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
     """The ESP32 reports how the Wi-Fi join went. Updates the existing row."""
@@ -1099,9 +1115,10 @@ def provisioning_report(
     if device is None:
         raise HTTPException(status_code=404, detail="unknown device")
 
-    authorised = security.verify_device_token(payload.device_token, device.device_token_hash) or (
-        _pairing_code_matches(device, payload.pairing_code)
-    )
+    authorised = security.verify_device_token(
+        bearer_token(authorization) or payload.device_token,
+        device.device_token_hash,
+    ) or _pairing_code_matches(device, payload.pairing_code)
 
     if not authorised:
         raise HTTPException(status_code=401, detail="invalid device credentials")
@@ -1131,9 +1148,23 @@ def provisioning_report(
         device.last_error = None
         _advance_provisioning(device)
 
+    elif event == "camera_ready":
+        # Only ever sent after the firmware's esp_camera_init() succeeded on
+        # the physical OV2640. It does not change the lifecycle status.
+        device.camera_ready = True
+        device.camera_sensor = payload.sensor or device.camera_sensor
+        device.camera_initialized_at = security.utcnow()
+        device.last_error = None
+        device.status_detail = (
+            f"Camera ready ({device.camera_sensor or 'OV2640'})"
+            if device.status == DeviceStatus.ONLINE.value
+            else device.status_detail
+        )
+
     elif event == "camera_failed" and device.status == DeviceStatus.ONLINE.value:
         # A camera self-test fault on an otherwise healthy, registered device
         # is reported without dropping the connection state.
+        device.camera_ready = False
         device.last_error = payload.error or "camera self-test failed"
         device.status_detail = "Camera self-test failed (device still online)"
 

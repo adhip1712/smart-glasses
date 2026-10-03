@@ -139,6 +139,11 @@ class Device(Base):
     rssi = Column(Integer, nullable=True)
 
     # ---- telemetry -------------------------------------------------
+    # Camera: set only by the firmware's OV2640 init result.
+    camera_ready = Column(Boolean, nullable=False, default=False)
+    camera_sensor = Column(String, nullable=True)
+    camera_initialized_at = Column(DateTime, nullable=True)
+
     battery = Column(Integer, nullable=True)
     temperature = Column(Integer, nullable=True)
     uptime_ms = Column(Integer, nullable=True)

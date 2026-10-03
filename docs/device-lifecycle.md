@@ -106,6 +106,10 @@ ESP32-CAM first boot
                                       (NVS: device_id, device_token, backend_url)
   -> POST /api/device/register      : Authorization: Bearer <device_token>
   -> POST /api/device/heartbeat     : Authorization: Bearer <device_token>  -> ONLINE
+  -> esp_camera_init() on the OV2640 (AI-Thinker pin map)
+  -> POST /api/device/provision/report { event: camera_ready, sensor: 0x26 }
+                                     -> camera READY (only ever set by a
+                                        successful sensor init + first frame)
 ```
 
 Properties:
@@ -133,6 +137,8 @@ Properties:
 | After a reboot | `loadIdentity()` restores `device_id`/`device_token`; the device reconnects, registers and heartbeats - no claim, no new device |
 | If Wi-Fi changes | Wi-Fi failures reopen the setup AP (identity kept); the user enters the new SSID/password, or the app provisions them and the device collects them at claim time |
 | If the credential is rejected (401) | `forgetCredential()` drops only the token; the device re-claims **the same** device id |
+| Camera readiness | `cameraInit()` → `esp_camera_init()` on the AI-Thinker pin map; `ensureCameraReady()` runs after the first heartbeat; `reportCameraState()` sends `camera_ready` / `camera_failed`. Never derived from Wi-Fi or registration. |
+| Backend discovery when no URL was pushed | `resolveBackendUrl()` → mDNS → fallback host, then `discoverBackendOnHost()` probes ports `{ 8000, 8001, 8080 }` with `GET /api/device/backend-info` and uses whichever answers. A backend on 8001 needs no rebuild and no typing. |
 
 ## Identity & credentials
 
