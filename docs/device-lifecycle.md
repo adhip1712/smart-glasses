@@ -58,6 +58,82 @@ wifi_failed | pairing_failed | registration_failed | camera_failed | offline
 `POST /api/device/provision` **never** marks a device online — only a heartbeat
 from a registered device does.
 
+## Where the backend lives (ports, binding)
+
+| Component | Value | Source |
+| --- | --- | --- |
+| FastAPI entry point | `backend/api.py` → `app` | `uvicorn "api:app"` / `uvicorn backend.api:app` |
+| Listen address | `HOST`, default `0.0.0.0` | `backend/api.py` `__main__` |
+| Port | `PORT`, default **8000** | `backend/api.py` `__main__` |
+| Frontend → backend | `VITE_BACKEND_URL`, default `http://127.0.0.1:<PORT>` | `Frontend/vite.config.ts` proxy |
+| Device → backend | pushed by the app / mDNS / `NEXUS_FALLBACK_BACKEND_HOST` | firmware `resolveBackendUrl()` |
+
+There is **one** FastAPI application. `backend/device_api.py` is a router that
+is included into it (`app.include_router(device_router)`); it replaces nothing
+and starts no second server. Moving the whole stack (for example to 8001) is a
+single environment change, never a code edit:
+
+```bash
+PORT=8001 uvicorn backend.api:app --host 0.0.0.0 --port 8001   # backend
+VITE_BACKEND_URL=http://127.0.0.1:8001 npm run dev             # frontend proxy
+```
+
+The host defaults to `0.0.0.0` because a glasses device on the LAN cannot reach
+a backend bound to `127.0.0.1`.
+
+## Zero-input claim flow (the physical ESP32 path)
+
+The user types **only** a Wi-Fi SSID and password - on the device's own setup
+page (`http://192.168.4.1/`, served by the ESP32) or in the app. A backend URL,
+device id, pairing ticket, device token, IP address, port and MAC address are
+never requested, and no API key is compiled into the firmware.
+
+```
+ESP32-CAM first boot
+  -> opens setup AP "VisionaryNexus-XXXX" and serves a page with two fields
+  -> POST /configure                : SSID + password            (NVS: wifi_ssid, wifi_password)
+  -> joins the user's Wi-Fi
+  -> POST /api/device/claim         : hardware_uid + claim_secret
+                                      -> resolves/creates the ONE pending device,
+                                         status connecting, claim_state pending_approval
+  -> app shows "device waiting for approval" (hardware id + record)
+  -> user taps APPROVE              : POST /api/devices/{id}/claim/approve
+  -> POST /api/device/claim/poll    : claim_id + claim_secret
+                                      -> receives device_id + device_token
+                                         (the credential that already belongs to the
+                                         device), plus backend_url and, if the backend
+                                         has them, the Wi-Fi credentials
+                                      (NVS: device_id, device_token, backend_url)
+  -> POST /api/device/register      : Authorization: Bearer <device_token>
+  -> POST /api/device/heartbeat     : Authorization: Bearer <device_token>  -> ONLINE
+```
+
+Properties:
+
+* the claim secret is generated **on the device** (`esp_random`) and only proves
+  that the poller is the same board that opened the claim - it grants nothing
+  and is never a credential;
+* no credential is issued before the user approves a physical device;
+* re-announcing (reboot, retry, re-flash with the same chip id) reuses the same
+  claim and the same device row;
+* re-polling after a missed response re-delivers the **same** token;
+* if the board is rejected, the verdict is readable by that board only, which
+  reopens its setup AP; the device row stays.
+
+### ESP32 answers (what the firmware actually does)
+
+| Question | Answer |
+| --- | --- |
+| Function that receives the credential | `fetchClaimCredential()` (claim poll) or `handleAppCredentials()` when the app pushes it over the setup AP |
+| Preferences key that stores it | namespace `nexus`: `device_token` (with `device_id`) |
+| Function that calls `/api/device/register` | `registerDevice()` |
+| Authorization header | `Authorization: Bearer <device_token>` (added in `postJson(..., authenticated=true)`) |
+| Heartbeat endpoint | `NEXUS_HEARTBEAT_PATH` = `/api/device/heartbeat`, sent by `sendHeartbeat()` |
+| How the backend URL is obtained | `resolveBackendUrl()`: NVS `backend_url` (pushed by the app / delivered by the backend) → mDNS `nexus-backend.local` → `NEXUS_FALLBACK_BACKEND_HOST/PORT`. Never typed. |
+| After a reboot | `loadIdentity()` restores `device_id`/`device_token`; the device reconnects, registers and heartbeats - no claim, no new device |
+| If Wi-Fi changes | Wi-Fi failures reopen the setup AP (identity kept); the user enters the new SSID/password, or the app provisions them and the device collects them at claim time |
+| If the credential is rejected (401) | `forgetCredential()` drops only the token; the device re-claims **the same** device id |
+
 ## Identity & credentials
 
 | Identifier | Where it comes from | Why |
@@ -83,7 +159,12 @@ belongs to the device row.
 | `GET` | `/api/device/provision/status` | Read-only poll. No creation, no secrets. |
 | `POST` | `/api/device/provision/credentials` | Device exchanges the pairing code for its token + Wi-Fi credentials. |
 | `POST` | `/api/device/provision/report` | `wifi_connected` → `connecting`; `*_failed` → failure state. |
-| `POST` | `/api/device/register` | Requires `device_id` + valid `device_token`; updates the existing row → `registered` (keeps `online` if it was). |
+| `POST` | `/api/device/claim` | ESP32 announces itself (`hardware_uid` + device-generated claim secret) → the ONE pending device, `claim_state=pending_approval`. |
+| `POST` | `/api/device/claim/poll` | Device waits for approval, then receives its existing credential + `backend_url` (+ Wi-Fi credentials if the app typed them). Re-polling re-delivers the same token. |
+| `POST` | `/api/devices/{device_id}/claim/approve` | User confirms the physical device in the app. Nothing is issued before this. |
+| `POST` | `/api/devices/{device_id}/claim/reject` | "Not my device": verdict readable by that board, row kept. |
+| `GET` | `/api/device/backend-info` | LAN URLs the device may use - lets the app configure a device without the user typing an address. |
+| `POST` | `/api/device/register` | Requires `device_id` + valid `device_token` (header or body); updates the existing row → `registered` (keeps `online` if it was). |
 | `POST` | `/api/device/heartbeat` | Requires a valid token; updates the existing row → `online`. |
 | `GET` | `/api/devices` | Registered Devices list + counts. Read-only. |
 | `GET` | `/api/devices/{device_id}` | Single device. |
@@ -101,7 +182,25 @@ read; the row is never deleted and never re-created.
 | `DEVICE_TOKEN_KEY` | generated file `backend/.device_token_key` | Fernet key for recoverable credentials. Rotating it forces new tokens. |
 | `DEVICE_HEARTBEAT_INTERVAL_SECONDS` | `10` | Advertised heartbeat interval. |
 | `DEVICE_HEARTBEAT_TIMEOUT_SECONDS` | `30` | Age after which a device is reported `offline`. |
-| `DEVICE_PAIRING_CODE_TTL_SECONDS` | `900` | Pairing code lifetime. |
+| `DEVICE_PAIRING_CODE_TTL_SECONDS` | `900` | Pairing code lifetime (app-push transport only). |
+| `DEVICE_CLAIM_TTL_SECONDS` | `600` | How long a claim stays open before it is reported as expired. |
+| `HOST` | `0.0.0.0` | Bind address, so a LAN device can reach the API. |
+| `PORT` | `8000` | Backend port used by every component. |
+| `DEVICE_BACKEND_URL` / `BACKEND_PUBLIC_HOST` / `DEVICE_MDNS_HOST` | - | Explicit URLs advertised to devices by `/api/device/backend-info`. |
+
+## Is the physical firmware path proven?
+
+Proven end to end against the real backend by
+`tests/test_device_lifecycle.py::test_zero_input_claim_flow_end_to_end` and
+`tools/device_sim.py --claim`: announce → approve → credential → register
+(Bearer) → heartbeat → `online`, on one device row, with re-announce and
+re-poll idempotent.
+
+Not yet proven (needs the board): the Arduino compile (`arduino-cli compile
+--fqbn esp32:esp32:esp32cam firmware/camera`), the actual AP join, mDNS
+resolution on the user's router, and NVS persistence across a power cycle.
+Those are the remaining on-hardware checks - see the checklist in the
+integration report.
 
 ## Testing
 

@@ -88,6 +88,95 @@ def device_count(base_url: str) -> int:
     return int(body.get("count", 0))
 
 
+def claim_flow(base_url: str, args) -> dict:
+    """Exactly what firmware/camera/camera.ino does on a fresh board:
+
+    the user types only the Wi-Fi SSID + password, the device announces
+    itself, the user approves it in the app, and the device receives the
+    credential the backend already reserved for it.
+    """
+
+    state = load_state(args.state)
+    claim_secret = state.get("claim_secret") or "".join(
+        random.choice("0123456789abcdef") for _ in range(32)
+    )
+
+    status, announced = call(
+        base_url,
+        "POST",
+        "/api/device/claim",
+        {
+            "hardware_uid": args.hardware_uid,
+            "claim_secret": claim_secret,
+            "firmware": "1.0.0",
+            "model": "ESP32-CAM",
+        },
+    )
+
+    claim_id = announced["claim_id"]
+    device_id = announced["device_id"]
+    print(f"claim             -> {status} state={announced['claim_state']} "
+          f"device={device_id} reused={announced['reused']}")
+
+    status, pending = call(
+        base_url, "POST", "/api/device/claim/poll",
+        {"claim_id": claim_id, "claim_secret": claim_secret},
+    )
+    print(f"poll (pre-approve)-> {status} state={pending['claim_state']} "
+          f"token_delivered={'device_token' in pending}")
+
+    if args.auto_approve:
+        status, approved = call(
+            base_url, "POST", f"/api/devices/{device_id}/claim/approve",
+            {"claim_id": claim_id},
+        )
+        print(f"approve (in app)  -> {status} state={approved['claim_state']}")
+
+    status, delivered = call(
+        base_url, "POST", "/api/device/claim/poll",
+        {"claim_id": claim_id, "claim_secret": claim_secret},
+    )
+
+    if status != 200 or "device_token" not in delivered:
+        raise SystemExit(f"credential was not delivered: {status} {delivered}")
+
+    token = delivered["device_token"]
+    print(f"credential        -> {status} device={delivered['device_id']} "
+          f"backend_url={delivered.get('backend_url')}")
+
+    payload = {
+        "device_id": delivered["device_id"],
+        "device_token": token,
+        "hardware_uid": args.hardware_uid,
+        "firmware": "1.0.0",
+        "ip": "192.168.1.47",
+    }
+
+    status, registered = call(base_url, "POST", "/api/device/register", payload)
+    print(f"register          -> {status} status={registered.get('status')} "
+          f"already={registered.get('already_registered')}")
+
+    for beat in range(1, args.heartbeats + 1):
+        status, heart = call(
+            base_url, "POST", "/api/device/heartbeat",
+            {"device_id": delivered["device_id"], "device_token": token,
+             "ip": "192.168.1.47", "battery": 90 - beat, "uptime_ms": beat * 10000},
+        )
+        print(f"heartbeat #{beat:<2}     -> {status} status={heart.get('status')} "
+              f"count={heart.get('heartbeat', {}).get('count')}")
+
+    save_state(
+        args.state,
+        {
+            "device_id": delivered["device_id"],
+            "device_token": token,
+            "claim_secret": claim_secret,
+        },
+    )
+
+    return {"device_id": delivered["device_id"], "device_token": token}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Simulate the Visionary Nexus ESP32")
     parser.add_argument("--backend", default=DEFAULT_BACKEND)
@@ -98,6 +187,17 @@ def main() -> None:
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--heartbeats", type=int, default=3)
     parser.add_argument("--forget", action="store_true", help="ignore the saved identity (wipe NVS)")
+    parser.add_argument(
+        "--claim",
+        action="store_true",
+        help="use the zero-input claim flow of the physical firmware",
+    )
+    parser.add_argument(
+        "--auto-approve",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="simulate the user approving the device in the app (default: on)",
+    )
     args = parser.parse_args()
 
     if args.forget and args.state and os.path.exists(args.state):
@@ -107,6 +207,27 @@ def main() -> None:
 
     print(f"backend: {args.backend}")
     print(f"devices before: {device_count(args.backend)}")
+
+    if args.claim:
+        for attempt in range(1, args.repeat + 1):
+            print(f"\n--- claim attempt {attempt} (devices now {device_count(args.backend)}) ---")
+            # A reboot loses the claim id but keeps the device identity.
+            if attempt > 1:
+                state = load_state(args.state)
+                state.pop("claim_id", None)
+                save_state(args.state, state)
+            claim_flow(args.backend, args)
+
+        status, listing = call(args.backend, "GET", "/api/devices")
+        print(f"\ndevices after: {listing['count']}")
+        for device in listing["devices"]:
+            print(f"  {device['device_id']}  {device['status']:<22} "
+                  f"registered={device['registered']} heartbeats={device['heartbeat_count']} "
+                  f"claim={device.get('claim_state')}")
+        if listing["count"] > 1:
+            print("\nWARNING: more than one device row - the duplicate bug is back")
+            raise SystemExit(1)
+        return
 
     for attempt in range(1, args.repeat + 1):
         print(f"\n--- setup attempt {attempt} (devices now {device_count(args.backend)}) ---")

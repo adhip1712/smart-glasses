@@ -2317,15 +2317,22 @@ if __name__ == "__main__":
 
     import uvicorn
 
+    # Single source of truth for where the backend listens.
+    #
+    # Host defaults to 0.0.0.0 so a physical glasses device on the same LAN
+    # can reach this API (127.0.0.1 is not reachable from the ESP32).
+    # Port defaults to 8000, which is what every other component in this
+    # repository already assumes (app/app.js, Settings.tsx, the Vite proxy).
+    # Set HOST/PORT to move the whole stack without touching any file.
     uvicorn.run(
 
         "api:app",
 
         host=
-            "127.0.0.1",
+            os.getenv("HOST", "0.0.0.0"),
 
         port=
-            8000,
+            int(os.getenv("PORT", "8000")),
 
         reload=
             True

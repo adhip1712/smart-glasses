@@ -70,6 +70,11 @@ export interface DeviceDetail {
   device_token_last4: string | null
   token_generation: number
   pairing_code_active: boolean
+  claim_state: string | null
+  claim_id: string | null
+  claim_requested_at: string | null
+  claim_approved_at: string | null
+  awaiting_approval: boolean
 }
 
 export interface DeviceSummary {
@@ -97,6 +102,8 @@ export interface DeviceSummary {
   setup_attempts: number
   is_setup_pending: boolean
   device_token_last4: string | null
+  claim_state: string | null
+  awaiting_approval: boolean
 }
 
 export interface DeviceListResponse {
@@ -129,6 +136,27 @@ export interface ProvisionStatusResponse {
   device_count: number
   heartbeat_timeout_seconds: number
   heartbeat_interval_seconds: number
+}
+
+export interface DeviceIdentity {
+  device_id: string
+  device_token: string
+  hardware_uid: string | null
+}
+
+export interface ClaimApprovalResponse {
+  device: DeviceDetail
+  claim_id: string | null
+  claim_state: string
+  device_token_reused: boolean
+  device_token_last4: string | null
+}
+
+export interface BackendInfo {
+  urls: string[]
+  preferred: string
+  port: number
+  mdns_host: string
 }
 
 // =========================================================
@@ -271,6 +299,88 @@ export function restartSetup(deviceId: string): Promise<{ device: DeviceDetail }
     `/api/devices/${encodeURIComponent(deviceId)}/setup`,
     { method: 'POST' },
   )
+}
+
+// =========================================================
+// CLAIM FLOW (zero typing on the device)
+// =========================================================
+
+/** Where this backend can be reached from the LAN - used to configure a
+ *  device automatically instead of asking the user for an address. */
+export function fetchBackendInfo(signal?: AbortSignal): Promise<BackendInfo> {
+  return request<BackendInfo>('/api/device/backend-info', { signal })
+}
+
+/**
+ * The URL a device on the same network must use.
+ *
+ * Prefers the address the browser is actually talking to (the Vite dev
+ * server proxies /api to the backend, so both live on the same host), then
+ * falls back to the backend's own LAN advertisement.
+ */
+export async function resolveDeviceBackendUrl(): Promise<string | null> {
+  try {
+    const info = await fetchBackendInfo()
+
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      const origin = window.location.origin
+
+      if (!origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+        return origin
+      }
+    }
+
+    return info.preferred ?? info.urls?.[0] ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Approve the physical device that is waiting in the app. */
+export function approveDeviceClaim(
+  deviceId: string,
+  claimId: string | null,
+): Promise<ClaimApprovalResponse> {
+  return request<ClaimApprovalResponse>(
+    `/api/devices/${encodeURIComponent(deviceId)}/claim/approve`,
+    { method: 'POST', body: JSON.stringify({ claim_id: claimId }) },
+  )
+}
+
+export function rejectDeviceClaim(deviceId: string): Promise<{ claim_state: string }> {
+  return request<{ claim_state: string }>(
+    `/api/devices/${encodeURIComponent(deviceId)}/claim/reject`,
+    { method: 'POST', body: JSON.stringify({}) },
+  )
+}
+
+/**
+ * Best-effort: push the backend address (and optionally the Wi-Fi details)
+ * straight to a device that is currently hosting its setup access point, so
+ * the user only ever types the Wi-Fi name and password.
+ */
+export async function pushConfigToDevice(input: {
+  backendUrl: string
+  ssid?: string
+  password?: string
+}): Promise<boolean> {
+  try {
+    const response = await fetch('http://192.168.4.1/api/backend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        backend_url: input.backendUrl,
+        ssid: input.ssid,
+        password: input.password,
+      }),
+    })
+
+    return response.ok
+  } catch {
+    // The browser is not on the device's access point - the device will
+    // resolve the backend itself (mDNS / app-pushed URL at claim time).
+    return false
+  }
 }
 
 // =========================================================

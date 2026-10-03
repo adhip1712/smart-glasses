@@ -150,6 +150,18 @@ class Device(Base):
     token_generation = Column(Integer, nullable=False, default=0)
     token_issued_at = Column(DateTime, nullable=True)
 
+    # ---- zero-input claim flow ------------------------------------
+    # The ESP32 announces itself with a device-generated secret and is
+    # matched to the pending setup session; the user approves the physical
+    # device in the app and the credential is delivered on the next poll.
+    claim_id = Column(String, nullable=True, index=True)
+    claim_secret_hash = Column(Text, nullable=True)
+    claim_state = Column(String, nullable=True)
+    claim_requested_at = Column(DateTime, nullable=True)
+    claim_approved_at = Column(DateTime, nullable=True)
+    claim_delivered_at = Column(DateTime, nullable=True)
+    claim_failure_count = Column(Integer, nullable=False, default=0)
+
     pairing_code_hash = Column(Text, nullable=True)
     pairing_code_expires_at = Column(DateTime, nullable=True)
 

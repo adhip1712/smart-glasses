@@ -524,3 +524,212 @@ def test_report_table_matches_expected_result(client):
     assert retry["register"]["already_registered"] is True
     assert retry["heartbeat"]["status"] == "online"
     assert final["status"] == "online"
+
+
+# =========================================================
+# ZERO-INPUT CLAIM FLOW (physical ESP32 path)
+# =========================================================
+#
+# This is what firmware/camera/camera.ino does on a fresh board. The user
+# types only a Wi-Fi SSID + password; the device obtains its credential
+# through announcement + approval.
+
+CLAIM_SECRET = "0123456789abcdef0123456789abcdef"
+
+
+def announce(client, hardware_uid: str = HARDWARE_UID, secret: str = CLAIM_SECRET) -> dict:
+    response = client.post(
+        "/api/device/claim",
+        json={
+            "hardware_uid": hardware_uid,
+            "claim_secret": secret,
+            "firmware": "1.0.0",
+            "model": "ESP32-CAM",
+            "ap_ssid": "VisionaryNexus-030405",
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def poll_claim(client, claim_id: str, secret: str = CLAIM_SECRET) -> tuple[int, dict]:
+    response = client.post(
+        "/api/device/claim/poll",
+        json={"claim_id": claim_id, "claim_secret": secret},
+    )
+    return response.status_code, (response.json() if response.content else {})
+
+
+def test_zero_input_claim_flow_end_to_end(client):
+    """SSID/password only: announce -> approve -> credential -> register -> heartbeat."""
+
+    # The app reserves the single setup session (no device created yet).
+    session = client.post("/api/device/session", json={}).json()
+    device_id = session["device"]["device_id"]
+
+    # The board is on Wi-Fi now and announces itself with its chip id.
+    announced = announce(client)
+
+    assert announced["claim_state"] == "pending_approval"
+    assert announced["reused"] is True
+    assert announced["device_id"] == device_id
+    assert device_count() == 1
+
+    # The credential is NOT handed out before human approval.
+    status, pending = poll_claim(client, announced["claim_id"])
+
+    assert status == 200
+    assert pending["claim_state"] == "pending_approval"
+    assert "device_token" not in pending
+
+    # The app sees the device waiting for approval and the user approves it.
+    listed = list_devices(client)
+
+    assert listed["count"] == 1
+    assert listed["devices"][0]["awaiting_approval"] is True
+    assert listed["devices"][0]["hardware_uid"] == HARDWARE_UID
+
+    approved = client.post(
+        f"/api/devices/{device_id}/claim/approve",
+        json={"claim_id": announced["claim_id"], "device": {"token_first": True}},
+    )
+
+    assert approved.status_code == 200
+    assert approved.json()["claim_state"] == "approved"
+
+    # The device collects its credential.
+    status, delivered = poll_claim(client, announced["claim_id"])
+
+    assert status == 200, delivered
+    token = delivered["device_token"]
+    assert delivered["claim_state"] == "delivered"
+    assert delivered["device_id"] == device_id
+    assert delivered["backend_url"].startswith("http")
+    assert token.startswith("sgn_dev_")
+
+    # Register + heartbeat with the delivered credential, header form first.
+    register_response = client.post(
+        "/api/device/register",
+        json={"device_id": device_id, "hardware_uid": HARDWARE_UID, "firmware": "1.0.0"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert register_response.status_code == 200, register_response.text
+    assert register_response.json()["status"] == "registered"
+    assert register_response.json()["already_registered"] is False
+
+    heartbeat_response = client.post(
+        "/api/device/heartbeat",
+        json={"device_id": device_id, "ip": "192.168.1.47", "rssi": -48},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert heartbeat_response.status_code == 200, heartbeat_response.text
+    assert heartbeat_response.json()["status"] == "online"
+    assert heartbeat_response.json()["device_id"] == device_id
+    assert device_count() == 1
+
+
+def test_claim_flow_is_idempotent_across_retries_and_reboots(client):
+    """A rebooting / retrying board never produces a second device."""
+
+    first_session = client.post("/api/device/session", json={}).json()
+    device_id = first_session["device"]["device_id"]
+
+    first_claim = announce(client)
+
+    # The board reboots before the user approves: same claim, same row.
+    second_claim = announce(client)
+
+    assert second_claim["claim_id"] == first_claim["claim_id"]
+    assert second_claim["device_id"] == device_id
+    assert device_count() == 1
+
+    client.post(f"/api/devices/{device_id}/claim/approve", json={})
+
+    _, delivered = poll_claim(client, first_claim["claim_id"])
+    token = delivered["device_token"]
+
+    # Poll again (the board may have missed the response).
+    status, again = poll_claim(client, first_claim["claim_id"])
+
+    assert status == 200
+    assert again.get("device_token", token) == token
+
+    # Reboot with NVS intact: re-announce, re-register, heartbeat.
+    for _ in range(3):
+        announce(client)
+        client.post(
+            "/api/device/register",
+            json={"device_id": device_id, "hardware_uid": HARDWARE_UID},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        client.post(
+            "/api/device/heartbeat",
+            json={"device_id": device_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert device_count() == 1
+
+    final = list_devices(client)
+
+    assert final["count"] == 1
+    assert final["devices"][0]["device_id"] == device_id
+    assert final["devices"][0]["status"] == "online"
+
+
+def test_claim_requires_the_device_generated_secret(client):
+    announced = announce(client)
+    device_id = announced["device_id"]
+
+    status, body = poll_claim(client, announced["claim_id"], secret="f" * 32)
+
+    assert status == 401
+    assert device_count() == 1
+
+    # A board that does not have the pending claim cannot approve itself.
+    client.post(f"/api/devices/{device_id}/claim/approve", json={})
+
+    status, _ = poll_claim(client, "clm_does-not-exist")
+    assert status == 404
+    assert device_count() == 1
+
+
+def test_rejected_claim_keeps_the_device_row(client):
+    announced = announce(client)
+    device_id = announced["device_id"]
+
+    rejected = client.post(f"/api/devices/{device_id}/claim/reject", json={})
+
+    assert rejected.status_code == 200
+    assert rejected.json()["claim_state"] == "rejected"
+    assert device_count() == 1
+
+    status, body = poll_claim(client, announced["claim_id"])
+
+    assert status == 200
+    assert body["claim_state"] == "rejected"
+
+    # The same device can be set up again - as the same device.
+    re_announced = announce(client)
+
+    assert re_announced["device_id"] == device_id
+    assert re_announced["claim_state"] == "pending_approval"
+    assert device_count() == 1
+
+
+def test_backend_info_advertises_lan_urls_without_user_input(client):
+    info = client.get("/api/device/backend-info").json()
+
+    assert info["urls"]
+    assert info["preferred"].startswith("http")
+    assert isinstance(info["port"], int)
+
+
+def test_claim_never_creates_a_second_device_for_the_same_hardware(client):
+    announce(client)
+    announce(client)
+    announce(client)
+
+    assert device_count() == 1

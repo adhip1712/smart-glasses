@@ -39,12 +39,13 @@
 from __future__ import annotations
 
 import os
+import secrets as _secrets
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Iterator, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -254,6 +255,13 @@ def device_public(device: Device, now: datetime | None = None) -> dict[str, Any]
         "pairing_code_expires_at": _iso(device.pairing_code_expires_at),
         "pairing_code_active": code_active,
         "has_pairing_credential": bool(device.pairing_credential_hash),
+
+        # Zero-input claim flow (device announces itself, user approves).
+        "claim_state": device.claim_state,
+        "claim_id": device.claim_id,
+        "claim_requested_at": _iso(device.claim_requested_at),
+        "claim_approved_at": _iso(device.claim_approved_at),
+        "awaiting_approval": device.claim_state == "pending_approval",
     }
 
 
@@ -293,6 +301,8 @@ def device_summary(device: Device, now: datetime | None = None) -> dict[str, Any
         "setup_attempts": device.setup_attempts,
         "is_setup_pending": device.status in SETUP_STATES,
         "device_token_last4": device.device_token_last4,
+        "claim_state": device.claim_state,
+        "awaiting_approval": device.claim_state == "pending_approval",
     }
 
 
@@ -573,6 +583,20 @@ def _pairing_code_matches(device: Device, code: str | None) -> bool:
     return security.verify_pairing_code(code, device.pairing_code_hash)
 
 
+def bearer_token(authorization: str | None) -> str | None:
+    """Pull the device token out of a standard `Authorization: Bearer` header."""
+
+    if not authorization:
+        return None
+
+    scheme, _, value = authorization.partition(" ")
+
+    if scheme.lower() != "bearer" or not value.strip():
+        return None
+
+    return value.strip()
+
+
 def _authenticate_device(
     db: Session,
     device_id: str | None,
@@ -724,9 +748,31 @@ class ProvisionReport(BaseModel):
     error: Optional[str] = None
 
 
+class ClaimRequest(BaseModel):
+    """The ESP32 announces itself. No user input, no credential."""
+
+    hardware_uid: str
+    claim_secret: str = Field(min_length=16)
+    firmware: Optional[str] = None
+    model: Optional[str] = None
+    ap_ssid: Optional[str] = None
+
+
+class ClaimPollRequest(BaseModel):
+    claim_id: str
+    claim_secret: str = Field(min_length=16)
+
+
+class ClaimDecision(BaseModel):
+    claim_id: Optional[str] = None
+
+
 class RegisterRequest(BaseModel):
+    """Either send `Authorization: Bearer <device_token>` (what the firmware
+    does) or put the token in the body."""
+
     device_id: str
-    device_token: str
+    device_token: Optional[str] = None
     hardware_uid: Optional[str] = None
     firmware: Optional[str] = None
     ip: Optional[str] = None
@@ -734,8 +780,11 @@ class RegisterRequest(BaseModel):
 
 
 class HeartbeatRequest(BaseModel):
+    """Either send `Authorization: Bearer <device_token>` (what the firmware
+    does) or put the token in the body."""
+
     device_id: str
-    device_token: str
+    device_token: Optional[str] = None
     ip: Optional[str] = None
     rssi: Optional[int] = None
     battery: Optional[int] = None
@@ -1114,6 +1163,7 @@ def provisioning_report(
 @router.post("/device/register", dependencies=[Depends(_serialize_device_writes)])
 def register_device(
     payload: RegisterRequest,
+    authorization: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
     """Register the device that already owns this token.
@@ -1135,7 +1185,9 @@ def register_device(
             ),
         )
 
-    if not security.verify_device_token(payload.device_token, device.device_token_hash):
+    presented = bearer_token(authorization) or payload.device_token
+
+    if not security.verify_device_token(presented, device.device_token_hash):
         raise HTTPException(
             status_code=401,
             detail="invalid device token for this device",
@@ -1237,11 +1289,20 @@ def register_device(
 @router.post("/device/heartbeat", dependencies=[Depends(_serialize_device_writes)])
 def device_heartbeat(
     payload: HeartbeatRequest,
+    authorization: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
-    """Mark the registered device online. Never creates anything."""
+    """Mark the registered device online. Never creates anything.
 
-    device = _authenticate_device(db, payload.device_id, payload.device_token)
+    Accepts the credential either as `Authorization: Bearer <device_token>`
+    (what the firmware sends) or in the JSON body.
+    """
+
+    device = _authenticate_device(
+        db,
+        payload.device_id,
+        bearer_token(authorization) or payload.device_token,
+    )
 
     if not device.registered:
         raise HTTPException(
@@ -1385,5 +1446,378 @@ def restart_setup(device_id: str, db: Session = Depends(get_db)):
     return {
         "device": device_public(device),
         "credentials_preserved": keep_credentials,
+        "device_count": _count_devices(db),
+    }
+
+
+# =========================================================
+# ZERO-INPUT CLAIM FLOW
+# =========================================================
+#
+# This is the exchange used by a freshly flashed AI-Thinker ESP32-CAM:
+#
+#   1. the app reserves the setup session   POST /api/device/session
+#   2. the user joins the device's setup AP and types ONLY the Wi-Fi
+#      SSID + password on http://192.168.4.1/
+#   3. the device joins that Wi-Fi and announces itself
+#                                           POST /api/device/claim
+#   4. the app shows the physical device (hardware id) and the user
+#      approves it                          POST /api/devices/{id}/claim/approve
+#   5. the device polls and receives the legitimate, backend-assigned
+#      credential + the backend URL         POST /api/device/claim/poll
+#   6. the device registers and heartbeats   POST /api/device/register,
+#                                            POST /api/device/heartbeat
+#
+# The user never types a backend URL, device id, pairing ticket, device
+# token, IP address, port or API key. The claim secret is generated on the
+# device itself, sent with the announcement, and only proves continuity of
+# the same physical board while it waits for approval - it is never a
+# credential and never grants access to anything on its own.
+
+CLAIM_TTL_SECONDS = int(os.getenv("DEVICE_CLAIM_TTL_SECONDS", "600"))
+
+
+def secrets_token(length: int) -> str:
+    """URL safe random string used for claim identifiers."""
+
+    return _secrets.token_urlsafe(length)
+
+
+def _claim_state(device: Device, now: datetime | None = None) -> str:
+
+    if not device.claim_id:
+        return "none"
+
+    if device.claim_state == "pending_approval" and security.is_expired(
+        device.claim_requested_at + timedelta(seconds=CLAIM_TTL_SECONDS)
+        if device.claim_requested_at
+        else None,
+        now,
+    ):
+        return "expired"
+
+    return device.claim_state or "none"
+
+
+def _clear_claim(device: Device, state: str) -> None:
+
+    device.claim_state = state
+    device.claim_id = None
+    device.claim_secret_hash = None
+
+
+def _backend_urls() -> list[str]:
+    """URLs the device may use to reach THIS backend, best effort."""
+
+    configured = (os.getenv("DEVICE_BACKEND_URL") or "").strip()
+
+    urls: list[str] = []
+
+    if configured:
+        urls.append(configured.rstrip("/"))
+
+    port = int(os.getenv("PORT", "8000"))
+    host = (os.getenv("BACKEND_PUBLIC_HOST") or "").strip()
+
+    if host:
+        urls.append(f"http://{host}:{port}")
+
+    # Local interfaces - this is what a device on the same LAN needs.
+    try:
+        import socket
+
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+        try:
+            probe.connect(("8.8.8.8", 80))
+            lan_ip = probe.getsockname()[0]
+        except OSError:
+            lan_ip = ""
+        finally:
+            probe.close()
+
+        if lan_ip and not lan_ip.startswith("127."):
+            urls.append(f"http://{lan_ip}:{port}")
+    except Exception:  # pragma: no cover - networking is best effort
+        pass
+
+    mdns = (os.getenv("DEVICE_MDNS_HOST") or "nexus-backend.local").strip()
+
+    if mdns:
+        urls.append(f"http://{mdns}:{port}")
+
+    urls.append(f"http://127.0.0.1:{port}")
+
+    seen: list[str] = []
+
+    for url in urls:
+        if url not in seen:
+            seen.append(url)
+
+    return seen
+
+
+@router.get("/device/backend-info")
+def backend_info():
+    """Where the backend can be reached - used by the app to configure a
+    device without the user ever typing an address."""
+
+    return {
+        "urls": _backend_urls(),
+        "preferred": _backend_urls()[0],
+        "port": int(os.getenv("PORT", "8000")),
+        "mdns_host": os.getenv("DEVICE_MDNS_HOST", "nexus-backend.local"),
+    }
+
+
+@router.post("/device/claim", dependencies=[Depends(_serialize_device_writes)])
+def claim_device(
+    payload: ClaimRequest,
+    db: Session = Depends(get_db),
+):
+    """The ESP32 announces itself and is matched to the pending setup session.
+
+    Idempotent: the same hardware_uid always resolves to the same device row,
+    so a reboot, a retry or a re-flash cannot add a device.
+    """
+
+    now = security.utcnow()
+
+    device, created, warning = _resolve_setup_device(
+        db,
+        hardware_uid=payload.hardware_uid,
+    )
+
+    if payload.model:
+        device.model = payload.model
+
+    if payload.firmware:
+        device.firmware = payload.firmware
+
+    # A second announcement while awaiting approval reuses the same claim.
+    if device.claim_id and device.claim_state in ("pending_approval", "approved"):
+        claim_id = device.claim_id
+        device.claim_secret_hash = security.hash_device_token(payload.claim_secret)
+        device.claim_requested_at = device.claim_requested_at or now
+        device.claim_failure_count = 0
+        state = device.claim_state
+        print(f"[device] {device.device_id} claim {claim_id} refreshed ({state})")
+    else:
+        claim_id = f"clm_{secrets_token(16)}"
+        device.claim_id = claim_id
+        device.claim_secret_hash = security.hash_device_token(payload.claim_secret)
+        device.claim_state = "pending_approval"
+        device.claim_requested_at = now
+        device.claim_approved_at = None
+        device.claim_delivered_at = None
+        device.claim_failure_count = 0
+        state = "pending_approval"
+        print(
+            f"[device] {device.device_id} claim {claim_id} opened "
+            f"by {payload.hardware_uid}"
+        )
+
+    # The device is on the network but does not have its credential yet.
+    if device.status not in (DeviceStatus.REGISTERED.value, DeviceStatus.ONLINE.value):
+        _set_status(
+            device,
+            DeviceStatus.CONNECTING.value,
+            detail=(
+                "Device joined the network - approve it to transfer the "
+                "existing credential"
+            ),
+            clear_error=True,
+        )
+
+    db.commit()
+    db.refresh(device)
+
+    return {
+        "claim_id": claim_id,
+        "claim_state": state,
+        "device_id": device.device_id,
+        "device_count": _count_devices(db),
+        "created": created,
+        "reused": not created,
+        "warning": warning,
+        "poll_endpoint": "/api/device/claim/poll",
+        "poll_interval_seconds": 3,
+        "approve_hint": f"/api/devices/{device.device_id}/claim/approve",
+    }
+
+
+@router.post("/device/claim/poll", dependencies=[Depends(_serialize_device_writes)])
+def poll_claim(
+    payload: ClaimPollRequest,
+    db: Session = Depends(get_db),
+):
+    """The device waits for the user's approval and then receives its
+    credential, the Wi-Fi credentials the app typed (if any) and the backend
+    URL to keep using. The credential is the one that already belongs to the
+    device - it is transferred, never re-created."""
+
+    device = (
+        db.query(Device)
+        .filter(Device.claim_id == payload.claim_id)
+        .one_or_none()
+    )
+
+    if device is None:
+        raise HTTPException(status_code=404, detail="unknown claim")
+
+    if not security.verify_device_token(payload.claim_secret, device.claim_secret_hash):
+        device.claim_failure_count = (device.claim_failure_count or 0) + 1
+
+        if device.claim_failure_count >= MAX_PAIRING_CODE_FAILURES:
+            _clear_claim(device, "rejected")
+
+        db.commit()
+
+        raise HTTPException(status_code=401, detail="invalid claim secret")
+
+    device.claim_failure_count = 0
+
+    state = _claim_state(device)
+
+    if state in ("rejected", "expired"):
+        # Verdict for the board that opened the claim: reopen the setup AP.
+        # The device row itself is untouched - a retry reuses it.
+        db.commit()
+
+        return {
+            "claim_state": state,
+            "device_id": device.device_id,
+            "instruction": "reopen the setup access point and claim again",
+        }
+
+    if state == "pending_approval":
+        db.commit()
+
+        return {
+            "claim_state": "pending_approval",
+            "device_id": device.device_id,
+            "hardware_uid": device.hardware_uid,
+            "poll_interval_seconds": 3,
+            "expires_in_seconds": CLAIM_TTL_SECONDS,
+        }
+
+    if state not in ("approved", "delivered"):
+        raise HTTPException(status_code=409, detail=f"claim is in state '{state}'")
+
+    # ---- approved (or already delivered): hand over the credential -------
+    # Re-delivery is deliberate: if the board missed the response it asks
+    # again and receives the SAME token instead of a new identity.
+    token, token_reused = _ensure_device_token(device)
+
+    wifi_password = security.decrypt_secret(device.wifi_password_encrypted)
+
+    device.claim_state = "delivered"
+    device.claim_delivered_at = security.utcnow()
+    device.credentials_collected_at = device.credentials_collected_at or security.utcnow()
+
+    if device.status not in (DeviceStatus.REGISTERED.value, DeviceStatus.ONLINE.value):
+        _set_status(
+            device,
+            DeviceStatus.AWAITING_REGISTRATION.value,
+            detail="Credential delivered to the device - waiting for registration",
+            clear_error=True,
+        )
+
+    db.commit()
+
+    canonical = _canonical_token(db, device.device_id, fallback=token)
+    device = _get_device(db, device.device_id)
+
+    print(f"[device] {device.device_id} credential delivered to the device")
+
+    return {
+        "claim_state": "delivered",
+        "device_id": device.device_id,
+        "device_token": canonical,
+        "device_token_reused": token_reused,
+        "hardware_uid": device.hardware_uid,
+        "wifi": {
+            "ssid": device.wifi_ssid,
+            "password": wifi_password,
+        } if device.wifi_ssid else None,
+        "backend_url": _backend_urls()[0],
+        "backend_urls": _backend_urls(),
+        "register_endpoint": "/api/device/register",
+        "heartbeat_endpoint": "/api/device/heartbeat",
+        "heartbeat_interval_seconds": HEARTBEAT_INTERVAL_SECONDS,
+    }
+
+
+@router.post("/devices/{device_id}/claim/approve", dependencies=[Depends(_serialize_device_writes)])
+def approve_claim(device_id: str, payload: ClaimDecision, db: Session = Depends(get_db)):
+    """The user confirms the physical device in the app."""
+
+    device = _get_device(db, device_id)
+
+    if device is None:
+        raise HTTPException(status_code=404, detail="device not found")
+
+    if _claim_state(device) != "pending_approval":
+        raise HTTPException(
+            status_code=409,
+            detail=f"no claim is waiting for approval (state: {_claim_state(device)})",
+        )
+
+    if payload.claim_id and payload.claim_id != device.claim_id:
+        raise HTTPException(status_code=409, detail="claim id does not match this device")
+
+    token, token_reused = _ensure_device_token(device)
+
+    device.claim_state = "approved"
+    device.claim_approved_at = security.utcnow()
+
+    _set_status(
+        device,
+        DeviceStatus.AWAITING_REGISTRATION.value,
+        detail="Approved in the app - transferring the credential to the device",
+        clear_error=True,
+    )
+
+    db.commit()
+    db.refresh(device)
+
+    print(f"[device] {device.device_id} claim approved by the user")
+
+    return {
+        "device": device_public(device),
+        "claim_id": device.claim_id,
+        "claim_state": "approved",
+        "device_token_reused": token_reused,
+        "device_token_last4": device.device_token_last4,
+    }
+
+
+@router.post("/devices/{device_id}/claim/reject", dependencies=[Depends(_serialize_device_writes)])
+def reject_claim(device_id: str, payload: ClaimDecision, db: Session = Depends(get_db)):
+    """The user says "that is not my device"; the row is kept, the claim is not."""
+
+    device = _get_device(db, device_id)
+
+    if device is None:
+        raise HTTPException(status_code=404, detail="device not found")
+
+    # The claim row stays readable (secret hash intact) so the board that
+    # opened it learns the verdict and reopens its setup AP itself.
+    device.claim_state = "rejected"
+    device.claim_approved_at = None
+
+    _set_status(
+        device,
+        DeviceStatus.AWAITING_SETUP.value,
+        detail="Claim rejected by the user - device may set up again",
+        error="device claim rejected",
+    )
+
+    db.commit()
+    db.refresh(device)
+
+    return {
+        "device": device_public(device),
+        "claim_state": "rejected",
         "device_count": _count_devices(db),
     }

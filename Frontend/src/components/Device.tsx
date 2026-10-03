@@ -4,10 +4,14 @@ import {
   STATUS_COLORS,
   STATUS_LABELS,
   SETUP_STEPS,
+  approveDeviceClaim,
   fetchDevice,
   fetchDevices,
   fetchProvisionStatus,
   provisionDevice,
+  pushConfigToDevice,
+  rejectDeviceClaim,
+  resolveDeviceBackendUrl,
   restartSetup,
   setupProgress,
   startSetupSession,
@@ -107,13 +111,14 @@ export default function Device() {
 
   // ---- setup wizard -------------------------------------------------
   const [wizardOpen, setWizardOpen] = useState(false)
-  const [wizardStep, setWizardStep] = useState<'network' | 'waiting' | 'done'>('network')
+  const [wizardStep, setWizardStep] = useState<'network' | 'approve' | 'waiting' | 'done'>('network')
   const [sessionDevice, setSessionDevice] = useState<DeviceDetail | null>(null)
   const [pairingCode, setPairingCode] = useState<string | null>(null)
   const [ssid, setSsid] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const [deviceBackendUrl, setDeviceBackendUrl] = useState<string | null>(null)
 
   // Guards: a rerender, a double click or a StrictMode double-mount must
   // never turn into a second "create device" call.
@@ -134,6 +139,15 @@ export default function Device() {
 
       const primary = data.devices[0]
 
+      if (primary?.awaiting_approval) {
+        try {
+          const detail = await fetchDevice(primary.device_id, signal)
+          setSessionDevice(detail.device)
+        } catch {
+          // detail is only needed for the approval card
+        }
+      }
+
       if (primary && lastLoggedStatus.current !== primary.status) {
         appendLog(
           `Device ${primary.device_id}: ${STATUS_LABELS[primary.status] ?? primary.status}`,
@@ -149,6 +163,10 @@ export default function Device() {
       setLoading(false)
     }
   }, [appendLog])
+
+  useEffect(() => {
+    void resolveDeviceBackendUrl().then(setDeviceBackendUrl)
+  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -302,10 +320,78 @@ export default function Device() {
     }
   }, [appendLog, loadDevices])
 
+  /** Approve the physical device that announced itself. */
+  const handleApproveDevice = useCallback(async (deviceId: string, claimId: string | null) => {
+    setBusy(true)
+    setFormError(null)
+
+    try {
+      const approved = await approveDeviceClaim(deviceId, claimId)
+
+      setSessionDevice(approved.device)
+      setWizardStep('waiting')
+      appendLog(
+        `Approved ${deviceId} - transferring the credential it already owns ` +
+        `(••••${approved.device_token_last4 ?? '----'})`,
+        'success',
+      )
+      void loadDevices()
+    } catch (error) {
+      setFormError((error as Error).message)
+      appendLog(`Could not approve the device: ${(error as Error).message}`, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }, [appendLog, loadDevices])
+
+  const handleRejectDevice = useCallback(async (deviceId: string) => {
+    setBusy(true)
+
+    try {
+      await rejectDeviceClaim(deviceId)
+      appendLog(`Rejected the claim on ${deviceId} - it can set up again`, 'warn')
+      void loadDevices()
+    } catch (error) {
+      setFormError((error as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }, [appendLog, loadDevices])
+
+  /** Push our backend address to a device hosting its setup AP. */
+  const handlePushBackendUrl = useCallback(async () => {
+    if (!deviceBackendUrl) {
+      setFormError('Could not determine a LAN address for the backend')
+      return
+    }
+
+    const pushed = await pushConfigToDevice({ backendUrl: deviceBackendUrl })
+
+    appendLog(
+      pushed
+        ? `Backend address ${deviceBackendUrl} sent to the device`
+        : 'Device not reachable on 192.168.4.1 - it will discover the backend itself',
+      pushed ? 'success' : 'warn',
+    )
+  }, [deviceBackendUrl, appendLog])
+
   const closeWizard = useCallback(() => {
     setWizardOpen(false)
     setFormError(null)
   }, [])
+
+  // A device that announced itself and is waiting for approval drives the
+  // wizard: no button mashing, no codes.
+  useEffect(() => {
+    const candidate = sessionDevice ?? devices[0]
+
+    if (!wizardOpen || !candidate) return
+
+    if (candidate.awaiting_approval || candidate.claim_state === 'pending_approval') {
+      setSessionDevice(prev => (prev?.device_id === candidate.device_id ? prev : null) as DeviceDetail | null)
+      setWizardStep('approve')
+    }
+  }, [wizardOpen, sessionDevice, devices])
 
   // ---- derived ------------------------------------------------------
   const primary = devices[0] ?? null
@@ -456,6 +542,16 @@ export default function Device() {
                 </div>
 
                 <div className="flex lg:flex-col gap-2">
+                  {device.awaiting_approval && (
+                    <button
+                      onClick={() => void handleApproveDevice(device.device_id, null)}
+                      disabled={busy}
+                      className="px-3 py-1.5 rounded-lg font-mono text-[10px] tracking-widest disabled:opacity-40"
+                      style={{ color: '#4ade80', border: '1px solid rgba(74,222,128,0.3)' }}
+                    >
+                      APPROVE
+                    </button>
+                  )}
                   <button
                     onClick={() => void handleRestartSetup(device.device_id)}
                     disabled={busy}
@@ -563,7 +659,7 @@ export default function Device() {
 
               {formError && <div className="font-mono text-[10px] text-red-300">{formError}</div>}
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="submit"
                   disabled={busy}
@@ -572,14 +668,75 @@ export default function Device() {
                 >
                   {busy ? 'PROVISIONING…' : 'PROVISION WI-FI'}
                 </button>
-                <span className="font-mono text-[10px] text-white/30">
-                  updates the existing device · no new record
-                </span>
+                <button
+                  type="button"
+                  onClick={() => void handlePushBackendUrl()}
+                  className="px-3 py-2 rounded-lg font-mono text-[10px] tracking-widest text-white/50 hover:text-white/80"
+                  style={{ border: '1px solid rgba(255,255,255,0.12)' }}
+                >
+                  SEND BACKEND ADDRESS TO DEVICE
+                </button>
+              </div>
+
+              <div className="font-mono text-[10px] text-white/30 space-y-1">
+                <div>
+                  Option A (typical): join the device&apos;s own Wi-Fi
+                  (<span className="text-white/50">VisionaryNexus-XXXX</span>), open
+                  <span className="text-white/50"> http://192.168.4.1/</span> and type only the
+                  Wi-Fi name + password. The device then appears here for approval.
+                </div>
+                <div>
+                  Option B: type the Wi-Fi details here — the device collects them, and its
+                  credential, when you approve it.
+                </div>
+                <div>Either way this updates the existing device · no new record.</div>
               </div>
             </form>
           )}
 
-          {wizardStep !== 'network' && (
+          {wizardStep === 'approve' && (
+            <div className="space-y-3">
+              <div className="font-mono text-[11px] text-white/60">
+                A device announced itself on your network and is waiting for you to
+                confirm it is yours:
+              </div>
+
+              <div className="rounded-xl p-3 font-mono text-[10px] text-white/50 space-y-1"
+                style={{ border: '1px solid rgba(0,229,255,0.25)', background: 'rgba(0,229,255,0.05)' }}>
+                <div>hardware id <span style={{ color: '#00e5ff' }}>{sessionDevice.hardware_uid ?? 'not reported'}</span></div>
+                <div>device record <span className="text-white/80">{sessionDevice.device_id}</span></div>
+                <div>status <span className="text-white/80">{STATUS_LABELS[sessionDevice.status]}</span></div>
+              </div>
+
+              {formError && <div className="font-mono text-[10px] text-red-300">{formError}</div>}
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => void handleApproveDevice(sessionDevice.device_id, sessionDevice.claim_id)}
+                  disabled={busy}
+                  className="px-4 py-2 rounded-lg font-display text-[11px] tracking-widest disabled:opacity-40"
+                  style={{ color: '#4ade80', border: '1px solid rgba(74,222,128,0.4)', background: 'rgba(74,222,128,0.08)' }}
+                >
+                  {busy ? 'APPROVING…' : 'APPROVE THIS DEVICE'}
+                </button>
+                <button
+                  onClick={() => void handleRejectDevice(sessionDevice.device_id)}
+                  disabled={busy}
+                  className="px-3 py-2 rounded-lg font-mono text-[10px] tracking-widest text-red-300/80 hover:text-red-200 disabled:opacity-40"
+                  style={{ border: '1px solid rgba(239,68,68,0.25)' }}
+                >
+                  NOT MY DEVICE
+                </button>
+              </div>
+
+              <div className="font-mono text-[10px] text-white/30">
+                Approving hands the device the credential that was already reserved for it —
+                no code, token or address is typed anywhere.
+              </div>
+            </div>
+          )}
+
+          {wizardStep !== 'network' && wizardStep !== 'approve' && (
             <div className="space-y-3">
               <div className="flex items-center gap-3 flex-wrap">
                 <StatusPill status={liveStatus ?? 'awaiting_setup'} />
