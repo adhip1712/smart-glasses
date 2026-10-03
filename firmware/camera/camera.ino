@@ -45,6 +45,41 @@
 #include "device_config.h"
 
 // =========================================================
+// CAMERA FRAME STREAM
+// =========================================================
+//
+// A read-only Stream over one JPEG frame buffer. It is used by the /capture
+// endpoint to hand a frame to WebServer 2.0.17, which has no
+// send(code, content_type, Stream&, length) overload (that one exists only on
+// arduino-esp32 master). Nothing else in the sketch depends on this class.
+
+class CameraFrameStream : public Stream {
+ public:
+  CameraFrameStream(const uint8_t *data, size_t length)
+    : data_(data), length_(length), position_(0) {}
+
+  int available() override { return (int)(length_ - position_); }
+  int read() override { return position_ < length_ ? data_[position_++] : -1; }
+  int peek() override { return position_ < length_ ? data_[position_] : -1; }
+  size_t write(uint8_t) override { return 0; }   // read-only stream
+
+  size_t readBytes(char *buffer, size_t length) override {
+    size_t count = 0;
+
+    while (count < length && position_ < length_) {
+      buffer[count++] = (char)data_[position_++];
+    }
+
+    return count;
+  }
+
+ private:
+  const uint8_t *data_;
+  size_t length_;
+  size_t position_;
+};
+
+// =========================================================
 // STATE
 // =========================================================
 
@@ -542,6 +577,56 @@ void handleDeviceStatus() {
   setupServer.send(200, "application/json", body);
 }
 
+/** GET /capture - one JPEG frame straight from the OV2640.
+ *
+ *  WebServer on core 2.0.17 offers no Stream overload of send(), so the frame
+ *  is written with the public 2.0.17 API. The client receives an identical
+ *  response: same status, same Content-Type, same Content-Length, same bytes.
+ *  The OV2640 stays the only source of frames - if it did not initialise, the
+ *  endpoint answers 503 and never pretends to have an image. */
+void handleCapture() {
+  if (!cameraReady) {
+    sendCorsHeaders();
+    setupServer.send(503, "text/plain", "camera not ready");
+    return;
+  }
+
+  camera_fb_t *fb = esp_camera_fb_get();
+
+  if (fb == NULL) {
+    sendCorsHeaders();
+    setupServer.send(500, "text/plain", "camera capture failed");
+    return;
+  }
+
+  CameraFrameStream frameStream(fb->buf, fb->len);
+  size_t frameLength = fb->len;
+
+  sendCorsHeaders();
+
+  if (frameLength == 0) {
+    setupServer.send(204);
+  } else {
+    setupServer.setContentLength(frameLength);
+    setupServer.send(200, "image/jpeg", "");
+
+    static uint8_t pump[1024];
+    size_t remaining = frameLength;
+
+    while (remaining > 0) {
+      size_t chunk = (remaining > sizeof(pump)) ? sizeof(pump) : remaining;
+      size_t got = frameStream.readBytes((char *)pump, chunk);
+
+      if (got == 0) break;
+
+      setupServer.sendContent((const char *)pump, got);
+      remaining -= got;
+    }
+  }
+
+  esp_camera_fb_return(fb);
+}
+
 void startSetupAccessPoint() {
   String apName = String(NEXUS_SETUP_AP_SSID_PREFIX) + hardwareUid.substring(12);
 
@@ -555,6 +640,7 @@ void startSetupAccessPoint() {
   setupServer.on("/api/credentials", HTTP_POST, handleAppCredentials);
   setupServer.on("/api/credentials", HTTP_OPTIONS, handleOptions);
   setupServer.on("/api/status", HTTP_GET, handleDeviceStatus);
+  setupServer.on("/capture", HTTP_GET, handleCapture);
   setupServer.begin();
 
   credentialsCaptured = false;
