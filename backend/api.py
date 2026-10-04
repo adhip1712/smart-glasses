@@ -29,10 +29,12 @@ try:
     from backend.database import engine, SessionLocal, Base
     from backend.models import Conversation, Message
     from backend.device_api import router as device_router
+    from backend.camera_api import router as camera_router
 except ImportError:
     from database import engine, SessionLocal, Base
     from models import Conversation, Message
     from device_api import router as device_router
+    from camera_api import router as camera_router
 
 
 # =========================================================
@@ -960,6 +962,17 @@ app = FastAPI(
 # They are deliberately idempotent: one physical device == one row.
 
 app.include_router(device_router)
+
+
+# =========================================================
+# CAMERA ROUTES
+# =========================================================
+#
+# ESP32-CAM / webcam pipeline lives in backend/camera_api.py, backed by the
+# camera/ package. The board is optional: these routes answer with useful JSON
+# when nothing is connected, and never block startup.
+
+app.include_router(camera_router)
 
 
 # =========================================================

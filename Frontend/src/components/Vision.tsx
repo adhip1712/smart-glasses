@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 
+import { cameraSnapshotUrl, fetchCameraStatus, type CameraStatus } from '../api/camera'
+
 const detectedObjects = [
   { label: 'Laptop', confidence: 96.2, x: 15, y: 20, w: 35, h: 25, color: '#00e5ff' },
   { label: 'Coffee Mug', confidence: 89.1, x: 60, y: 55, w: 12, h: 18, color: '#a855f7' },
@@ -14,6 +16,50 @@ export default function Vision() {
   const [scanY, setScanY] = useState(0)
   const [showObjects, setShowObjects] = useState(true)
   const [captureFlash, setCaptureFlash] = useState(false)
+
+  // Real ESP32-CAM state. The screen keeps working when the board is absent:
+  // `camera` stays null, `frameFailed` falls back to the simulated visuals.
+  const [camera, setCamera] = useState<CameraStatus | null>(null)
+  const [frameTick, setFrameTick] = useState(0)
+  const [frameFailed, setFrameFailed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const poll = async () => {
+      const status = await fetchCameraStatus()
+
+      if (cancelled) return
+
+      if (status) setCamera(status)
+      if (status?.reachable) setFrameFailed(false)
+    }
+
+    poll()
+    const interval = setInterval(poll, 5000)
+
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [])
+
+  // Refresh the still frame while the board is answering.
+  useEffect(() => {
+    if (!camera?.reachable || frameFailed) return
+
+    const interval = setInterval(() => setFrameTick(t => t + 1), 1500)
+
+    return () => clearInterval(interval)
+  }, [camera?.reachable, frameFailed])
+
+  const liveFrame = Boolean(camera?.reachable) && !frameFailed
+  const hasFrame = Boolean(camera?.last_frame)
+  const feedLabel = liveFrame ? 'LIVE FEED' : hasFrame ? 'RECONNECTING' : 'SIMULATED FEED'
+  const feedColour = liveFrame ? '#4ade80' : hasFrame ? '#facc15' : '#64748b'
+  const resolution = camera?.last_frame?.resolution
+    ? `${camera.last_frame.resolution}${camera.last_frame.stale ? ' · STALE' : ''}`
+    : '1920×1080 · 30FPS'
 
   useEffect(() => {
     if (!scanning) return
@@ -39,8 +85,10 @@ export default function Vision() {
           </div>
         </div>
         <div className="flex items-center gap-2 px-4 py-2 rounded-full glass">
-          <div className="w-2 h-2 rounded-full bg-green-400 animate-status-blink" style={{ color: '#4ade80' }} />
-          <span className="font-display text-[10px] text-green-400 tracking-widest">LIVE FEED</span>
+          <div className="w-2 h-2 rounded-full animate-status-blink" style={{ backgroundColor: feedColour, color: feedColour }} />
+          <span className="font-display text-[10px] tracking-widest" style={{ color: feedColour }}>
+            {feedLabel}
+          </span>
         </div>
       </div>
 
@@ -59,6 +107,17 @@ export default function Vision() {
             {/* Capture flash */}
             {captureFlash && (
               <div className="absolute inset-0 bg-white/60 z-30 pointer-events-none transition-opacity" />
+            )}
+
+            {/* Live ESP32-CAM frame (backend camera service). Falls back to the
+                simulated visuals below whenever the board is not answering. */}
+            {liveFrame && (
+              <img
+                src={cameraSnapshotUrl(frameTick)}
+                alt="ESP32-CAM live frame"
+                className="absolute inset-0 w-full h-full object-cover"
+                onError={() => setFrameFailed(true)}
+              />
             )}
 
             {/* Simulated camera noise/environment */}
@@ -152,7 +211,7 @@ export default function Vision() {
             {/* Status overlays */}
             <div className="absolute bottom-3 left-3 flex items-center gap-3">
               <div className="font-mono text-[10px] text-white/40 bg-black/50 px-2 py-1 rounded">
-                1920×1080 · 30FPS
+                {resolution}
               </div>
               <div className="font-mono text-[10px] text-cyan-400 bg-black/50 px-2 py-1 rounded">
                 FOV 120°

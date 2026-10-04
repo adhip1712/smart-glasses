@@ -149,7 +149,7 @@ def claim_flow(base_url: str, args) -> dict:
         "device_token": token,
         "hardware_uid": args.hardware_uid,
         "firmware": "1.0.0",
-        "ip": "192.168.1.47",
+        "ip": args.ip,
     }
 
     status, registered = call(base_url, "POST", "/api/device/register", payload)
@@ -160,7 +160,7 @@ def claim_flow(base_url: str, args) -> dict:
         status, heart = call(
             base_url, "POST", "/api/device/heartbeat",
             {"device_id": delivered["device_id"], "device_token": token,
-             "ip": "192.168.1.47", "battery": 90 - beat, "uptime_ms": beat * 10000},
+             "ip": args.ip, "battery": 90 - beat, "uptime_ms": beat * 10000},
         )
         print(f"heartbeat #{beat:<2}     -> {status} status={heart.get('status')} "
               f"count={heart.get('heartbeat', {}).get('count')}")
@@ -183,6 +183,11 @@ def main() -> None:
     parser.add_argument("--ssid", default="SG-Network-5G")
     parser.add_argument("--password", default="super-secret-wifi")
     parser.add_argument("--hardware-uid", default="A0:B1:C2:03:04:05")
+    parser.add_argument(
+        "--ip",
+        default="192.168.1.47",
+        help="the IP the simulated board reports (it should match where the backend can reach it)",
+    )
     parser.add_argument("--state", default=".device_sim_state.json")
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--heartbeats", type=int, default=3)
@@ -279,7 +284,7 @@ def main() -> None:
                 "device_token": token,
                 "hardware_uid": args.hardware_uid,
                 "event": "wifi_connected",
-                "ip": "192.168.1.47",
+                "ip": args.ip,
                 "rssi": -52,
                 "firmware": "1.0.0",
             },
@@ -295,7 +300,7 @@ def main() -> None:
                 "device_token": token,
                 "hardware_uid": args.hardware_uid,
                 "firmware": "1.0.0",
-                "ip": "192.168.1.47",
+                "ip": args.ip,
                 "rssi": -52,
             },
         )
@@ -310,7 +315,7 @@ def main() -> None:
                 {
                     "device_id": device_id,
                     "device_token": token,
-                    "ip": "192.168.1.47",
+                    "ip": args.ip,
                     "rssi": -52 + random.randint(-4, 4),
                     "battery": 88 - beat,
                     "temperature": 38,
