@@ -137,7 +137,9 @@ class CameraService:
                     "effective": self._effective_source(),
                     "webcam_opt_in": self.config.webcam_allowed,
                 },
-                "configured": self.config.usable,
+                # True whenever an address could be resolved - including one
+                # learned from the device registry, not just from the .env.
+                "configured": bool(stream_url or snapshot_url),
                 "stream_url": stream_url,
                 "snapshot_url": snapshot_url,
                 "url_origin": stream_origin,

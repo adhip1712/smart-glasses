@@ -437,6 +437,7 @@ def test_stream_address_is_learned_from_the_device_registry(client):
 
     assert body["stream"]["url"] == "http://10.20.30.40:81/stream"
     assert body["stream"]["url_origin"] == "device-registry"
+    assert client.get("/api/camera/status").json()["configured"] is True
     assert body["device"]["device_id"] == "SG-CAM0-0001"
     assert body["device"]["camera_ready"] is True
     assert any("DHCP" in note or "dhcp" in note for note in body["notes"])
