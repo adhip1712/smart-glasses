@@ -32,6 +32,16 @@ except Exception:  # pragma: no cover - numpy ships with the ML extras
     np = None  # type: ignore
 
 
+# One webcam per process. Both this package and camera/image_capture.py can
+# open a laptop camera, and on Windows a device usually allows a single
+# exclusive open - so brief opens are serialised on this shared lock.
+#
+# It is held only for the duration of an open/read/release, never for the life
+# of a VisionSession: the ML worker owns the camera while it runs, and holding a
+# lock that long would block the camera package indefinitely.
+WEBCAM_LOCK = threading.Lock()
+
+
 class SourceUnavailableError(RuntimeError):
     """The camera could not be opened (missing hardware, permissions, in use)."""
 

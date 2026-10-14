@@ -16,6 +16,7 @@
 # (None, error) rather than raising.
 # =========================================================
 
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Optional, Tuple
@@ -27,6 +28,10 @@ from .video_stream import http_get_bytes, read_mjpeg_frame
 SOURCE_STREAM = "esp32-stream"
 SOURCE_SNAPSHOT = "esp32-snapshot"
 SOURCE_WEBCAM = "webcam"
+
+# Used only when the ml package is absent; otherwise both subsystems share the
+# lock defined in ml/webcam_source.py.
+_LOCAL_WEBCAM_LOCK = threading.Lock()
 
 
 @dataclass
@@ -139,6 +144,21 @@ def capture_from_esp32(
     return None, "; ".join(errors)
 
 
+def _shared_webcam_lock():
+    """The process-wide webcam lock, if the ml package is installed.
+
+    camera/ must keep working on its own, so a missing ml package falls back to
+    a module-local lock rather than raising.
+    """
+
+    try:
+        from ml.webcam_source import WEBCAM_LOCK
+
+        return WEBCAM_LOCK
+    except Exception:
+        return _LOCAL_WEBCAM_LOCK
+
+
 def capture_from_webcam(index: int = 0, quality: int = 80) -> Tuple[Optional[CapturedFrame], str]:
     """One frame from the PC webcam through OpenCV (opt-in source)."""
 
@@ -152,35 +172,42 @@ def capture_from_webcam(index: int = 0, quality: int = 80) -> Tuple[Optional[Cap
 
     capture = None
 
-    try:
-        capture = cv2.VideoCapture(index)
+    # Serialised: only one part of the process opens the laptop camera at a
+    # time. The lock is held for this short capture only.
+    with _shared_webcam_lock():
+        try:
+            capture = cv2.VideoCapture(index)
 
-        if not capture.isOpened():
-            return None, f"the PC webcam at index {index} could not be opened"
+            if not capture.isOpened():
+                return None, (
+                    f"the PC webcam at index {index} could not be opened "
+                    "(another application - or the vision worker at "
+                    "/api/vision - may already be using it)"
+                )
 
-        ok, image = capture.read()
+            ok, image = capture.read()
 
-        if not ok or image is None:
-            return None, f"the PC webcam at index {index} returned no frame"
+            if not ok or image is None:
+                return None, f"the PC webcam at index {index} returned no frame"
 
-        jpeg = encode_jpeg(image, quality)
+            jpeg = encode_jpeg(image, quality)
 
-        if not jpeg:
-            return None, "the webcam frame could not be encoded as JPEG"
+            if not jpeg:
+                return None, "the webcam frame could not be encoded as JPEG"
 
-        frame, error = frame_from_jpeg(jpeg, SOURCE_WEBCAM)
-        return frame, error
+            frame, error = frame_from_jpeg(jpeg, SOURCE_WEBCAM)
+            return frame, error
 
-    except Exception as error:  # noqa: BLE001
-        return None, f"the PC webcam failed: {type(error).__name__}: {error}"
+        except Exception as error:  # noqa: BLE001
+            return None, f"the PC webcam failed: {type(error).__name__}: {error}"
 
-    finally:
-        # Always release the device, even when reading failed.
-        if capture is not None:
-            try:
-                capture.release()
-            except Exception:
-                pass
+        finally:
+            # Always release the device, even when reading failed.
+            if capture is not None:
+                try:
+                    capture.release()
+                except Exception:
+                    pass
 
 
 def capture_frame(

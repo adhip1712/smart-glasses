@@ -9,30 +9,67 @@
 #   Windows   .venv\Scripts\pip install -r requirements-ml.txt
 #   Linux     .venv/bin/pip install -r requirements-ml.txt
 #
-# CPU-ONLY TORCH (recommended for a laptop with no NVIDIA GPU, saves ~2 GB):
+# CPU-ONLY TORCH (recommended for a laptop with no NVIDIA GPU, saves ~2 GB).
+# Install torch first, then this file:
 #
 #   Windows   .venv\Scripts\pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-#             .venv\Scripts\pip install ultralytics lap opencv-python-headless
+#             .venv\Scripts\pip install -r requirements-ml.txt
 #
-# MODEL WEIGHTS are NOT in this file and are NOT committed. On first run
-# Ultralytics downloads yolov8n.pt (~6 MB) from its GitHub release assets into
-# the working directory. If the machine is offline, download it once elsewhere
-# and either place it in the project root or point VISION_MODEL_PATH at it.
-# See ml/README.md.
+# ---------------------------------------------------------
+# OPENCV: use the DESKTOP build (opencv-python), NOT the headless one
+# ---------------------------------------------------------
 #
-# Notes:
-#   * opencv-python-headless (not opencv-python) so a headless server does not
-#     need GUI libraries. Ultralytics may pull in opencv-python as a dependency;
-#     if `import cv2` then fails with a missing libGL, uninstall opencv-python
-#     and reinstall opencv-python-headless.
+# The standalone demo opens a window titled "Visionary Nexus" with cv2.imshow.
+# `opencv-python-headless` ships OpenCV built with `GUI: NONE`, so imshow exists
+# as a symbol but raises when called:
+#
+#     cv2.error: OpenCV(5.0.0) ... The function is not implemented.
+#     Rebuild the library with Windows, GTK+ 2.x or Cocoa support.
+#
+# Ultralytics itself requires opencv-python (not the headless build), so the
+# desktop package below is also the one the rest of the ML stack expects.
+#
+# BOTH packages install into the same `cv2` directory, so they must never be
+# installed together - whichever was installed last silently wins. If a headless
+# build is already present, remove it first:
+#
+#   Windows   .venv\Scripts\pip uninstall -y opencv-python-headless opencv-contrib-python-headless
+#             .venv\Scripts\pip install -r requirements-ml.txt
+#
+# Verify what Python actually imports afterwards:
+#
+#   .venv\Scripts\python -m ml.doctor
+#
+# HEADLESS SERVER / CI (no display, no window needed):
+# the backend only ever uses cv2.imencode, so a server may substitute the
+# headless build. Do that deliberately, not by default:
+#
+#   .venv\Scripts\pip uninstall -y opencv-python
+#   .venv\Scripts\pip install opencv-python-headless
+#
+# The demo then prints "NO WINDOW" and keeps running headless instead of
+# crashing, and the /api/vision/* endpoints are unaffected.
+#
+# ---------------------------------------------------------
+# MODEL WEIGHTS
+# ---------------------------------------------------------
+#
+# Not listed here and never committed. On first run Ultralytics downloads
+# yolov8n.pt (~6 MB) from its GitHub release assets into the working directory.
+# Offline machine: download it once elsewhere, then either place it in the
+# project root or point VISION_MODEL_PATH at it. See ml/README.md.
+#
+# ---------------------------------------------------------
+# OTHER NOTES
+# ---------------------------------------------------------
 #   * lap is required only for tracking (VISION_TRACKING=true / --track).
 #     Without it, Ultralytics tries to install it at run time, which fails
 #     offline - so it is listed explicitly here.
-#   * No package here is pinned: the backend keeps working on whatever versions
-#     satisfy it, and the ML stack tracks its own upstream releases.
+#   * Versions are ranged, not pinned: the backend keeps working on whatever
+#     satisfies it, and the ML stack tracks its own upstream releases.
 
 ultralytics>=8.0.0
 lap>=0.5.12
-opencv-python-headless>=4.8.0
+opencv-python>=4.8.0
 numpy>=1.24.0
 pillow>=9.0.0

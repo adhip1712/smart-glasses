@@ -1516,3 +1516,348 @@ class TestDemoCli:
 
         assert webcam_detection.main(["--source", "image"]) == 1
         assert "needs a file path" in capsys.readouterr().out
+
+
+# =========================================================
+# 10. DISPLAY / GUI HANDLING
+# =========================================================
+#
+# opencv-python-headless exports cv2.imshow but raises when it is called, so a
+# hasattr() check cannot detect it. These tests lock in the real probe and the
+# graceful degradation that replaced the crash.
+
+class TestDisplay:
+    def test_probe_reports_headless_builds_as_unavailable(self):
+        from ml.display import gui_available, reset_probe_cache
+
+        reset_probe_cache()
+        available, reason = gui_available()
+
+        # Whatever the installed build is, the probe must return a reason and
+        # must agree with what actually happens when a window is created.
+        assert isinstance(available, bool)
+        assert isinstance(reason, str) and reason
+
+        import cv2
+
+        try:
+            cv2.namedWindow("__probe__", 0)
+            cv2.destroyWindow("__probe__")
+            really_available = True
+        except Exception:
+            really_available = False
+
+        assert available is really_available
+        reset_probe_cache()
+
+    def test_hasattr_is_not_a_valid_gui_check(self):
+        """The exact trap that caused the original crash."""
+
+        import cv2
+
+        # imshow exists even on headless builds, so this must never be the test.
+        assert hasattr(cv2, "imshow") is True
+
+    def test_window_degrades_when_the_gui_is_missing(self, monkeypatch):
+        from ml.display import VisionWindow
+
+        window = VisionWindow.__new__(VisionWindow)
+        window.title = "Visionary Nexus"
+        window.available = False
+        window.reason = "headless"
+        window.last_error = ""
+        window.frames_shown = 0
+        window._closed = False
+
+        # show() is a no-op and never raises
+        assert window.show(make_frame()) is False
+        assert window.frames_shown == 0
+        assert window.quit_requested() is False
+        window.close()
+        window.close()  # idempotent
+
+    def test_window_survives_a_gui_failure_mid_run(self, monkeypatch):
+        """A GUI that dies while running must not take the demo down."""
+
+        import cv2
+        from ml.display import VisionWindow, reset_probe_cache
+
+        reset_probe_cache()
+
+        # Isolate the two calls: the window opens fine, then drawing fails.
+        monkeypatch.setattr("ml.display._probe_gui", lambda: (True, "gui available"))
+        monkeypatch.setattr(cv2, "namedWindow", lambda *a, **k: None)
+        monkeypatch.setattr(cv2, "destroyWindow", lambda *a, **k: None)
+        monkeypatch.setattr(cv2, "destroyAllWindows", lambda *a, **k: None)
+        monkeypatch.setattr(cv2, "waitKey", lambda ms=1: -1)
+
+        window = VisionWindow()
+        assert window.available is True
+
+        def boom(*args, **kwargs):
+            raise cv2.error("The function is not implemented.")
+
+        monkeypatch.setattr(cv2, "imshow", boom)
+
+        assert window.show(make_frame()) is False
+        assert window.available is False
+        assert "headless" in window.reason
+        assert "not implemented" in window.last_error
+        assert window.frames_shown == 0
+
+        window.close()
+        reset_probe_cache()
+
+    def test_window_shows_frames_and_reports_quit_keys(self, monkeypatch):
+        """The working path: frames are drawn and Q/Esc are detected."""
+
+        import cv2
+        from ml.display import VisionWindow, reset_probe_cache
+
+        reset_probe_cache()
+        monkeypatch.setattr("ml.display._probe_gui", lambda: (True, "gui available"))
+
+        shown = []
+        monkeypatch.setattr(cv2, "namedWindow", lambda *a, **k: None)
+        monkeypatch.setattr(cv2, "destroyWindow", lambda *a, **k: None)
+        monkeypatch.setattr(cv2, "destroyAllWindows", lambda *a, **k: None)
+        monkeypatch.setattr(cv2, "imshow", lambda title, frame: shown.append(title))
+        monkeypatch.setattr(cv2, "waitKey", lambda ms=1: -1)
+
+        window = VisionWindow()
+
+        assert window.available is True
+        assert window.show(make_frame()) is False
+        assert window.show(make_frame()) is False
+        assert shown == ["Visionary Nexus", "Visionary Nexus"]
+        assert window.frames_shown == 2
+
+        # Escape then Q both stop the demo.
+        monkeypatch.setattr(cv2, "waitKey", lambda ms=1: 27)
+        assert window.show(make_frame()) is True
+
+        monkeypatch.setattr(cv2, "waitKey", lambda ms=1: ord("q"))
+        assert window.quit_requested() is True
+
+        window.close()
+        reset_probe_cache()
+
+    def test_quit_keys_include_escape_and_q(self):
+        from ml.display import QUIT_KEYS
+
+        assert 27 in QUIT_KEYS          # Escape
+        assert ord("q") in QUIT_KEYS
+        assert ord("Q") in QUIT_KEYS
+
+    def test_window_reports_its_state(self):
+        from ml.display import VisionWindow
+
+        window = VisionWindow(probe=False)
+
+        assert window.available is False
+        assert window.describe()["reason"] == "display disabled"
+
+        window.close()
+
+    def test_demo_does_not_crash_without_a_gui(self, monkeypatch, capsys):
+        """The reported failure: a window request on a headless OpenCV build.
+
+        A fake camera and a fake detector are injected, so this exercises the
+        real run_live() display path without hardware or model weights.
+        """
+
+        from ml import webcam_detection
+        from ml.display import reset_probe_cache
+
+        reset_probe_cache()
+        monkeypatch.setattr(
+            "ml.session.open_frame_source",
+            lambda settings, **kwargs: (lambda s: (s.open(), s)[1])(FakeSource()),
+        )
+        monkeypatch.setattr("ml.session.YoloDetector", lambda settings=None: fake_detector()[0])
+
+        # No --no-display: the demo must discover the missing GUI itself and
+        # keep running instead of raising cv2.error.
+        code = webcam_detection.main(["--frames", "3"])
+
+        output = capsys.readouterr().out
+
+        assert code == 0, f"the demo exited {code}:\n{output[-600:]}"
+        # Either a window worked, or the demo said so and carried on headless.
+        assert "NO WINDOW" in output or "Press Q" in output
+        assert "camera released" in output
+        reset_probe_cache()
+
+
+# =========================================================
+# 11. LOCK DISCIPLINE
+# =========================================================
+#
+# start() used to hold the state lock across the camera open and the model
+# load, which blocked latest()/status() - i.e. /api/vision/status - for the
+# whole load. These tests pin the corrected behaviour.
+
+class SlowLoadingDetector(YoloDetector):
+    """A detector whose load() takes measurable time, like a real torch load."""
+
+    LOAD_SECONDS = 1.0
+
+    def __init__(self, settings):
+        super().__init__(settings)
+        self.load_calls = 0
+
+    def load(self):
+        self.load_calls += 1
+
+        if self.load_calls == 1:
+            time.sleep(self.LOAD_SECONDS)
+
+        self._model = object()
+        self._classes = {0: "person"}
+        return True
+
+    def process(self, frame):
+        from ml.detector import Detection, InferenceResult
+
+        return InferenceResult(
+            detections=[], inference_ms=1.0, frame_width=640, frame_height=480
+        )
+
+    def reset_tracking(self):
+        return None
+
+    def close(self):
+        self._model = None
+
+
+def slow_session():
+    source = FakeSource()
+    settings = VisionSettings(
+        enabled=True,
+        camera=CameraSettings(),
+        model=ModelSettings(warmup=False),
+        worker=WorkerSettings(target_fps=20.0),
+    )
+    detector = SlowLoadingDetector(settings.model)
+    session = VisionSession(settings, source_factory=lambda cfg, **k: source,
+                            detector_factory=lambda: detector)
+    return session, source, detector
+
+
+class TestLockDiscipline:
+    def test_status_stays_responsive_during_a_slow_model_load(self):
+        session, _, detector = slow_session()
+        starter = threading.Thread(target=session.start)
+        starter.start()
+
+        try:
+            time.sleep(0.2)  # the load is still running
+
+            started = time.perf_counter()
+            session.latest()
+            elapsed_ms = (time.perf_counter() - started) * 1000
+
+            assert elapsed_ms < 200, f"latest() was blocked for {elapsed_ms:.0f} ms"
+        finally:
+            starter.join()
+            session.stop()
+
+    def test_concurrent_starts_open_the_camera_once(self):
+        session, source, _ = session_with(worker={"target_fps": 20.0})
+        results = []
+        threads = [threading.Thread(target=lambda: results.append(session.start()))
+                   for _ in range(12)]
+
+        for thread in threads:
+            thread.start()
+
+        for thread in threads:
+            thread.join()
+
+        try:
+            real_starts = sum(1 for r in results if r["already_running"] is False)
+
+            assert real_starts == 1
+            assert source.is_open is True
+        finally:
+            session.stop()
+
+    def test_interleaved_start_stop_never_leaks_the_camera(self):
+        session, source, _ = session_with(worker={"target_fps": 50.0})
+        opens = []
+        closes = []
+
+        original_open = source.open
+        original_close = source.close
+
+        def counting_open():
+            opens.append(1)
+            original_open()
+
+        def counting_close():
+            closes.append(1)
+            original_close()
+
+        source.open = counting_open
+        source.close = counting_close
+
+        def churn(index):
+            if index % 2 == 0:
+                session.start()
+            else:
+                session.stop()
+
+        threads = [threading.Thread(target=churn, args=(i,)) for i in range(20)]
+
+        for thread in threads:
+            thread.start()
+
+        for thread in threads:
+            thread.join()
+
+        session.stop()
+
+        assert len(opens) == len(closes), (
+            f"camera leak: {len(opens)} opens vs {len(closes)} closes"
+        )
+        assert session.is_running is False
+
+    def test_worker_thread_never_outlives_stop(self):
+        session, _, _ = session_with(worker={"target_fps": 30.0})
+        session.start()
+        worker = session._state.thread
+
+        assert worker is not None and worker.is_alive()
+
+        result = session.stop(timeout=5.0)
+
+        assert result["stopped"] is True
+        assert worker.is_alive() is False
+
+    def test_detector_load_is_not_called_while_holding_the_state_lock(self):
+        """Direct proof the state lock is free during the load."""
+
+        session, _, detector = slow_session()
+        observed = []
+
+        def probe():
+            time.sleep(0.2)
+
+            # If start() held the state lock, this acquire would block.
+            acquired = session._lock.acquire(timeout=0.2)
+
+            if acquired:
+                session._lock.release()
+
+            observed.append(acquired)
+
+        prober = threading.Thread(target=probe)
+        prober.start()
+        session.start()
+        prober.join()
+
+        try:
+            assert observed == [True], "the state lock was held during the model load"
+            assert detector.load_calls == 1
+        finally:
+            session.stop()

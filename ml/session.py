@@ -102,7 +102,11 @@ class VisionSession:
         self._detector = self._detector_factory()
         self._source: Optional[FrameSource] = None
         self._state = WorkerState()
+        # Guards brief state access only. Never held across a camera open, a
+        # model load or an inference - see start().
         self._lock = threading.RLock()
+        # Serialises start()/stop() against each other.
+        self._lifecycle_lock = threading.Lock()
         self._device_lookup: Optional[Callable[[], Optional[Dict[str, Any]]]] = None
 
     # -- wiring --------------------------------------------------------
@@ -138,48 +142,67 @@ class VisionSession:
 
         The camera is opened on the calling thread so a missing camera is
         reported to the caller instead of appearing only in a background log.
+
+        Two locks, on purpose:
+
+          * `_lifecycle_lock` serialises start/stop against each other, so two
+            threads cannot both open the camera or both spawn a worker.
+          * `_lock` guards only the short state reads/writes.
+
+        The state lock is deliberately NOT held while the camera opens or the
+        model loads: those take seconds, and holding it would block
+        latest()/status() - i.e. /api/vision/status - for the whole load.
         """
 
-        with self._lock:
+        with self._lifecycle_lock:
             if not self.settings.enabled:
                 return {"started": False, "already_running": False,
                         "error": "vision is disabled (VISION_ENABLED=false)"}
 
-            if self.is_running:
-                return {"started": True, "already_running": True}
+            with self._lock:
+                if self.is_running:
+                    return {"started": True, "already_running": True}
 
+            # Slow work happens outside the state lock.
             # Fail loudly and early: no camera -> no thread.
             try:
                 self._open_source()
             except SourceUnavailableError as error:
-                self._state.camera_error = str(error)
-                self._state.last_error = str(error)
+                with self._lock:
+                    self._state.camera_error = str(error)
+                    self._state.last_error = str(error)
                 raise
 
             try:
                 self._detector.load()
-                self._state.model_error = ""
             except ModelUnavailableError as error:
                 # The camera works but the model does not: keep the session
                 # stopped rather than streaming frames with no detections.
-                self._state.model_error = str(error)
-                self._state.last_error = str(error)
+                with self._lock:
+                    self._state.model_error = str(error)
+                    self._state.last_error = str(error)
                 self._release_source()
                 raise
 
-            self._state.stop_event = threading.Event()
-            self._state.frames = 0
-            self._state.inference_count = 0
-            self._state.last_error = ""
-            self._state.camera_error = ""
-            self._state.started_at = time.monotonic()
-            self._state.frame_times = []
+            with self._lock:
+                self._state.model_error = ""
+                self._state.stop_event = threading.Event()
+                self._state.frames = 0
+                self._state.inference_count = 0
+                self._state.last_error = ""
+                self._state.camera_error = ""
+                self._state.started_at = time.monotonic()
+                self._state.frame_times = []
+
             self._detector.reset_tracking()
 
             thread = threading.Thread(
                 target=self._run, name="visionary-nexus-vision", daemon=True
             )
-            self._state.thread = thread
+
+            with self._lock:
+                self._state.thread = thread
+
             thread.start()
 
         return {"started": True, "already_running": False}
@@ -215,8 +238,17 @@ class VisionSession:
             self._source = None
 
     def stop(self, timeout: float = 5.0) -> Dict[str, Any]:
-        """Stop the worker and release the camera. Safe to call twice."""
+        """Stop the worker and release the camera. Safe to call twice.
 
+        Uses the lifecycle lock, so it cannot interleave with start(); the state
+        lock is still released before joining the worker, because the worker
+        takes it on every iteration.
+        """
+
+        with self._lifecycle_lock:
+            return self._stop_locked(timeout)
+
+    def _stop_locked(self, timeout: float) -> Dict[str, Any]:
         with self._lock:
             thread = self._state.thread
 

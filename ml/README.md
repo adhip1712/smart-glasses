@@ -18,6 +18,8 @@ ml/
 ├── webcam_source.py       frame sources: laptop webcam, ESP32 HTTP camera
 ├── detector.py            Ultralytics YOLO detection + optional tracking
 ├── overlay.py             bounding boxes, labels, confidence, FPS/latency
+├── display.py             GUI window + a real "can this build open a window?" probe
+├── doctor.py              `python -m ml.doctor` - what is ACTUALLY installed
 ├── session.py             ONE managed capture+inference worker
 ├── webcam_detection.py    standalone live demo (CLI)
 └── config/ml_config.json  default settings (env vars override these)
@@ -41,17 +43,72 @@ what keeps the laptop webcam replaceable later.
 .venv\Scripts\pip install -r requirements-ml.txt
 ```
 
-**CPU-only laptop (recommended, saves ~2 GB):**
+**CPU-only laptop (recommended, saves ~2 GB) — install torch first:**
 
 ```powershell
 .venv\Scripts\pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-.venv\Scripts\pip install ultralytics lap opencv-python-headless
+.venv\Scripts\pip install -r requirements-ml.txt
 ```
 
 Linux/macOS: replace `.venv\Scripts\` with `.venv/bin/`.
 
 Verified working versions: Ultralytics 8.4.177, torch 2.14.1, OpenCV 5.0.0,
 numpy 2.4.6, lap 0.5.13.
+
+### OpenCV must be the DESKTOP build, not the headless one
+
+The demo opens a window with `cv2.imshow`. `opencv-python-headless` is built
+with `GUI: NONE`, so **the function exists but raises when called**:
+
+```
+cv2.error: OpenCV(5.0.0) ... The function is not implemented.
+Rebuild the library with Windows, GTK+ 2.x or Cocoa support.
+```
+
+`hasattr(cv2, "imshow")` returns `True` even on that build, so this cannot be
+detected by checking for the function. Ultralytics itself requires
+`opencv-python`, which is what `requirements-ml.txt` now installs.
+
+Both packages install into the same `cv2` directory, so **exactly one** may be
+present. If a headless build is already installed, remove it first:
+
+```powershell
+.venv\Scripts\pip uninstall -y opencv-python-headless opencv-contrib-python-headless
+.venv\Scripts\pip install -r requirements-ml.txt
+```
+
+Then confirm what Python actually imports — the distribution name, the module
+path, the version and real GUI support:
+
+```powershell
+.venv\Scripts\python -m ml.doctor
+```
+
+`ml.doctor` also reports the ML stack, whether the model weights are present and
+which cameras open, and exits non-zero when something must be fixed.
+
+### Headless server / CI
+
+The backend only ever uses `cv2.imencode`, so a server may deliberately swap in
+the headless build:
+
+```bash
+.venv/bin/pip uninstall -y opencv-python
+.venv/bin/pip install opencv-python-headless
+```
+
+The demo then prints `NO WINDOW` with the fix and keeps running headless instead
+of crashing, and `/api/vision/*` is unaffected.
+
+### If `import cv2` fails with a missing `libGL` (Linux only)
+
+The desktop OpenCV build needs GUI system libraries. On Debian/Ubuntu:
+
+```bash
+sudo apt-get install -y libgl1 libglib2.0-0
+```
+
+On a machine with no display at all, use the headless swap above instead.
 
 ### Model weights
 
@@ -68,15 +125,6 @@ VISION_MODEL_PATH=C:\models\yolov8n.pt
 
 Set `VISION_ALLOW_MODEL_DOWNLOAD=false` to forbid any network fetch — a missing
 model then reports a clear error instead of hanging on a download.
-
-### If `import cv2` fails with a missing `libGL` (Linux only)
-
-Ultralytics pulls in `opencv-python`, which needs GUI libraries. Fix:
-
-```bash
-.venv/bin/pip uninstall -y opencv-python
-.venv/bin/pip install opencv-python-headless
-```
 
 ---
 
@@ -290,6 +338,8 @@ repository). A low confidence means "unsure", not "found". Raise
 
 | Symptom | Cause and fix |
 | --- | --- |
+| `cv2.error: The function is not implemented` | `opencv-python-headless` is installed; it has no GUI. Run `python -m ml.doctor`, then `pip uninstall -y opencv-python-headless` and `pip install opencv-python`. The demo no longer crashes on this - it prints `NO WINDOW` and continues headless. |
+| No window appears, but results print | Same cause. The demo says so explicitly; install the desktop OpenCV build for a window. |
 | `camera index 0 could not be opened` | Another app holds the camera, or it is the wrong index. Run `--list-cameras`; on Windows check Settings → Privacy → Camera → "Allow desktop apps". Try `VISION_CAMERA_INDEX=1` or `VISION_CAMERA_BACKEND=msmf`. |
 | `returned no frames` | The device opened but delivers nothing (driver/privacy shutter). Try another backend. |
 | Model download hangs | GitHub release assets unreachable. Download `yolov8n.pt` manually and set `VISION_MODEL_PATH`. |

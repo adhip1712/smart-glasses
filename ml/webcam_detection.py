@@ -28,6 +28,7 @@ from typing import Any, List, Optional
 
 from .config import ModelSettings, VisionConfigError, VisionSettings, load_settings
 from .detector import ModelUnavailableError, YoloDetector
+from .display import VisionWindow, gui_status_text
 from .overlay import annotate_frame, summary_lines
 from .session import VisionSession
 from .webcam_source import SourceUnavailableError, list_available_cameras, open_frame_source
@@ -151,6 +152,11 @@ def run_offline_source(
 
     writer = None
     frames = 0
+    window = VisionWindow(probe=not args.no_display)
+
+    if not args.no_display and not window.available:
+        print(f"  no window available - {window.reason}")
+        print("  continuing without a display.\n")
 
     try:
         while True:
@@ -176,11 +182,8 @@ def run_offline_source(
             if writer is not None:
                 writer.write(annotated)
 
-            if not args.no_display:
-                cv2.imshow("Visionary Nexus", annotated)
-
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
+            if not args.no_display and window.show(annotated):
+                break
 
             if args.frames and frames >= args.frames:
                 break
@@ -190,8 +193,7 @@ def run_offline_source(
         if writer is not None:
             writer.release()
 
-        if not args.no_display:
-            cv2.destroyAllWindows()
+        window.close()
 
     print(f"\nprocessed {frames} frame(s) from {kind} {path!r}.")
     return 0
@@ -217,18 +219,24 @@ def run_live(settings: VisionSettings, args: argparse.Namespace) -> int:
         print(f"\nINVALID CONFIGURATION\n  {error}\n")
         return 1
 
-    display = not args.no_display
     writer = None
 
-    try:
-        import cv2
+    # Importing cv2 is NOT a valid GUI check: opencv-python-headless exports
+    # imshow and raises only when it is called. VisionWindow really tries to
+    # create the window, and degrades to headless instead of crashing.
+    window = VisionWindow(probe=not args.no_display)
+    display = window.available
 
-        if display:
-            print("\n  Press Q in the window, or Ctrl+C in the console, to stop.\n")
-        else:
-            print("\n  Headless mode: printing results, no window.\n")
-    except Exception:
-        display = False
+    if display:
+        print("\n  Press Q or Esc in the window, or Ctrl+C in the console, to stop.\n")
+    elif args.no_display:
+        print("\n  Headless mode: printing results, no window.\n")
+    else:
+        print(f"\n  NO WINDOW - {window.reason}")
+        print("  Continuing headless: results print below and the API still works.")
+        print("  For a live window install the desktop OpenCV build:\n"
+              "    .venv\\Scripts\\pip uninstall -y opencv-python-headless\n"
+              "    .venv\\Scripts\\pip install opencv-python\n")
 
     frames = 0
     last_report = 0.0
@@ -256,11 +264,10 @@ def run_live(settings: VisionSettings, args: argparse.Namespace) -> int:
 
                         frame = cv2.imdecode(np.frombuffer(jpeg, dtype="uint8"), cv2.IMREAD_COLOR)
 
-                        if frame is not None:
-                            cv2.imshow("Visionary Nexus", frame)
-
-                            if cv2.waitKey(1) & 0xFF == ord("q"):
-                                stopped = True
+                        # show() returns True on Q/Esc and turns itself off
+                        # rather than raising if the GUI dies mid-run.
+                        if frame is not None and window.show(frame):
+                            stopped = True
 
                 if args.save_video:
                     jpeg = session.latest_jpeg()
@@ -301,13 +308,7 @@ def run_live(settings: VisionSettings, args: argparse.Namespace) -> int:
         if writer is not None:
             writer.release()
 
-        if display:
-            try:
-                import cv2
-
-                cv2.destroyAllWindows()
-            except Exception:
-                pass
+        window.close()
 
         result = session.stop()
         print(
