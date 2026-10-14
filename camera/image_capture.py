@@ -159,6 +159,25 @@ def _shared_webcam_lock():
         return _LOCAL_WEBCAM_LOCK
 
 
+def _webcam_holder(index: int) -> Optional[str]:
+    """Who owns this camera index, or None.
+
+    The ml vision worker holds a webcam for its whole session. Rather than
+    blocking on a lock for that long - or opening a device that is already open
+    and failing at driver level - the ownership registry is consulted first and
+    the caller gets an immediate, actionable answer.
+
+    Returns None when the ml package is absent, so camera/ still works alone.
+    """
+
+    try:
+        from ml.webcam_source import webcam_owner
+
+        return webcam_owner(index)
+    except Exception:
+        return None
+
+
 def capture_from_webcam(index: int = 0, quality: int = 80) -> Tuple[Optional[CapturedFrame], str]:
     """One frame from the PC webcam through OpenCV (opt-in source)."""
 
@@ -169,6 +188,16 @@ def capture_from_webcam(index: int = 0, quality: int = 80) -> Tuple[Optional[Cap
         import cv2  # type: ignore
     except Exception:
         return None, "OpenCV is not installed, the webcam source is unavailable"
+
+    # Fail fast when a long-lived consumer (the vision worker) owns the device.
+    # Checked before the lock, so this never waits on an active session.
+    holder = _webcam_holder(index)
+
+    if holder is not None:
+        return None, (
+            f"the PC webcam at index {index} is in use by {holder!r}; "
+            "stop the vision session (POST /api/vision/stop) to use it here"
+        )
 
     capture = None
 

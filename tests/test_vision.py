@@ -1861,3 +1861,224 @@ class TestLockDiscipline:
             assert detector.load_calls == 1
         finally:
             session.stop()
+
+
+# =========================================================
+# 12. WEBCAM OWNERSHIP
+# =========================================================
+#
+# A vision session owns its camera for the whole run. WEBCAM_LOCK is only for
+# short captures, so ownership is published in a registry instead of locked -
+# otherwise /api/camera/snapshot would block for the life of the session.
+#
+# Lock ordering: the ownership lock is a leaf lock, never held while acquiring
+# WEBCAM_LOCK, so no inversion is possible between camera/ and ml/.
+
+class TestWebcamOwnership:
+    @pytest.fixture(autouse=True)
+    def _clean_registry(self):
+        from ml.webcam_source import reset_webcam_ownership
+
+        reset_webcam_ownership()
+        yield
+        reset_webcam_ownership()
+
+    def test_free_index_has_no_owner(self):
+        from ml.webcam_source import webcam_owner
+
+        assert webcam_owner(0) is None
+
+    def test_claim_and_release(self):
+        from ml.webcam_source import claim_webcam, release_webcam, webcam_owner
+
+        assert claim_webcam(0, "vision-session") is True
+        assert webcam_owner(0) == "vision-session"
+
+        release_webcam(0, "vision-session")
+        assert webcam_owner(0) is None
+
+    def test_second_consumer_is_refused(self):
+        from ml.webcam_source import claim_webcam
+
+        assert claim_webcam(0, "vision-session") is True
+        assert claim_webcam(0, "camera-api") is False
+
+    def test_same_owner_may_claim_again(self):
+        from ml.webcam_source import claim_webcam
+
+        assert claim_webcam(0, "vision-session") is True
+        assert claim_webcam(0, "vision-session") is True
+
+    def test_only_the_owner_can_release(self):
+        from ml.webcam_source import claim_webcam, release_webcam, webcam_owner
+
+        claim_webcam(0, "vision-session")
+        release_webcam(0, "someone-else")
+
+        assert webcam_owner(0) == "vision-session"
+
+    def test_indexes_are_tracked_separately(self):
+        from ml.webcam_source import claim_webcam, owned_webcams
+
+        claim_webcam(0, "a")
+        claim_webcam(1, "b")
+
+        assert owned_webcams() == {0: "a", 1: "b"}
+
+    def test_registry_snapshot_is_a_copy(self):
+        from ml.webcam_source import claim_webcam, owned_webcams
+
+        claim_webcam(0, "a")
+        snapshot = owned_webcams()
+        snapshot[99] = "tampered"
+
+        assert 99 not in owned_webcams()
+
+    def test_webcam_source_claims_on_open_and_releases_on_close(self):
+        from ml.webcam_source import WebcamSource, webcam_owner
+
+        capture = FakeCapture()
+        source = WebcamSource(CameraSettings(warmup_frames=1),
+                              capture_factory=lambda index, flag: capture,
+                              owner="vision-session")
+
+        assert webcam_owner(0) is None
+
+        source.open()
+        assert webcam_owner(0) == "vision-session"
+
+        source.close()
+        assert webcam_owner(0) is None
+
+    def test_failed_open_does_not_leave_the_index_claimed(self):
+        from ml.webcam_source import WebcamSource, webcam_owner
+
+        source = WebcamSource(CameraSettings(),
+                              capture_factory=lambda index, flag: FakeCapture(opened=False),
+                              owner="vision-session")
+
+        with pytest.raises(SourceUnavailableError):
+            source.open()
+
+        assert webcam_owner(0) is None, "a failed open must free the claim"
+
+    def test_driver_exception_during_open_frees_the_claim(self):
+        from ml.webcam_source import WebcamSource, webcam_owner
+
+        def explode(index, flag):
+            raise OSError("device busy")
+
+        source = WebcamSource(CameraSettings(), capture_factory=explode,
+                              owner="vision-session")
+
+        with pytest.raises(SourceUnavailableError):
+            source.open()
+
+        assert webcam_owner(0) is None
+
+    def test_second_source_is_refused_with_a_clear_reason(self):
+        from ml.webcam_source import WebcamSource
+
+        first = WebcamSource(CameraSettings(warmup_frames=1),
+                             capture_factory=lambda index, flag: FakeCapture(),
+                             owner="vision-session")
+        first.open()
+
+        second = WebcamSource(CameraSettings(warmup_frames=1),
+                              capture_factory=lambda index, flag: FakeCapture(),
+                              owner="camera-api")
+
+        try:
+            with pytest.raises(SourceUnavailableError) as info:
+                second.open()
+
+            assert "already in use by 'vision-session'" in str(info.value)
+        finally:
+            first.close()
+
+    def test_reopen_after_a_hiccup_keeps_ownership(self):
+        """A device hiccup must not let another consumer steal the camera."""
+
+        from ml.webcam_source import WebcamSource, webcam_owner
+
+        capture = FakeCapture(frames=2)
+        source = WebcamSource(
+            CameraSettings(warmup_frames=1, reopen_after_failures=1),
+            capture_factory=lambda index, flag: capture,
+            owner="vision-session",
+        )
+        source.open()
+        source.read()
+
+        with pytest.raises(FrameReadError):
+            source.read()
+
+        assert source.is_open is False
+        assert webcam_owner(0) == "vision-session", "the session still intends to reopen"
+
+        source.close()
+        assert webcam_owner(0) is None
+
+    def test_camera_package_fails_fast_when_the_worker_owns_the_device(self):
+        from ml.webcam_source import claim_webcam
+
+        import camera.image_capture as ic
+
+        claim_webcam(0, "vision-session")
+
+        frame, error = ic.capture_from_webcam(0)
+
+        assert frame is None
+        assert "vision-session" in error
+        assert "/api/vision/stop" in error
+
+    def test_camera_package_sees_no_holder_when_the_index_is_free(self):
+        import camera.image_capture as ic
+
+        assert ic._webcam_holder(0) is None
+
+    def test_camera_package_works_without_the_ml_package(self):
+        """camera/ must not depend on ml/ - it falls back to its own lock."""
+
+        import builtins
+
+        import camera.image_capture as ic
+
+        real_import = builtins.__import__
+
+        def blocked(name, *args, **kwargs):
+            if name == "ml" or name.startswith("ml."):
+                raise ImportError("No module named 'ml'")
+
+            return real_import(name, *args, **kwargs)
+
+        try:
+            builtins.__import__ = blocked
+
+            assert ic._webcam_holder(0) is None
+            assert ic._shared_webcam_lock() is ic._LOCAL_WEBCAM_LOCK
+        finally:
+            builtins.__import__ = real_import
+
+    def test_no_lock_order_inversion(self):
+        """The ownership lock is a leaf: taking it must never need WEBCAM_LOCK."""
+
+        import threading
+
+        from ml import webcam_source as ws
+
+        acquired = []
+
+        def hold_webcam_lock():
+            with ws.WEBCAM_LOCK:
+                # While WEBCAM_LOCK is held, ownership calls must still work.
+                acquired.append(ws.claim_webcam(0, "probe"))
+                acquired.append(ws.webcam_owner(0))
+                ws.release_webcam(0, "probe")
+
+        thread = threading.Thread(target=hold_webcam_lock)
+        thread.start()
+        thread.join(timeout=5.0)
+
+        assert thread.is_alive() is False, "deadlock between the two locks"
+        assert acquired == [True, "probe"]

@@ -32,14 +32,80 @@ except Exception:  # pragma: no cover - numpy ships with the ML extras
     np = None  # type: ignore
 
 
-# One webcam per process. Both this package and camera/image_capture.py can
-# open a laptop camera, and on Windows a device usually allows a single
-# exclusive open - so brief opens are serialised on this shared lock.
+# ---------------------------------------------------------
+# WEBCAM ACCESS: one short lock + one ownership registry
+# ---------------------------------------------------------
 #
-# It is held only for the duration of an open/read/release, never for the life
-# of a VisionSession: the ML worker owns the camera while it runs, and holding a
-# lock that long would block the camera package indefinitely.
+# Two separate mechanisms, because they solve different problems:
+#
+#   WEBCAM_LOCK - serialises SHORT captures (open/read/release of a single
+#     frame). Held for milliseconds. Used by camera/image_capture.py and by the
+#     camera probe.
+#
+#   the ownership registry - records which long-lived consumer currently owns a
+#     camera index. The ML vision worker owns its camera for the whole session,
+#     and holding WEBCAM_LOCK that long would block every other endpoint, so
+#     ownership is *published* instead of locked.
+#
+# Lock ordering, to make inversion impossible:
+#   _OWNERSHIP_LOCK is a leaf lock. It is never held while acquiring
+#   WEBCAM_LOCK, and WEBCAM_LOCK is never held while acquiring it. Callers
+#   read ownership first, release that lock, then take WEBCAM_LOCK.
+#
+# Result: an endpoint can ask "does the vision worker own camera 0?" and fail
+# fast with a clear message, instead of fighting the OS for a device that is
+# already open elsewhere.
+
 WEBCAM_LOCK = threading.Lock()
+
+_OWNERSHIP_LOCK = threading.Lock()
+_OWNERS: Dict[int, str] = {}
+
+
+def claim_webcam(index: int, owner: str) -> bool:
+    """Register exclusive ownership of a camera index.
+
+    Returns True when this caller now owns it, False when another owner already
+    does. Idempotent for the same owner.
+    """
+
+    with _OWNERSHIP_LOCK:
+        current = _OWNERS.get(int(index))
+
+        if current is not None and current != owner:
+            return False
+
+        _OWNERS[int(index)] = owner
+        return True
+
+
+def release_webcam(index: int, owner: str) -> None:
+    """Release ownership. Only the current owner can release it."""
+
+    with _OWNERSHIP_LOCK:
+        if _OWNERS.get(int(index)) == owner:
+            _OWNERS.pop(int(index), None)
+
+
+def webcam_owner(index: int) -> Optional[str]:
+    """Who owns this camera index right now, or None when it is free."""
+
+    with _OWNERSHIP_LOCK:
+        return _OWNERS.get(int(index))
+
+
+def owned_webcams() -> Dict[int, str]:
+    """A snapshot of every claimed camera index (for status endpoints)."""
+
+    with _OWNERSHIP_LOCK:
+        return dict(_OWNERS)
+
+
+def reset_webcam_ownership() -> None:
+    """Clear the registry (tests, and recovery after an unclean shutdown)."""
+
+    with _OWNERSHIP_LOCK:
+        _OWNERS.clear()
 
 
 class SourceUnavailableError(RuntimeError):
@@ -103,9 +169,11 @@ class WebcamSource:
         self,
         settings: Optional[CameraSettings] = None,
         capture_factory: Optional[Callable[[int, int], Any]] = None,
+        owner: str = "vision-session",
     ) -> None:
         self.settings = settings or CameraSettings()
         self._capture_factory = capture_factory or self._open_capture
+        self.owner = owner
         self._capture: Any = None
         self._backend: str = ""
         self._resolution: Tuple[int, int] = (0, 0)
@@ -122,6 +190,10 @@ class WebcamSource:
     def open(self) -> None:
         """Open the camera, trying each backend in order.
 
+        Ownership is claimed before the device is touched and released on every
+        failure path, so a failed open never leaves the index marked as taken.
+        WEBCAM_LOCK is held only for the open itself, never for the session.
+
         Raises SourceUnavailableError listing every attempt when none works.
         """
 
@@ -129,8 +201,35 @@ class WebcamSource:
             if self._capture is not None:
                 return
 
-            attempts: List[str] = []
+            # Publish intent before opening, so a concurrent short capture
+            # fails fast with a clear reason instead of fighting the OS.
+            holder = webcam_owner(self.settings.index)
 
+            if holder is not None and holder != self.owner:
+                raise SourceUnavailableError(
+                    f"camera index {self.settings.index} is already in use by "
+                    f"{holder!r}; stop that session before opening it here"
+                )
+
+            if not claim_webcam(self.settings.index, self.owner):
+                raise SourceUnavailableError(
+                    f"camera index {self.settings.index} was claimed by another "
+                    "consumer while this one was starting"
+                )
+
+            try:
+                self._open_locked()
+            except BaseException:
+                # Any failure (including KeyboardInterrupt) frees the claim.
+                release_webcam(self.settings.index, self.owner)
+                raise
+
+    def _open_locked(self) -> None:
+        attempts: List[str] = []
+
+        # Brief, shared with camera/image_capture.py: this covers the open and
+        # the warm-up read only, not the lifetime of the session.
+        with WEBCAM_LOCK:
             for name, flag in self.settings.backend_candidates():
                 capture = None
 
@@ -160,9 +259,7 @@ class WebcamSource:
                 self._resolution = _frame_size(frame)
                 return
 
-            raise SourceUnavailableError(
-                self._unavailable_message(attempts)
-            )
+        raise SourceUnavailableError(self._unavailable_message(attempts))
 
     def _unavailable_message(self, attempts: Sequence[str]) -> str:
         tried = "; ".join(attempts) or "no backends available"
@@ -250,10 +347,17 @@ class WebcamSource:
             self._failures = 0
 
     def close(self) -> None:
-        """Release the camera. Safe to call more than once."""
+        """Release the camera and its ownership claim. Safe to call twice.
+
+        `_release_locked()` deliberately does NOT drop the claim: it is also
+        used when the device hiccups and the session intends to reopen, and
+        losing the claim there would let another consumer steal the camera
+        mid-session.
+        """
 
         with self._lock:
             self._release_locked()
+            release_webcam(self.settings.index, self.owner)
 
     def _release_locked(self) -> None:
         if self._capture is not None:
