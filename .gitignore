@@ -13,3 +13,13 @@ __pycache__/
 backend/.device_token_key
 backend/.device_token_pepper
 .device_sim_state.json
+
+# Downloaded model weights (fetched on first run, never committed)
+*.pt
+*.onnx
+*.engine
+ml/config/*.local.json
+
+# Ultralytics run artifacts
+runs/
+Ultralytics/

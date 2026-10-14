@@ -30,11 +30,13 @@ try:
     from backend.models import Conversation, Message
     from backend.device_api import router as device_router
     from backend.camera_api import router as camera_router
+    from backend.vision_api import router as vision_router
 except ImportError:
     from database import engine, SessionLocal, Base
     from models import Conversation, Message
     from device_api import router as device_router
     from camera_api import router as camera_router
+    from vision_api import router as vision_router
 
 
 # =========================================================
@@ -973,6 +975,53 @@ app.include_router(device_router)
 # when nothing is connected, and never block startup.
 
 app.include_router(camera_router)
+
+
+# =========================================================
+# VISION / ML ROUTES
+# =========================================================
+#
+# Laptop-webcam object detection lives in backend/vision_api.py, backed by the
+# ml/ package (Ultralytics YOLO). Additive only:
+#
+#   * one managed capture+inference worker is shared by every request
+#   * JSON status/health/detections answer even when the ML extras, the camera
+#     or the model are missing, so nothing here blocks startup
+#   * raw webcam frames are served only when VISION_STREAM_TOKEN is configured
+#     and presented - never to an unauthenticated client
+#   * the worker is shut down (and the camera released) on app shutdown
+
+app.include_router(vision_router)
+
+
+def _shutdown_vision_worker() -> None:
+    """Release the laptop webcam when the backend stops."""
+
+    try:
+        from backend.vision_api import shutdown_vision
+    except ImportError:
+        from vision_api import shutdown_vision
+
+    shutdown_vision()
+
+
+# Wrap the existing lifespan instead of registering a deprecated on_event
+# handler, so whatever startup/shutdown the app already has keeps working.
+from contextlib import asynccontextmanager as _asynccontextmanager
+
+_original_lifespan = app.router.lifespan_context
+
+
+@_asynccontextmanager
+async def _lifespan_with_vision_cleanup(application):
+    async with _original_lifespan(application):
+        try:
+            yield
+        finally:
+            _shutdown_vision_worker()
+
+
+app.router.lifespan_context = _lifespan_with_vision_cleanup
 
 
 # =========================================================

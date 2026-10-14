@@ -1,0 +1,38 @@
+# =========================================================
+# VISIONARY NEXUS - ML / COMPUTER VISION EXTRAS
+# =========================================================
+#
+# These are SEPARATE from backend/requirements.txt on purpose: the FastAPI
+# backend, the database, authentication and every existing feature work without
+# any of this. Install these only to enable webcam object detection.
+#
+#   Windows   .venv\Scripts\pip install -r requirements-ml.txt
+#   Linux     .venv/bin/pip install -r requirements-ml.txt
+#
+# CPU-ONLY TORCH (recommended for a laptop with no NVIDIA GPU, saves ~2 GB):
+#
+#   Windows   .venv\Scripts\pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+#             .venv\Scripts\pip install ultralytics lap opencv-python-headless
+#
+# MODEL WEIGHTS are NOT in this file and are NOT committed. On first run
+# Ultralytics downloads yolov8n.pt (~6 MB) from its GitHub release assets into
+# the working directory. If the machine is offline, download it once elsewhere
+# and either place it in the project root or point VISION_MODEL_PATH at it.
+# See ml/README.md.
+#
+# Notes:
+#   * opencv-python-headless (not opencv-python) so a headless server does not
+#     need GUI libraries. Ultralytics may pull in opencv-python as a dependency;
+#     if `import cv2` then fails with a missing libGL, uninstall opencv-python
+#     and reinstall opencv-python-headless.
+#   * lap is required only for tracking (VISION_TRACKING=true / --track).
+#     Without it, Ultralytics tries to install it at run time, which fails
+#     offline - so it is listed explicitly here.
+#   * No package here is pinned: the backend keeps working on whatever versions
+#     satisfy it, and the ML stack tracks its own upstream releases.
+
+ultralytics>=8.0.0
+lap>=0.5.12
+opencv-python-headless>=4.8.0
+numpy>=1.24.0
+pillow>=9.0.0

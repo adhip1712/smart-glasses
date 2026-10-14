@@ -1,0 +1,32 @@
+{
+  "_comment": "Visionary Nexus ML defaults. Environment variables override these; see ml/README.md.",
+  "enabled": true,
+  "camera": {
+    "source": "webcam",
+    "index": 0,
+    "width": 640,
+    "height": 480,
+    "fps": 30,
+    "backend": "auto",
+    "warmup_frames": 2,
+    "reopen_after_failures": 15
+  },
+  "model": {
+    "path": "yolov8n.pt",
+    "confidence": 0.4,
+    "iou": 0.5,
+    "imgsz": 640,
+    "device": "cpu",
+    "max_detections": 25,
+    "tracking": false,
+    "tracker": "bytetrack.yaml",
+    "allow_download": true,
+    "warmup": true
+  },
+  "worker": {
+    "target_fps": 8,
+    "jpeg_quality": 75,
+    "capture_frames": true,
+    "max_frame_age_seconds": 5
+  }
+}
