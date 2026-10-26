@@ -1,11 +1,63 @@
 import { useState, useEffect } from 'react'
 
+import { cameraSnapshotUrl, fetchCameraStatus, type CameraStatus } from '../api/camera'
+import {
+  fetchVisionDetections,
+  fetchVisionStatus,
+  startVision,
+  stopVision,
+  visionFrameUrl,
+  visionVideoAvailable,
+  type VisionDetection,
+  type VisionDetections,
+  type VisionStatus,
+} from '../api/vision'
+
+// Fallback visuals only. Whenever the ML worker returns real detections these
+// are not used - the screen shows what the model actually found.
 const detectedObjects = [
   { label: 'Laptop', confidence: 96.2, x: 15, y: 20, w: 35, h: 25, color: '#00e5ff' },
   { label: 'Coffee Mug', confidence: 89.1, x: 60, y: 55, w: 12, h: 18, color: '#a855f7' },
   { label: 'Notebook', confidence: 91.8, x: 52, y: 20, w: 20, h: 30, color: '#4d9eff' },
   { label: 'Person', confidence: 98.4, x: 72, y: 10, w: 22, h: 60, color: '#4ade80' },
 ]
+
+// One stable colour per COCO class id, so an object keeps its colour.
+const detectionPalette = ['#00e5ff', '#ffb020', '#a855f7', '#4ade80', '#4d9eff', '#ff79c6', '#facc15', '#ff9178']
+
+const colourForClass = (classId: number) =>
+  detectionPalette[Math.abs(classId) % detectionPalette.length]
+
+/** Normalise a real or simulated object into the percentages the overlay draws. */
+interface OverlayObject {
+  key: string
+  label: string
+  confidence: number
+  x: number
+  y: number
+  w: number
+  h: number
+  color: string
+  trackId: number | null
+}
+
+const toOverlay = (detection: VisionDetection): OverlayObject | null => {
+  const box = detection.box_normalized
+
+  if (!box) return null
+
+  return {
+    key: detection.track_id !== null ? `track-${detection.track_id}` : `${detection.label}-${detection.box.x1}-${detection.box.y1}`,
+    label: detection.label,
+    confidence: detection.confidence * 100,
+    x: box.x * 100,
+    y: box.y * 100,
+    w: box.width * 100,
+    h: box.height * 100,
+    color: colourForClass(detection.class_id),
+    trackId: detection.track_id,
+  }
+}
 
 const sceneDescription = "Office workspace with 4 people detected. Overhead fluorescent lighting, daytime. Approximately 12m² visible area. No hazards detected. Wi-Fi networks visible: 3. Dominant colors: white, grey, blue."
 
@@ -14,6 +66,176 @@ export default function Vision() {
   const [scanY, setScanY] = useState(0)
   const [showObjects, setShowObjects] = useState(true)
   const [captureFlash, setCaptureFlash] = useState(false)
+
+  // Real ESP32-CAM state. The screen keeps working when the board is absent:
+  // `camera` stays null, `frameFailed` falls back to the simulated visuals.
+  const [camera, setCamera] = useState<CameraStatus | null>(null)
+  const [frameTick, setFrameTick] = useState(0)
+  const [frameFailed, setFrameFailed] = useState(false)
+
+  // Real ML state (laptop webcam + Ultralytics YOLO). None of this is required
+  // for the screen to render: if the worker is stopped, the ML extras are not
+  // installed, or the camera is missing, the simulated visuals stay in place.
+  const [vision, setVision] = useState<VisionStatus | null>(null)
+  const [visionDetections, setVisionDetections] = useState<VisionDetections | null>(null)
+  const [visionBusy, setVisionBusy] = useState(false)
+  const [visionError, setVisionError] = useState('')
+  const [visionFrameTick, setVisionFrameTick] = useState(0)
+  const [visionFrameFailed, setVisionFrameFailed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const poll = async () => {
+      const status = await fetchVisionStatus()
+
+      if (cancelled) return
+
+      if (status) {
+        setVision(status)
+
+        if (status.errors.length > 0) setVisionError(status.errors[0])
+        else if (!status.ml_available) {
+          setVisionError(
+            'ML extras are not installed on the backend - install requirements-ml.txt to enable detection.',
+          )
+        } else setVisionError('')
+      }
+    }
+
+    poll()
+    const interval = setInterval(poll, 5000)
+
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [])
+
+  // Poll detections only while the worker is running.
+  useEffect(() => {
+    if (!vision?.running) {
+      setVisionDetections(null)
+      return
+    }
+
+    let cancelled = false
+
+    const poll = async () => {
+      const result = await fetchVisionDetections()
+
+      if (!cancelled && result) setVisionDetections(result)
+    }
+
+    poll()
+    const interval = setInterval(poll, 600)
+
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [vision?.running])
+
+  // Refresh the annotated preview when the backend allows frame access.
+  useEffect(() => {
+    if (!vision?.running || !visionVideoAvailable() || visionFrameFailed) return
+
+    const interval = setInterval(() => setVisionFrameTick(t => t + 1), 1500)
+
+    return () => clearInterval(interval)
+  }, [vision?.running, visionFrameFailed])
+
+  const handleVisionToggle = async () => {
+    setVisionBusy(true)
+    setVisionError('')
+
+    const result = vision?.running ? await stopVision() : await startVision()
+
+    if (result === null) {
+      setVisionError('The backend did not answer. Is the API running on the expected port?')
+    } else if (result.error) {
+      setVisionError(result.error)
+    }
+
+    // Reflect the change immediately instead of waiting for the next poll.
+    setVision(await fetchVisionStatus())
+    setVisionBusy(false)
+  }
+
+  useEffect(() => {
+    let cancelled = false
+
+    const poll = async () => {
+      const status = await fetchCameraStatus()
+
+      if (cancelled) return
+
+      if (status) setCamera(status)
+      if (status?.reachable) setFrameFailed(false)
+    }
+
+    poll()
+    const interval = setInterval(poll, 5000)
+
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [])
+
+  // Refresh the still frame while the board is answering.
+  useEffect(() => {
+    if (!camera?.reachable || frameFailed) return
+
+    const interval = setInterval(() => setFrameTick(t => t + 1), 1500)
+
+    return () => clearInterval(interval)
+  }, [camera?.reachable, frameFailed])
+
+  const liveFrame = Boolean(camera?.reachable) && !frameFailed
+  const hasFrame = Boolean(camera?.last_frame)
+
+  // The laptop-webcam ML feed takes precedence while its worker is running;
+  // otherwise the ESP32-CAM frame is used, and finally the simulated visuals.
+  const mlLive = Boolean(vision?.running) && visionVideoAvailable() && !visionFrameFailed
+  const activeFeed = mlLive ? 'ML' : liveFrame ? 'CAM' : 'SIM'
+
+  const feedLabel = mlLive
+    ? 'ML LIVE'
+    : vision?.running
+      ? 'DETECTING'
+      : liveFrame
+        ? 'LIVE FEED'
+        : hasFrame
+          ? 'RECONNECTING'
+          : 'SIMULATED FEED'
+  const feedColour = mlLive || vision?.running ? '#4ade80' : liveFrame ? '#4ade80' : hasFrame ? '#facc15' : '#64748b'
+
+  // Real detections replace the placeholder objects whenever the model reports any.
+  const realObjects = (visionDetections?.detections ?? [])
+    .map(toOverlay)
+    .filter((item): item is OverlayObject => item !== null)
+  const overlayObjects: OverlayObject[] =
+    realObjects.length > 0
+      ? realObjects
+      : detectedObjects.map(obj => ({ ...obj, key: obj.label, trackId: null }))
+  const usingRealDetections = realObjects.length > 0
+
+  const mlResolution = visionDetections?.frame?.width
+    ? `${visionDetections.frame.width}×${visionDetections.frame.height}`
+    : ''
+  const resolution = mlResolution
+    ? `${mlResolution} · YOLO`
+    : camera?.last_frame?.resolution
+      ? `${camera.last_frame.resolution}${camera.last_frame.stale ? ' · STALE' : ''}`
+      : '1920×1080 · 30FPS'
+
+  const fpsText = vision?.running ? `${(vision.fps ?? 0).toFixed(1)} FPS` : ''
+  const latencyText = vision?.running ? `${(vision.inference_ms ?? 0).toFixed(0)} ms` : ''
+  const modelName = vision?.model?.path?.split(/[\\/]/).pop() ?? ''
+  const sourceLabel = vision?.running
+    ? `WEBCAM · ${modelName || 'YOLO'}`
+    : 'ESP32-CAM Neural Vision System'
 
   useEffect(() => {
     if (!scanning) return
@@ -35,12 +257,14 @@ export default function Vision() {
         <div>
           <h1 className="font-display text-2xl font-bold tracking-widest text-white">VISION MODE</h1>
           <div className="font-mono text-xs text-white/30 tracking-widest mt-0.5 uppercase">
-            ESP32-CAM Neural Vision System
+            {sourceLabel}
           </div>
         </div>
         <div className="flex items-center gap-2 px-4 py-2 rounded-full glass">
-          <div className="w-2 h-2 rounded-full bg-green-400 animate-status-blink" style={{ color: '#4ade80' }} />
-          <span className="font-display text-[10px] text-green-400 tracking-widest">LIVE FEED</span>
+          <div className="w-2 h-2 rounded-full animate-status-blink" style={{ backgroundColor: feedColour, color: feedColour }} />
+          <span className="font-display text-[10px] tracking-widest" style={{ color: feedColour }}>
+            {feedLabel}
+          </span>
         </div>
       </div>
 
@@ -61,6 +285,29 @@ export default function Vision() {
               <div className="absolute inset-0 bg-white/60 z-30 pointer-events-none transition-opacity" />
             )}
 
+            {/* Live ESP32-CAM frame (backend camera service). Falls back to the
+                simulated visuals below whenever the board is not answering. */}
+            {liveFrame && !mlLive && (
+              <img
+                src={cameraSnapshotUrl(frameTick)}
+                alt="ESP32-CAM live frame"
+                className="absolute inset-0 w-full h-full object-cover"
+                onError={() => setFrameFailed(true)}
+              />
+            )}
+
+            {/* Annotated laptop-webcam frame from the ML worker. Boxes and
+                labels are already drawn server-side, so the DOM overlay below
+                is only needed when frame access is not enabled. */}
+            {mlLive && (
+              <img
+                src={visionFrameUrl(visionFrameTick)}
+                alt="Visionary Nexus live detection frame"
+                className="absolute inset-0 w-full h-full object-cover"
+                onError={() => setVisionFrameFailed(true)}
+              />
+            )}
+
             {/* Simulated camera noise/environment */}
             <div className="absolute inset-0 opacity-20"
               style={{
@@ -74,10 +321,12 @@ export default function Vision() {
                 backgroundSize: '10% 10%',
               }} />
 
-            {/* Object detection boxes */}
-            {showObjects && detectedObjects.map((obj) => (
+            {/* Object detection boxes. Real YOLO boxes when the worker is
+                reporting them; hidden while the annotated frame already has
+                them drawn server-side, so they are not shown twice. */}
+            {showObjects && !mlLive && overlayObjects.map((obj) => (
               <div
-                key={obj.label}
+                key={obj.key}
                 className="absolute transition-all duration-500"
                 style={{
                   left: `${obj.x}%`, top: `${obj.y}%`,
@@ -107,7 +356,7 @@ export default function Vision() {
                   className="absolute -top-6 left-0 px-2 py-0.5 rounded-sm font-mono text-[10px] whitespace-nowrap"
                   style={{ background: `${obj.color}20`, border: `1px solid ${obj.color}60`, color: obj.color }}
                 >
-                  {obj.label} {obj.confidence.toFixed(1)}%
+                  {obj.label}{obj.trackId !== null ? ` #${obj.trackId}` : ''} {obj.confidence.toFixed(1)}%
                 </div>
               </div>
             ))}
@@ -152,11 +401,21 @@ export default function Vision() {
             {/* Status overlays */}
             <div className="absolute bottom-3 left-3 flex items-center gap-3">
               <div className="font-mono text-[10px] text-white/40 bg-black/50 px-2 py-1 rounded">
-                1920×1080 · 30FPS
+                {resolution}
               </div>
               <div className="font-mono text-[10px] text-cyan-400 bg-black/50 px-2 py-1 rounded">
-                FOV 120°
+                {vision?.running && fpsText ? fpsText : 'FOV 120°'}
               </div>
+              {vision?.running && latencyText && (
+                <div className="font-mono text-[10px] text-purple-300 bg-black/50 px-2 py-1 rounded">
+                  {latencyText} INFER
+                </div>
+              )}
+              {vision?.running && vision.tracking && (
+                <div className="font-mono text-[10px] text-emerald-300 bg-black/50 px-2 py-1 rounded">
+                  TRACKING
+                </div>
+              )}
             </div>
             <div className="absolute top-3 right-3">
               <div className="flex items-center gap-1.5 font-mono text-[10px] bg-black/50 px-2 py-1 rounded">
@@ -179,6 +438,19 @@ export default function Vision() {
               }}
             >
               CAPTURE
+            </button>
+            <button
+              onClick={handleVisionToggle}
+              disabled={visionBusy}
+              className="px-5 py-2.5 rounded-xl font-display text-[11px] tracking-widest transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:hover:scale-100"
+              style={{
+                background: vision?.running ? 'rgba(239,68,68,0.1)' : 'rgba(74,222,128,0.1)',
+                border: `1px solid ${vision?.running ? 'rgba(239,68,68,0.4)' : 'rgba(74,222,128,0.4)'}`,
+                color: vision?.running ? '#ef4444' : '#4ade80',
+                boxShadow: `0 0 16px ${vision?.running ? 'rgba(239,68,68,0.15)' : 'rgba(74,222,128,0.15)'}`,
+              }}
+            >
+              {visionBusy ? 'WAITING…' : vision?.running ? 'STOP DETECTION' : 'START DETECTION'}
             </button>
             <button
               className="px-5 py-2.5 rounded-xl font-display text-[11px] tracking-widest transition-all duration-300 hover:scale-105"
@@ -218,14 +490,78 @@ export default function Vision() {
 
         {/* Right panel */}
         <div className="space-y-4">
+          {/* Model / camera status. Real state from /api/vision/status. */}
+          <div className="glass rounded-2xl p-5">
+            <div className="font-display text-xs tracking-widest text-white/50 uppercase mb-3">
+              Vision Pipeline
+            </div>
+            <div className="space-y-2">
+              {[
+                { label: 'Worker', value: vision?.running ? 'RUNNING' : 'STOPPED', ok: Boolean(vision?.running) },
+                { label: 'Camera', value: vision?.camera_available ? 'OPEN' : 'UNAVAILABLE', ok: Boolean(vision?.camera_available) },
+                { label: 'Model', value: vision?.model_loaded ? 'LOADED' : vision?.model_available ? 'READY' : 'MISSING', ok: Boolean(vision?.model_loaded) },
+                { label: 'Tracking', value: vision?.tracking ? 'ON' : 'OFF', ok: Boolean(vision?.tracking) },
+              ].map(({ label, value, ok }) => (
+                <div key={label} className="flex items-center justify-between font-mono text-[11px]">
+                  <span className="text-white/40 uppercase">{label}</span>
+                  <span style={{ color: ok ? '#4ade80' : '#94a3b8' }}>{value}</span>
+                </div>
+              ))}
+              {vision?.model?.ultralytics_version && (
+                <div className="flex items-center justify-between font-mono text-[11px]">
+                  <span className="text-white/40 uppercase">Engine</span>
+                  <span className="text-white/60">YOLO v{vision.model.ultralytics_version}</span>
+                </div>
+              )}
+              {vision?.running && (
+                <>
+                  <div className="flex items-center justify-between font-mono text-[11px]">
+                    <span className="text-white/40 uppercase">Frames</span>
+                    <span className="text-white/60">{vision.frames}</span>
+                  </div>
+                  <div className="flex items-center justify-between font-mono text-[11px]">
+                    <span className="text-white/40 uppercase">Avg infer</span>
+                    <span className="text-white/60">{(vision.model?.average_inference_ms ?? 0).toFixed(1)} ms</span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {visionError && (
+              <div
+                className="mt-3 px-3 py-2 rounded-lg font-mono text-[10px] leading-relaxed"
+                style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', color: '#fca5a5' }}
+              >
+                {visionError}
+              </div>
+            )}
+            {!visionError && vision?.running && !visionVideoAvailable() && (
+              <div
+                className="mt-3 px-3 py-2 rounded-lg font-mono text-[10px] leading-relaxed"
+                style={{ background: 'rgba(250,204,21,0.06)', border: '1px solid rgba(250,204,21,0.25)', color: '#fde68a' }}
+              >
+                Video preview is off: set VISION_STREAM_TOKEN on the backend and
+                VITE_VISION_TOKEN here to stream annotated frames. Detections below are real.
+              </div>
+            )}
+          </div>
+
           {/* Detected objects */}
           <div className="glass rounded-2xl p-5">
             <div className="font-display text-xs tracking-widest text-white/50 uppercase mb-4">
-              Detected Objects ({detectedObjects.length})
+              Detected Objects ({overlayObjects.length})
+              <span className="ml-2 normal-case tracking-normal text-white/25">
+                {usingRealDetections ? 'live' : 'preview'}
+              </span>
             </div>
+            {vision?.running && usingRealDetections === false && (
+              <div className="font-mono text-[10px] text-white/30 mb-3">
+                Nothing above {(vision.model?.confidence ?? 0.4).toFixed(2)} confidence yet.
+              </div>
+            )}
             <div className="space-y-3">
-              {detectedObjects.map((obj) => (
-                <div key={obj.label} className="flex items-center gap-3">
+              {overlayObjects.map((obj) => (
+                <div key={obj.key} className="flex items-center gap-3">
                   <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: obj.color, boxShadow: `0 0 6px ${obj.color}` }} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
@@ -247,13 +583,22 @@ export default function Vision() {
           {/* Scene description */}
           <div className="glass rounded-2xl p-5">
             <div className="font-display text-xs tracking-widest text-white/50 uppercase mb-3">Scene Analysis</div>
-            <p className="font-mono text-xs text-white/60 leading-relaxed">{sceneDescription}</p>
+            <p className="font-mono text-xs text-white/60 leading-relaxed">
+              {usingRealDetections
+                ? `YOLO found ${overlayObjects.length} object(s) across ${Object.keys(visionDetections?.labels ?? {}).length} class(es): ${Object.entries(visionDetections?.labels ?? {}).map(([name, count]) => `${name} ×${count}`).join(', ')}.`
+                : sceneDescription}
+            </p>
+            {!usingRealDetections && (
+              <div className="font-mono text-[9px] text-white/25 mt-2">
+                placeholder text - start detection to replace it with real results
+              </div>
+            )}
             <div className="mt-4 pt-4 border-t border-white/5 grid grid-cols-2 gap-3">
               {[
-                { label: 'Objects', value: '4', color: '#00e5ff' },
-                { label: 'People', value: '1', color: '#a855f7' },
-                { label: 'Depth', value: '~3.4m', color: '#4d9eff' },
-                { label: 'Light', value: 'Indoor', color: '#4ade80' },
+                { label: 'Objects', value: String(overlayObjects.length), color: '#00e5ff' },
+                { label: 'People', value: String(visionDetections?.labels?.person ?? (usingRealDetections ? 0 : 1)), color: '#a855f7' },
+                { label: 'Classes', value: String(Object.keys(visionDetections?.labels ?? {}).length || (usingRealDetections ? 0 : 4)), color: '#4d9eff' },
+                { label: 'FPS', value: vision?.running ? (vision.fps ?? 0).toFixed(1) : '–', color: '#4ade80' },
               ].map(({ label, value, color }) => (
                 <div key={label} className="text-center p-2 rounded-lg"
                   style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>

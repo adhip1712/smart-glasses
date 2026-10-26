@@ -4,3 +4,6 @@ python-multipart
 google-genai
 python-dotenv
 PyJWT
+sqlalchemy
+cryptography
+groq

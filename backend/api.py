@@ -28,9 +28,15 @@ from sqlalchemy.orm import Session
 try:
     from backend.database import engine, SessionLocal, Base
     from backend.models import Conversation, Message
+    from backend.device_api import router as device_router
+    from backend.camera_api import router as camera_router
+    from backend.vision_api import router as vision_router
 except ImportError:
     from database import engine, SessionLocal, Base
     from models import Conversation, Message
+    from device_api import router as device_router
+    from camera_api import router as camera_router
+    from vision_api import router as vision_router
 
 
 # =========================================================
@@ -948,6 +954,74 @@ app = FastAPI(
     title="VISIONARY NEXUS API",
     version="7.0.0"
 )
+
+
+# =========================================================
+# DEVICE LIFECYCLE ROUTES
+# =========================================================
+#
+# Provisioning / registration / heartbeat live in backend/device_api.py.
+# They are deliberately idempotent: one physical device == one row.
+
+app.include_router(device_router)
+
+
+# =========================================================
+# CAMERA ROUTES
+# =========================================================
+#
+# ESP32-CAM / webcam pipeline lives in backend/camera_api.py, backed by the
+# camera/ package. The board is optional: these routes answer with useful JSON
+# when nothing is connected, and never block startup.
+
+app.include_router(camera_router)
+
+
+# =========================================================
+# VISION / ML ROUTES
+# =========================================================
+#
+# Laptop-webcam object detection lives in backend/vision_api.py, backed by the
+# ml/ package (Ultralytics YOLO). Additive only:
+#
+#   * one managed capture+inference worker is shared by every request
+#   * JSON status/health/detections answer even when the ML extras, the camera
+#     or the model are missing, so nothing here blocks startup
+#   * raw webcam frames are served only when VISION_STREAM_TOKEN is configured
+#     and presented - never to an unauthenticated client
+#   * the worker is shut down (and the camera released) on app shutdown
+
+app.include_router(vision_router)
+
+
+def _shutdown_vision_worker() -> None:
+    """Release the laptop webcam when the backend stops."""
+
+    try:
+        from backend.vision_api import shutdown_vision
+    except ImportError:
+        from vision_api import shutdown_vision
+
+    shutdown_vision()
+
+
+# Wrap the existing lifespan instead of registering a deprecated on_event
+# handler, so whatever startup/shutdown the app already has keeps working.
+from contextlib import asynccontextmanager as _asynccontextmanager
+
+_original_lifespan = app.router.lifespan_context
+
+
+@_asynccontextmanager
+async def _lifespan_with_vision_cleanup(application):
+    async with _original_lifespan(application):
+        try:
+            yield
+        finally:
+            _shutdown_vision_worker()
+
+
+app.router.lifespan_context = _lifespan_with_vision_cleanup
 
 
 # =========================================================
@@ -2305,15 +2379,22 @@ if __name__ == "__main__":
 
     import uvicorn
 
+    # Single source of truth for where the backend listens.
+    #
+    # Host defaults to 0.0.0.0 so a physical glasses device on the same LAN
+    # can reach this API (127.0.0.1 is not reachable from the ESP32).
+    # Port defaults to 8000, which is what every other component in this
+    # repository already assumes (app/app.js, Settings.tsx, the Vite proxy).
+    # Set HOST/PORT to move the whole stack without touching any file.
     uvicorn.run(
 
         "api:app",
 
         host=
-            "127.0.0.1",
+            os.getenv("HOST", "0.0.0.0"),
 
         port=
-            8000,
+            int(os.getenv("PORT", "8000")),
 
         reload=
             True
