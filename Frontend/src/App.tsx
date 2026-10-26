@@ -3,10 +3,11 @@ import Dashboard from './components/Dashboard'
 import AIAssistant from './components/AIAssistant'
 import Vision from './components/Vision'
 import AudioPanel from './components/AudioPanel'
+import Dictation from './components/Dictation'
 import Device from './components/Device'
 import Settings from './components/Settings'
 
-export type Tab = 'dashboard' | 'ai' | 'vision' | 'audio' | 'device' | 'settings'
+export type Tab = 'dashboard' | 'ai' | 'vision' | 'audio' | 'dictation' | 'device' | 'settings'
 
 const DashIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
@@ -50,6 +51,7 @@ const tabs = [
   { id: 'ai' as Tab, label: 'AI Assistant', Icon: AIIcon },
   { id: 'vision' as Tab, label: 'Vision', Icon: EyeIcon },
   { id: 'audio' as Tab, label: 'Audio', Icon: WaveIcon },
+  { id: 'dictation' as Tab, label: 'Dictation', Icon: WaveIcon },
   { id: 'device' as Tab, label: 'Device', Icon: ChipIcon },
   { id: 'settings' as Tab, label: 'Settings', Icon: GearIcon },
 ]
@@ -170,6 +172,7 @@ export default function App() {
           {activeTab === 'ai' && <AIAssistant />}
           {activeTab === 'vision' && <Vision />}
           {activeTab === 'audio' && <AudioPanel />}
+          {activeTab === 'dictation' && <Dictation />}
           {activeTab === 'device' && <Device />}
           {activeTab === 'settings' && <Settings />}
         </div>
