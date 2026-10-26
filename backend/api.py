@@ -1941,8 +1941,9 @@ def generate_ai_title(
 
                         "content":
                             """
-Create a short title for
-the user's message.
+Create a short, useful title for the conversation using the conversation context below.
+Capture its main topic, not a verbatim copy of the latest prompt. Consider the
+earlier messages and latest exchange together.
 
 Rules:
 
@@ -2369,36 +2370,37 @@ def ask(
 
         db.commit()
 
+        # Refresh the AI-generated title as the conversation develops,
+        # using recent user prompts and assistant replies instead of only
+        # copying or titling from the first prompt.
+        recent_messages = (
+            db.query(Message)
+            .filter(
+                Message.conversation_id == conversation.id
+            )
+            .order_by(Message.created_at.desc())
+            .limit(8)
+            .all()
+        )
+        recent_messages.reverse()
+
+        title_context = "\n".join(
+            f"{item.role}: {item.content[:500]}"
+            for item in recent_messages
+        )
+
+        generated_title = generate_ai_title(title_context)
         conversation_title = None
 
         if (
-            first_message
-            and conversation.title
-            .strip()
-            .lower()
-            ==
-            "new chat"
+            generated_title
+            and generated_title != "New Chat"
+            and generated_title != conversation.title
         ):
-
-            generated_title = (
-                generate_ai_title(
-                    message
-                )
-            )
-
-            conversation.title = (
-                generated_title
-            )
-
+            conversation.title = generated_title[:60]
             db.commit()
-
-            db.refresh(
-                conversation
-            )
-
-            conversation_title = (
-                conversation.title
-            )
+            db.refresh(conversation)
+            conversation_title = conversation.title
 
         return {
 
