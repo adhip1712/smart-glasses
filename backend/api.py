@@ -16,7 +16,12 @@ import jwt
 
 from dotenv import load_dotenv
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+
+try:
+    from backend.dictation_text import build_dictation_messages
+except ImportError:
+    from dictation_text import build_dictation_messages
 from fastapi.middleware.cors import CORSMiddleware
 
 from pydantic import BaseModel
@@ -1067,6 +1072,12 @@ class ConversationRename(BaseModel):
 
 class WakeRequest(BaseModel):
     phrase: str
+
+
+class DictationRewriteRequest(BaseModel):
+    transcript: str
+    language: str = "en-US"
+    format: str = "natural"
 
 
 class NavigationRequest(BaseModel):
@@ -2369,6 +2380,38 @@ def ask(
     finally:
 
         db.close()
+
+
+# =========================================================
+# MULTILINGUAL DICTATION REWRITE
+# =========================================================
+
+@app.post("/api/dictation/rewrite")
+def rewrite_dictation(request: DictationRewriteRequest):
+    transcript = request.transcript.strip()
+    if not transcript:
+        raise HTTPException(status_code=400, detail="Transcript cannot be empty.")
+    if len(transcript) > 20000:
+        raise HTTPException(status_code=413, detail="Transcript is too long (maximum 20,000 characters).")
+    if groq is None:
+        raise HTTPException(status_code=503, detail="AI is not configured. Add GROQ_API_KEY to the backend .env file.")
+
+    try:
+        completion = groq.chat.completions.create(
+            model="openai/gpt-oss-20b",
+            messages=build_dictation_messages(transcript, request.language, request.format),
+            temperature=0.2,
+            max_completion_tokens=4096,
+        )
+        text = (completion.choices[0].message.content or "").strip()
+        if not text:
+            raise HTTPException(status_code=502, detail="The AI returned an empty result.")
+        return {"success": True, "text": text, "language": request.language, "format": request.format, "source": "Groq"}
+    except HTTPException:
+        raise
+    except Exception as error:
+        print("Dictation rewrite error:", str(error))
+        raise HTTPException(status_code=502, detail="AI dictation rewrite failed. Check the AI provider status and backend logs.") from error
 
 
 # =========================================================
