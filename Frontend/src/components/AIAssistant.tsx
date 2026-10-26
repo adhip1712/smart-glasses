@@ -1807,22 +1807,36 @@ const AIAssistant: React.FC = () => {
     const isTabCommand = handleTabCommand(message)
     if (isTabCommand) return
 
-    // If this prompt has a clear topic different from the first user prompt
-    // in the active conversation, create a database-backed chat automatically.
-    // Ambiguous short follow-ups (for example "how?") do not trigger a switch.
+    // Ask the backend AI to compare this prompt with the actual conversation
+    // history. It creates a new chat only when the subject is clearly unrelated;
+    // pronouns and follow-ups such as "what is his salary?" stay in context.
     let conversationId = activeTab
-    const currentTopic = inferTopic(firstUserPrompt(messages))
-    const nextTopic = inferTopic(message)
 
-    if (
-      conversationId !== null &&
-      currentTopic !== null &&
-      nextTopic !== null &&
-      currentTopic !== nextTopic
-    ) {
-      const newConversationId = await createNewTab()
-      if (newConversationId === null) return
-      conversationId = newConversationId
+    if (conversationId !== null) {
+      try {
+        const routeResponse = await fetch(`${API_URL}/api/conversations/route`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message,
+            conversation_id: conversationId,
+          }),
+        })
+
+        if (routeResponse.ok) {
+          const routing = await routeResponse.json()
+          if (routing?.decision === "new_chat") {
+            const newConversationId = await createNewTab()
+            if (newConversationId === null) return
+            conversationId = newConversationId
+          }
+        } else {
+          console.warn("Conversation routing unavailable; keeping the current chat.")
+        }
+      } catch (error) {
+        // Fail safe: a routing network error must not unexpectedly open a new tab.
+        console.warn("Conversation routing failed; keeping the current chat.", error)
+      }
     }
 
     if (conversationId === null) {

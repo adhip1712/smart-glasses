@@ -1095,6 +1095,11 @@ class ConversationCreate(BaseModel):
     title: str = "New Chat"
 
 
+class ConversationRoutingRequest(BaseModel):
+    message: str
+    conversation_id: int
+
+
 class ConversationRename(BaseModel):
     title: str
 
@@ -1222,6 +1227,87 @@ def get_conversations():
 
     finally:
 
+        db.close()
+
+
+# =========================================================
+# SEMANTIC CONVERSATION ROUTING
+# =========================================================
+
+@app.post("/api/conversations/route")
+def route_conversation(request: ConversationRoutingRequest):
+    """Use conversation context to decide whether a prompt belongs in this chat.
+
+    Ambiguous or contextual follow-ups stay in the current conversation. Only
+    a clearly unrelated subject should start a new chat.
+    """
+    message = (request.message or "").strip()
+    if not message:
+        return {"success": True, "decision": "continue", "reason": "empty_message"}
+
+    if groq is None:
+        # Fail safe: never split a conversation just because classification is unavailable.
+        return {"success": True, "decision": "continue", "reason": "ai_unavailable"}
+
+    db: Session = SessionLocal()
+    try:
+        conversation = (
+            db.query(Conversation)
+            .filter(
+                Conversation.id == request.conversation_id,
+                Conversation.user_id == "local_user",
+            )
+            .first()
+        )
+        if not conversation:
+            return {"success": False, "decision": "continue", "reason": "conversation_not_found"}
+
+        history = (
+            db.query(Message)
+            .filter(Message.conversation_id == conversation.id)
+            .order_by(Message.created_at.desc())
+            .limit(10)
+            .all()
+        )
+        history.reverse()
+        if not history:
+            return {"success": True, "decision": "continue", "reason": "empty_conversation"}
+
+        context = "\n".join(
+            f"{item.role}: {item.content[:700]}" for item in history
+        )
+        completion = groq.chat.completions.create(
+            model="openai/gpt-oss-20b",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You decide whether a user's latest message belongs in the existing conversation or starts a genuinely new topic. "
+                        "Return exactly one word: CONTINUE or NEW_CHAT.\n\n"
+                        "Choose CONTINUE when the message refers to something discussed earlier, asks a follow-up, requests another detail, "
+                        "uses pronouns such as he/she/they/it/his/her/that/this, or is plausibly related to the existing subject. "
+                        "For example, after discussing Cristiano Ronaldo, 'what is his salary?' and 'is he the GOAT?' are CONTINUE. "
+                        "Choose NEW_CHAT only when the message is clearly about a different, unrelated subject, such as asking for Bengaluru weather "
+                        "after a conversation about Ronaldo. When uncertain, always choose CONTINUE. Do not judge based only on keyword mismatch."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"EXISTING CONVERSATION:\n{context}\n\nLATEST USER MESSAGE:\n{message}",
+                },
+            ],
+            temperature=0,
+            # This reasoning model needs more than a tiny output budget to emit its decision.
+            max_completion_tokens=256,
+        )
+        result = (completion.choices[0].message.content or "").strip().upper()
+        decision = "new_chat" if result.startswith("NEW_CHAT") else "continue"
+        return {"success": True, "decision": decision, "reason": "semantic_context"}
+    except Exception as error:
+        print("Conversation routing error:", str(error))
+        # Fail safe on API errors to prevent accidental tabs.
+        return {"success": True, "decision": "continue", "reason": "routing_error"}
+    finally:
         db.close()
 
 
