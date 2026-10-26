@@ -12,7 +12,7 @@ function initialNotes(): Note[] {
 }
 export default function Dictation() {
   const [notes, setNotes] = useState<Note[]>(initialNotes)
-  const [activeId, setActiveId] = useState(() => initialNotes()[0].id)
+  const [activeId, setActiveId] = useState(() => notes[0]?.id ?? '')
   const [listening, setListening] = useState(false)
   const [busy, setBusy] = useState(false)
   const [format, setFormat] = useState('natural')
