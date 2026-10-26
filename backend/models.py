@@ -173,3 +173,64 @@ class Device(Base):
     pairing_credential_hash = Column(Text, nullable=True)
     pairing_credential_encrypted = Column(Text, nullable=True)
     pairing_credential_last4 = Column(String, nullable=True)
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, nullable=False, index=True)
+    display_name = Column(String, nullable=True)
+    password_hash = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_login_at = Column(DateTime, nullable=True)
+
+
+class Setting(Base):
+    __tablename__ = "settings"
+
+    user_id = Column(String, primary_key=True, default="local_user")
+    data = Column(Text, nullable=False, default="{}")
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, default="local_user", index=True)
+    title = Column(String, nullable=False)
+    body = Column(Text, nullable=True)
+    kind = Column(String, nullable=False, default="system")
+    is_read = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class CommandLog(Base):
+    __tablename__ = "command_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, default="local_user", index=True)
+    message = Column(Text, nullable=False)
+    normalized_text = Column(Text, nullable=True)
+    intent = Column(String, nullable=True)
+    response = Column(Text, nullable=True)
+    source = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class RecentLocation(Base):
+    __tablename__ = "recent_locations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, default="local_user", index=True)
+    kind = Column(String, nullable=False, default="navigation")
+    query = Column(String, nullable=False)
+    latitude = Column(String, nullable=True)
+    longitude = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+
+# Backward-compatible name used by the local feature tests and older API code.
+# Keep a single SQLAlchemy table/model for physical devices.
+DeviceRecord = Device

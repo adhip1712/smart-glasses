@@ -27,13 +27,13 @@ from sqlalchemy.orm import Session
 
 try:
     from backend.database import engine, SessionLocal, Base
-    from backend.models import Conversation, Message
+    from backend.models import Conversation, Message, RecentLocation
     from backend.device_api import router as device_router
     from backend.camera_api import router as camera_router
     from backend.vision_api import router as vision_router
 except ImportError:
     from database import engine, SessionLocal, Base
-    from models import Conversation, Message
+    from models import Conversation, Message, RecentLocation
     from device_api import router as device_router
     from camera_api import router as camera_router
     from vision_api import router as vision_router
@@ -152,13 +152,47 @@ class MockMusicProvider(BaseMusicProvider):
 
 
 class RealMusicProvider(BaseMusicProvider):
+    def _search_itunes(self, clean_query: str):
+        """Search Apple's public iTunes catalogue and return playable preview clips."""
+        params = urlencode({"term": clean_query, "entity": "song", "limit": 10, "country": "US"})
+        search_url = f"{APPLE_MUSIC_BASE_URL.rstrip('/')}/search?{params}"
+        request = Request(search_url, headers={"User-Agent": "VISIONARY-NEXUS/1.0", "Accept": "application/json"}, method="GET")
+        try:
+            with urlopen(request, timeout=15) as response:
+                payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+        except (HTTPError, URLError, TimeoutError, ValueError):
+            return []
+
+        tracks = []
+        for index, item in enumerate(payload.get("results", [])):
+            track_id = item.get("trackId") or item.get("collectionId")
+            title = item.get("trackName")
+            if not title:
+                continue
+            artwork = item.get("artworkUrl100") or item.get("artworkUrl60") or ""
+            if artwork:
+                artwork = re.sub(r"\d+x\d+bb", "600x600bb", artwork)
+            tracks.append({
+                "id": str(track_id or f"itunes-{index}"),
+                "name": title,
+                "artist": item.get("artistName") or "Unknown artist",
+                "album": item.get("collectionName") or "",
+                "duration": item.get("trackTimeMillis") or 0,
+                "image": artwork,
+                "audio": item.get("previewUrl") or "",
+                "url": item.get("trackViewUrl") or item.get("collectionViewUrl") or "https://music.apple.com",
+                "genre": item.get("primaryGenreName") or "Apple Music",
+                "provider": "apple-itunes",
+                "score": 100 - index,
+            })
+        return tracks
     def search(self, query: str):
         clean_query = (query or "").strip()
         if not clean_query:
             return []
 
         if not YOUTUBE_API_KEY:
-            return []
+            return self._search_itunes(clean_query)
 
         search_params = urlencode({
             "part": "snippet",
@@ -411,13 +445,13 @@ class MusicService:
         if isinstance(self.provider, NavidromeMusicProvider):
             source_name = "navidrome"
         elif isinstance(self.provider, RealMusicProvider):
-            source_name = "youtube"
+            source_name = "youtube" if YOUTUBE_API_KEY else "apple-itunes"
         return {
             "success": bool(tracks),
             "query": normalized,
             "tracks": tracks,
             "source": source_name,
-            "notice": "Navidrome search results are returned for browser playback." if isinstance(self.provider, NavidromeMusicProvider) else "Mock music mode enabled." if isinstance(self.provider, MockMusicProvider) else "YouTube search results are returned for browser playback.",
+            "notice": "Navidrome search results are returned for browser playback." if isinstance(self.provider, NavidromeMusicProvider) else "Mock music mode enabled." if isinstance(self.provider, MockMusicProvider) else "YouTube search results are returned for browser playback." if YOUTUBE_API_KEY else "Apple catalogue results include short previews where available.",
         }
 
     def play(self, query: str):
@@ -1578,6 +1612,27 @@ def navigation_search(payload: dict):
     return navigation_service.search(destination)
 
 
+@app.get("/api/locations/recent")
+def get_recent_locations(kind: str = "navigation"):
+    db: Session = SessionLocal()
+    try:
+        rows = (
+            db.query(RecentLocation)
+            .filter(RecentLocation.user_id == "local_user", RecentLocation.kind == kind)
+            .order_by(RecentLocation.created_at.desc())
+            .limit(10)
+            .all()
+        )
+        return {"success": True, "locations": [
+            {"kind": row.kind, "query": row.query, "latitude": row.latitude,
+             "longitude": row.longitude, "created_at": row.created_at.isoformat() if row.created_at else ""}
+            for row in rows
+        ]}
+    except Exception as error:
+        return {"success": False, "locations": [], "message": str(error)}
+    finally:
+        db.close()
+
 @app.post(
     "/api/navigation/route"
 )
@@ -1595,7 +1650,21 @@ def navigation_route(payload: dict):
         lat = None
         lon = None
 
-    return navigation_service.route(destination, latitude=lat, longitude=lon)
+    result = navigation_service.route(destination, latitude=lat, longitude=lon)
+    if result.get("success"):
+        db: Session = SessionLocal()
+        try:
+            db.add(RecentLocation(
+                user_id="local_user", kind="navigation", query=destination,
+                latitude=str(lat) if lat is not None else None,
+                longitude=str(lon) if lon is not None else None,
+            ))
+            db.commit()
+        except Exception:
+            db.rollback()
+        finally:
+            db.close()
+    return result
 
 
 @app.get(
@@ -1714,17 +1783,18 @@ def music_score(
 
 @app.get("/api/music/config")
 def music_provider_config():
-    navidrome_configured = bool(NAVIDROME_URL and NAVIDROME_USERNAME and NAVIDROME_PASSWORD)
+    navidrome_configured = bool(NAVIDROME_ENABLED and NAVIDROME_URL and NAVIDROME_USERNAME and NAVIDROME_PASSWORD)
     youtube_configured = bool(YOUTUBE_API_KEY)
-    configured = navidrome_configured or youtube_configured
-    provider = "navidrome" if navidrome_configured else "youtube" if youtube_configured else "none"
+    itunes_available = bool(APPLE_MUSIC_BASE_URL) and APPLE_MUSIC_PROVIDER != "mock"
+    configured = navidrome_configured or youtube_configured or itunes_available
+    provider = "navidrome" if navidrome_configured else "youtube" if youtube_configured else "apple-itunes" if itunes_available else "none"
     return {
         "success": configured,
         "provider": provider,
         "configured": configured,
         "requiresApiKey": not configured,
-        "message": "Navidrome is configured." if navidrome_configured else "YouTube music is configured." if youtube_configured else "No music provider is configured. Set NAVIDROME_URL / NAVIDROME_USERNAME / NAVIDROME_PASSWORD or YOUTUBE_API_KEY in the backend environment.",
-        "apiKeyConfigured": configured,
+        "message": "Navidrome is configured." if navidrome_configured else "YouTube music is configured." if youtube_configured else "Apple catalogue search is ready; playback uses short previews where available." if itunes_available else "No music provider is configured. Set Apple Music, YouTube, or Navidrome provider settings.",
+        "apiKeyConfigured": youtube_configured or navidrome_configured,
     }
 
 
