@@ -1986,8 +1986,10 @@ Smart glasses project
                 temperature=
                     0.3,
 
+                # Reasoning models may consume most of a tiny token budget
+                # before producing the actual title. Leave room for the answer.
                 max_completion_tokens=
-                    64
+                    256
             )
         )
 
