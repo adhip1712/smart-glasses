@@ -201,6 +201,32 @@ const AIAssistant: React.FC = () => {
   const firstUserPrompt = (items: Message[]) =>
     items.find(item => item.role === "user")?.content || ""
 
+  // ReactMarkdown does not render LaTeX math by itself. Convert common
+  // math commands to readable Unicode before Markdown parsing, while leaving
+  // fenced code examples untouched.
+  const formatAssistantMath = (content: string): string =>
+    content
+      .split(/(```[\s\S]*?```)/g)
+      .map((part, index) => {
+        if (index % 2 === 1) return part
+
+        return part
+          .replace(/\\times\b/g, "×")
+          .replace(/\\div\b/g, "÷")
+          .replace(/\\cdot\b/g, "·")
+          .replace(/\\pm\b/g, "±")
+          .replace(/\\leq?\b/g, "≤")
+          .replace(/\\geq?\b/g, "≥")
+          .replace(/\\neq\b/g, "≠")
+          .replace(/\\sqrt\s*\{([^{}]+)\}/g, "√($1)")
+          .replace(/\\left\b/g, "")
+          .replace(/\\right\b/g, "")
+          .replace(/\\[([]/g, "")
+          .replace(/\\[)\]]/g, "")
+          .replace(/\$([^$\n]+)\$/g, "$1")
+      })
+      .join("")
+
   // =======================================================
   // LOAD TABS
   // =======================================================
@@ -2405,7 +2431,7 @@ const AIAssistant: React.FC = () => {
                               remarkGfm,
                             ]}
                           >
-                            {message.content}
+                            {formatAssistantMath(message.content)}
                           </ReactMarkdown>
                         )}
 
