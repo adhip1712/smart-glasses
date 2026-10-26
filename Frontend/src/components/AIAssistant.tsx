@@ -160,6 +160,47 @@ const AIAssistant: React.FC = () => {
     return cleaned.slice(0, 27).trimEnd() + "..."
   }
 
+  // Infer broad topics locally so unrelated prompts open separate chats.
+  // Short follow-ups such as "how?", "why?" and "explain" intentionally
+  // return null and stay in the current conversation.
+  const inferTopic = (value: string): string | null => {
+    const text = value.toLowerCase().replace(/[^a-z0-9+*/×÷.-]+/g, " ").trim()
+    if (!text || /^(how|why|what do you mean|explain|tell me more|continue|and then|example|give an example|can you explain|what about)\??$/.test(text)) {
+      return null
+    }
+
+    const rules: Array<[string, RegExp]> = [
+      ["math", /\b(math|mathematics|calculate|calculation|equation|algebra|geometry|fraction|percentage|multiply|multiplication|divide|addition|subtract|square root|\d+\s*[x×*÷/]\s*\d+|\d+\s*[+\-]\s*\d+)\b/i],
+      ["ai", /\b(ai|artificial intelligence|machine learning|neural network|large language model|chatgpt|llm)\b/i],
+      ["coding", /\b(code|coding|programming|python|javascript|typescript|react|fastapi|api|debug|bug|compiler|database|sql|github|git)\b/i],
+      ["weather", /\b(weather|temperature|forecast|rain|humidity)\b/i],
+      ["navigation", /\b(navigate|navigation|directions|route|map|distance|how do i get to|take me to)\b/i],
+      ["music", /\b(music|song|singer|album|playlist|apple music|youtube music|play track)\b/i],
+      ["science", /\b(science|physics|chemistry|biology|force|energy|atom|molecule|electricity|gravity|photosynthesis)\b/i],
+      ["history", /\b(history|historical|revolution|empire|maratha|peshwa|renaissance|french revolution|gandhi|independence)\b/i],
+      ["geography", /\b(geography|country|capital|continent|river|mountain|climate|population|map)\b/i],
+      ["english", /\b(english|grammar|essay|poem|poetry|literature|synonym|antonym|pronunciation|meaning of)\b/i],
+      ["school", /\b(homework|exam|textbook|class 8|grade 8|worksheet|question paper|mcq|syllabus)\b/i],
+      ["sports", /\b(football|soccer|cricket|basketball|tennis|player|team|match|boots)\b/i],
+      ["travel", /\b(travel|trip|hotel|flight|scuba|diving|tourism|vacation|dam(an|a)n|diu)\b/i],
+      ["food", /\b(food|recipe|cook|cooking|restaurant|lunch|dinner|breakfast|ingredients)\b/i],
+    ]
+
+    for (const [topic, pattern] of rules) {
+      if (pattern.test(text)) return topic
+    }
+
+    if (/^\d+(?:\s*[x×*÷/+\-]\s*\d+)+$/.test(text)) return "math"
+    if (/^(what is|who is|where is|when did|define)\s+.+/.test(text)) {
+      const subject = text.replace(/^(what is|who is|where is|when did|define)\s+/, "").split(" ").slice(0, 3).join(" ")
+      return subject || null
+    }
+    return null
+  }
+
+  const firstUserPrompt = (items: Message[]) =>
+    items.find(item => item.role === "user")?.content || ""
+
   // =======================================================
   // LOAD TABS
   // =======================================================
@@ -1734,60 +1775,45 @@ const AIAssistant: React.FC = () => {
       return
     }
 
+    // Chat-control commands should not become conversation messages.
+    const isTabCommand = handleTabCommand(message)
+    if (isTabCommand) return
+
+    // If this prompt has a clear topic different from the first user prompt
+    // in the active conversation, create a database-backed chat automatically.
+    // Ambiguous short follow-ups (for example "how?") do not trigger a switch.
+    let conversationId = activeTab
+    const currentTopic = inferTopic(firstUserPrompt(messages))
+    const nextTopic = inferTopic(message)
+
+    if (
+      conversationId !== null &&
+      currentTopic !== null &&
+      nextTopic !== null &&
+      currentTopic !== nextTopic
+    ) {
+      const newConversationId = await createNewTab()
+      if (newConversationId === null) return
+      conversationId = newConversationId
+    }
+
+    if (conversationId === null) {
+      conversationId = await createNewTab()
+      if (conversationId === null) return
+    }
+
     const userMessage: Message = {
-      id:
-        Date.now() +
-        Math.random(),
+      id: Date.now() + Math.random(),
       role: "user",
       content: message,
     }
 
-    setMessages(previous => [
-      ...previous,
-      userMessage,
-    ])
-
+    setMessages(previous => [...previous, userMessage])
     setInput("")
 
-    // ===================================================
-    // TAB COMMAND
-    // ===================================================
-
-    const isTabCommand =
-      handleTabCommand(message)
-
-    if (isTabCommand) {
-      return
-    }
-
-    // ===================================================
-    // SPECIAL COMMAND
-    // ===================================================
-
-    const isSpecialCommand =
-      await handleSpecialCommand(
-        message
-      )
-
-    if (isSpecialCommand) {
-      return
-    }
-
-    // ===================================================
-    // ACTIVE CHAT
-    // ===================================================
-
-    let conversationId =
-      activeTab
-
-    if (conversationId === null) {
-      conversationId =
-        await createNewTab()
-
-      if (conversationId === null) {
-        return
-      }
-    }
+    // Handle device, weather, music and navigation commands in this chat.
+    const isSpecialCommand = await handleSpecialCommand(message)
+    if (isSpecialCommand) return
 
     // ===================================================
     // AI
