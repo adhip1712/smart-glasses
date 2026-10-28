@@ -205,6 +205,18 @@ class Notification(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
+class MusicPlaylist(Base):
+    """Persistent user playlist with an ordered JSON track snapshot."""
+    __tablename__ = "music_playlists"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, nullable=False, default="local_user", index=True)
+    name = Column(String, nullable=False, index=True)
+    tracks_json = Column(Text, nullable=False, default="[]")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 class CommandLog(Base):
     __tablename__ = "command_history"
 

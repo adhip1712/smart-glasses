@@ -28,7 +28,7 @@ interface RecentLocation {
 
 const FALLBACK_ORIGIN = { latitude: 12.9716, longitude: 77.5946, label: 'Bengaluru (default)' }
 
-export default function Navigation() {
+export default function Navigation({ initialDestination = '' }: { initialDestination?: string }) {
   const [destination, setDestination] = useState('')
   const [route, setRoute] = useState<RouteResult | null>(null)
   const [recent, setRecent] = useState<RecentLocation[]>([])
@@ -88,6 +88,13 @@ export default function Navigation() {
       setBusy(false)
     }
   }
+
+  useEffect(() => {
+    const target = initialDestination.trim()
+    if (!target) return
+    setDestination(target)
+    void calculateRoute(target)
+  }, [initialDestination])
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault()

@@ -48,6 +48,12 @@ type MusicTrack = {
   provider?: string
 }
 
+type MusicSearchResult = {
+  tracks: MusicTrack[]
+  needsConfirmation: boolean
+  notice?: string
+}
+
 type YouTubeConnectionState =
   | "NOT_CONFIGURED"
   | "READY"
@@ -82,7 +88,7 @@ const API_URL =
 // COMPONENT
 // =========================================================
 
-const AIAssistant: React.FC = () => {
+const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({ onNavigate }) => {
   // =======================================================
   // CHAT STATE
   // =======================================================
@@ -101,6 +107,7 @@ const AIAssistant: React.FC = () => {
 
   const [musicPlaying, setMusicPlaying] = useState(false)
   const [youtubeConfigured, setYoutubeConfigured] = useState(false)
+  const [musicProvider, setMusicProvider] = useState("none")
   const [youtubeStatus, setYoutubeStatus] =
     useState<YouTubeConnectionState>("NOT_CONFIGURED")
   const [youtubeError, setYoutubeError] = useState("")
@@ -119,8 +126,6 @@ const AIAssistant: React.FC = () => {
   // =======================================================
 
   const inputRef = useRef<HTMLInputElement>(null)
-
-  const recognitionRef = useRef<any>(null)
 
   const audioRef =
     useRef<HTMLAudioElement | null>(null)
@@ -829,6 +834,16 @@ const AIAssistant: React.FC = () => {
     }
 
     audio.onended = () => {
+      const endedTrack = musicTracksRef.current[musicCurrentIndexRef.current]
+      setMusicPlaying(false)
+
+      // iTunes only supplies a preview clip. Do not silently skip to another
+      // song when that preview ends, because it looks like playback was cut off.
+      if (endedTrack?.provider === "apple-itunes") {
+        addLocalMessage("The Apple catalogue preview has ended. Full-length playback is not available from this preview source.")
+        return
+      }
+
       void playNextTrack()
     }
 
@@ -850,14 +865,15 @@ const AIAssistant: React.FC = () => {
   // =======================================================
 
   const getYoutubeStatusLabel = () => {
-    switch (youtubeStatus) {
-      case "READY":
-        return "YouTube playback ready"
-      case "ERROR":
-        return youtubeError || "YouTube music is not configured."
-      default:
-        return "YouTube music is not configured."
+    if (youtubeStatus === "ERROR") {
+      return youtubeError || "Music provider unavailable."
     }
+    if (musicProvider === "audius") return "Audius · free full-track streaming"
+    if (musicProvider === "apple-itunes") return "Apple catalogue · preview clips"
+    if (musicProvider === "navidrome") return "Navidrome · full-track library"
+    if (musicProvider === "mock") return "Demo music mode"
+    if (musicProvider === "youtube" && youtubeStatus === "READY") return "YouTube playback ready"
+    return "Music provider not configured"
   }
 
   const loadYouTubeIframeApi = async () => {
@@ -905,16 +921,22 @@ const AIAssistant: React.FC = () => {
     if (!playerHost) {
       playerHost = document.createElement("div")
       playerHost.id = youtubePlayerContainerId
-      playerHost.style.display = "none"
-      playerHost.style.position = "absolute"
-      playerHost.style.width = "0"
-      playerHost.style.height = "0"
+      // YouTube's IFrame player requires a viewport of at least 200x200.
+      // A display:none / 0x0 player can stop playback shortly after starting.
+      // Keep it off-screen but valid-sized so audio can continue normally.
+      playerHost.style.position = "fixed"
+      playerHost.style.left = "-10000px"
+      playerHost.style.top = "0"
+      playerHost.style.width = "200px"
+      playerHost.style.height = "200px"
+      playerHost.style.opacity = "0"
+      playerHost.style.pointerEvents = "none"
       document.body.appendChild(playerHost)
     }
 
     youtubePlayerRef.current = new (window as any).YT.Player(playerHost.id, {
-      height: "0",
-      width: "0",
+      height: "200",
+      width: "200",
       playerVars: {
         playsinline: 1,
         rel: 0,
@@ -957,12 +979,15 @@ const AIAssistant: React.FC = () => {
 
       if (!response.ok || !data.success || !data.configured) {
         setYoutubeConfigured(false)
+        setMusicProvider("none")
         setYoutubeStatus("NOT_CONFIGURED")
-        setYoutubeError(data.message || "YouTube music is not configured.")
+        setYoutubeError(data.message || "Music provider is not configured.")
         return
       }
 
-      setYoutubeConfigured(true)
+      const provider = String(data.provider || "none").toLowerCase()
+      setMusicProvider(provider)
+      setYoutubeConfigured(provider === "youtube")
       setYoutubeStatus("READY")
       setYoutubeError("")
     } catch (error) {
@@ -1017,7 +1042,7 @@ const AIAssistant: React.FC = () => {
 
   const searchMusic = async (
     query: string
-  ): Promise<MusicTrack[]> => {
+  ): Promise<MusicSearchResult> => {
     const response = await fetch(
       `${API_URL}/api/music/search`,
       {
@@ -1049,9 +1074,11 @@ const AIAssistant: React.FC = () => {
       )
     }
 
-    return Array.isArray(data.tracks)
-      ? data.tracks
-      : []
+    return {
+      tracks: Array.isArray(data.tracks) ? data.tracks : [],
+      needsConfirmation: Boolean(data.needs_confirmation),
+      notice: typeof data.notice === "string" ? data.notice : undefined,
+    }
   }
 
   // =======================================================
@@ -1159,58 +1186,88 @@ const AIAssistant: React.FC = () => {
         cleanQuery
       )
 
-      const tracks =
+      const searchResult =
         await searchMusic(
           cleanQuery
         )
+      const tracks = searchResult.tracks
 
       console.log(
         "MUSIC RESULTS:",
-        tracks
+        searchResult
       )
+
+      if (searchResult.needsConfirmation) {
+        const suggestions = tracks.slice(0, 5).map((candidate, index) =>
+          `${index + 1}. ${candidate.name || "Untitled"} — ${candidate.artist || "Unknown artist"}`
+        ).join("\n")
+        addLocalMessage(
+          `${searchResult.notice || "I couldn't identify the exact song."}\n\n${suggestions}\n\nTell me the exact title or artist and I’ll play that match.`
+        )
+        return
+      }
 
       if (tracks.length === 0) {
         addLocalMessage(
-          `I couldn't find a playable preview for "${cleanQuery}".`
+          `I couldn't find a playable result for "${cleanQuery}".`
         )
-
         return
       }
 
-      const playableTracks =
-        tracks.filter(
-          track =>
-            Boolean(track.audio)
-        )
+      const playableTracks = tracks.filter(track => Boolean(track.videoId || track.audio))
+      if (playableTracks.length === 0) {
+        addLocalMessage(`I found "${cleanQuery}", but the provider returned no playable audio.`)
+        return
+      }
 
-      if (
-        playableTracks.length === 0
-      ) {
+      // Don't auto-play a merely related result. The requested song title and,
+      // when supplied, artist must be represented in the result metadata.
+      const ignoredWords = new Set(["play", "please", "song", "music", "track", "the", "a", "an", "by", "on", "for", "me"])
+      const artistMatch = cleanQuery.match(/\bby\s+(.+)$/i)
+      const titleQuery = artistMatch ? cleanQuery.slice(0, artistMatch.index).trim() : cleanQuery
+      const requestedTitleTokens = titleQuery.toLowerCase().match(/[a-z0-9]+/g)?.filter(token => !ignoredWords.has(token)) || []
+      const requestedArtistTokens = artistMatch
+        ? (artistMatch[1].toLowerCase().match(/[a-z0-9]+/g)?.filter(token => !ignoredWords.has(token)) || [])
+        : []
+      const requestedTokens = [...requestedTitleTokens, ...requestedArtistTokens]
+      const matchingTracks = playableTracks.filter(candidate => {
+        const titleTokens = new Set((candidate.name || "").toLowerCase().match(/[a-z0-9]+/g) || [])
+        const artistTokens = new Set((candidate.artist || "").toLowerCase().match(/[a-z0-9]+/g) || [])
+        if (requestedArtistTokens.length > 0) {
+          return requestedTitleTokens.every(token => titleTokens.has(token)) &&
+            requestedArtistTokens.every(token => artistTokens.has(token))
+        }
+        return requestedTitleTokens.every(token => titleTokens.has(token)) ||
+          requestedTitleTokens.every(token => artistTokens.has(token))
+      })
+
+      if (requestedTokens.length > 0 && matchingTracks.length === 0) {
         addLocalMessage(
-          `I found "${cleanQuery}", but none of the results has a playable preview in the current YouTube player.`
-        )
-
-        return
-      }
-
-      const track =
-        playableTracks[0]
-
-      if (!youtubeConfigured) {
-        addLocalMessage(
-          "YouTube music is not configured. Set YOUTUBE_API_KEY in the backend environment."
+          `I found related results for "${cleanQuery}", but none matched the requested title and artist closely enough. I won't play an unrelated track. Try adding the exact artist or song title.`
         )
         return
       }
 
-      if (!track.videoId) {
-        addLocalMessage(
-          `I found "${cleanQuery}", but that result is not playable in the embedded YouTube player.`
-        )
+      const selectedTracks = matchingTracks.length ? matchingTracks : playableTracks
+      const track = selectedTracks[0]
+      if (track.videoId) {
+        if (!youtubeConfigured) {
+          addLocalMessage("This result needs the YouTube provider, but it is not configured.")
+          return
+        }
+        await playYoutubeTrack(track, 0, selectedTracks)
         return
       }
 
-      await playYoutubeTrack(track, 0, playableTracks)
+      if (track.audio) {
+        const isPreview = track.provider === "apple-itunes"
+        await playTrack(track, 0, selectedTracks, isPreview ? "Playing preview:" : "Playing:")
+        if (isPreview) {
+          const fullTrackLink = track.url ? ` [Open the full track in Apple Music](${track.url})` : ""
+          addLocalMessage(`Apple's iTunes catalogue only provides a short preview here, so it may stop after about 20–30 seconds. Full-length playback requires a streaming source or subscription.${fullTrackLink}`)
+        }
+        return
+      }
     } catch (error) {
       console.error(
         "MUSIC PLAY FAILED:",
@@ -1793,7 +1850,7 @@ const AIAssistant: React.FC = () => {
   const sendMessage = async (
     customMessage?: string
   ) => {
-    const message = (
+    let message = (
       customMessage !== undefined
         ? customMessage
         : input
@@ -1807,10 +1864,28 @@ const AIAssistant: React.FC = () => {
     const isTabCommand = handleTabCommand(message)
     if (isTabCommand) return
 
+    // Start intent detection/polishing while conversation routing runs. These
+    // requests are independent, so awaiting them sequentially added avoidable latency.
+    const intentPromise = fetch(`${API_URL}/api/intent/classify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    }).catch(error => {
+      console.warn("AI feature intent routing unavailable; using normal command handling.", error)
+      return null
+    })
+
     // Ask the backend AI to compare this prompt with the actual conversation
-    // history. It creates a new chat only when the subject is clearly unrelated;
-    // pronouns and follow-ups such as "what is his salary?" stay in context.
+    // history. If semantic routing is unavailable, use conservative local topic
+    // inference so unrelated subjects still get separate persistent chats.
+    // Ambiguous follow-ups deliberately stay in the current conversation.
     let conversationId = activeTab
+    let localTopicChange = false
+    const checkLocalTopicChange = () => {
+      const currentTopic = inferTopic(firstUserPrompt(messages))
+      const incomingTopic = inferTopic(message)
+      localTopicChange = Boolean(currentTopic && incomingTopic && currentTopic !== incomingTopic)
+    }
 
     if (conversationId !== null) {
       try {
@@ -1829,14 +1904,23 @@ const AIAssistant: React.FC = () => {
             const newConversationId = await createNewTab()
             if (newConversationId === null) return
             conversationId = newConversationId
+          } else if (["ai_unavailable", "routing_error"].includes(String(routing?.reason || ""))) {
+            checkLocalTopicChange()
           }
         } else {
-          console.warn("Conversation routing unavailable; keeping the current chat.")
+          console.warn("Conversation routing unavailable; using local topic inference.")
+          checkLocalTopicChange()
         }
       } catch (error) {
-        // Fail safe: a routing network error must not unexpectedly open a new tab.
-        console.warn("Conversation routing failed; keeping the current chat.", error)
+        console.warn("Conversation routing failed; using local topic inference.", error)
+        checkLocalTopicChange()
       }
+    }
+
+    if (localTopicChange && conversationId === activeTab) {
+      const newConversationId = await createNewTab()
+      if (newConversationId === null) return
+      conversationId = newConversationId
     }
 
     if (conversationId === null) {
@@ -1853,7 +1937,37 @@ const AIAssistant: React.FC = () => {
     setMessages(previous => [...previous, userMessage])
     setInput("")
 
-    // Handle device, weather, music and navigation commands in this chat.
+    // Ask the AI to decide whether this message is a navigation action or
+    // ordinary conversation. Place mentions alone must not switch screens.
+    try {
+      const intentResponse = await intentPromise
+      if (intentResponse?.ok) {
+        const featureIntent = await intentResponse.json()
+        if (featureIntent?.intent === "navigation" && featureIntent.destination) {
+          onNavigate?.(String(featureIntent.destination))
+          return
+        }
+
+        // Reuse the intent-classification call to polish typed paragraphs and
+        // voice transcripts without adding another slow AI request. Never
+        // replace a long original with a suspiciously short result.
+        const polished = typeof featureIntent?.polished_text === "string"
+          ? featureIntent.polished_text.trim()
+          : ""
+        const isCommandIntent = featureIntent?.intent && featureIntent.intent !== "general"
+        const preservesLongInput = message.length < 160 || polished.length >= message.length * 0.72
+        if (!isCommandIntent && polished && preservesLongInput && polished !== message) {
+          message = polished
+          setMessages(previous => previous.map(item =>
+            item.id === userMessage.id ? { ...item, content: polished } : item
+          ))
+        }
+      }
+    } catch (error) {
+      console.warn("AI feature intent routing unavailable; using normal command handling.", error)
+    }
+
+    // Keep existing handlers for explicit music/weather/device commands.
     const isSpecialCommand = await handleSpecialCommand(message)
     if (isSpecialCommand) return
 
@@ -1981,93 +2095,38 @@ const AIAssistant: React.FC = () => {
     )
   }
 
+  // Receive commands from the single global Voice button after the app
+  // determines that the utterance is a question or general AI request.
+  useEffect(() => {
+    const receiveVoiceCommand = (event: Event) => {
+      const detail = (event as CustomEvent<{ text?: string; activeTab?: string }>).detail
+      if (detail?.activeTab === 'ai' && detail.text?.trim()) {
+        void handleVoiceCommand(detail.text.trim())
+      }
+    }
+    window.addEventListener('visionary:voice-command', receiveVoiceCommand)
+    return () => window.removeEventListener('visionary:voice-command', receiveVoiceCommand)
+  })
+
   // =======================================================
   // MICROPHONE
   // =======================================================
 
   const toggleListening = () => {
-    const SpeechRecognition =
-      window.SpeechRecognition ||
-      window.webkitSpeechRecognition
-
-    if (!SpeechRecognition) {
-      alert(
-        "Speech recognition is not supported in this browser. Try Google Chrome."
-      )
-
-      return
-    }
-
-    if (isListening) {
-      recognitionRef.current?.stop()
-
-      setIsListening(false)
-
-      return
-    }
-
-    const recognition =
-      new SpeechRecognition()
-
-    recognition.continuous = false
-
-    recognition.interimResults = false
-
-    recognition.lang = "en-US"
-
-    recognition.onstart = () => {
-      setIsListening(true)
-    }
-
-    recognition.onresult = (
-      event: any
-    ) => {
-      const spokenText =
-        event.results[
-          event.results.length - 1
-        ][0]
-          .transcript
-          .trim()
-
-      console.log(
-        "SPOKEN:",
-        spokenText
-      )
-
-      void handleVoiceCommand(
-        spokenText
-      )
-    }
-
-    recognition.onerror = (
-      event: any
-    ) => {
-      console.error(
-        "Speech recognition error:",
-        event.error
-      )
-
-      setIsListening(false)
-    }
-
-    recognition.onend = () => {
-      setIsListening(false)
-    }
-
-    recognitionRef.current =
-      recognition
-
-    try {
-      recognition.start()
-    } catch (error) {
-      console.error(
-        "Could not start microphone:",
-        error
-      )
-
-      setIsListening(false)
-    }
+    // Route the assistant's microphone through the shared Dictation Studio so
+    // both voice buttons use the same selected language, live interim preview,
+    // silence handling, and multilingual proofreading path.
+    window.dispatchEvent(new CustomEvent("visionary:start-dictation"))
   }
+
+  useEffect(() => {
+    const syncDictationState = (event: Event) => {
+      const detail = (event as CustomEvent<{ listening?: boolean }>).detail
+      setIsListening(Boolean(detail?.listening))
+    }
+    window.addEventListener("visionary:dictation-state", syncDictationState)
+    return () => window.removeEventListener("visionary:dictation-state", syncDictationState)
+  }, [])
 
   // =======================================================
   // KEYBOARD
@@ -2075,7 +2134,7 @@ const AIAssistant: React.FC = () => {
 
   const handleKeyDown = (
     event:
-      React.KeyboardEvent<HTMLInputElement>
+      React.KeyboardEvent<HTMLTextAreaElement>
   ) => {
     if (
       event.key === "Enter" &&
@@ -2096,8 +2155,6 @@ const AIAssistant: React.FC = () => {
     void loadTabs()
 
     return () => {
-      recognitionRef.current?.stop()
-
       if (audioRef.current) {
         audioRef.current.pause()
 
@@ -2579,19 +2636,19 @@ const AIAssistant: React.FC = () => {
 
           {/* TEXT INPUT */}
 
-          <input
-            ref={inputRef}
+          <textarea
+            ref={inputRef as React.RefObject<HTMLTextAreaElement>}
             value={input}
-            onChange={event =>
-              setInput(
-                event.target.value
-              )
-            }
+            rows={1}
+            onChange={event => setInput(event.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask VISIONARY NEXUS..."
+            placeholder="Ask VISIONARY NEXUS... (Shift+Enter for a new line)"
             disabled={isThinking}
             className="
               flex-1
+              min-h-10
+              max-h-40
+              resize-y
               bg-transparent
               outline-none
               text-sm

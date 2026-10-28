@@ -27,13 +27,13 @@ from sqlalchemy.orm import Session
 
 try:
     from backend.database import engine, SessionLocal, Base
-    from backend.models import Conversation, Message, RecentLocation
+    from backend.models import Conversation, Message, RecentLocation, MusicPlaylist
     from backend.device_api import router as device_router
     from backend.camera_api import router as camera_router
     from backend.vision_api import router as vision_router
 except ImportError:
     from database import engine, SessionLocal, Base
-    from models import Conversation, Message, RecentLocation
+    from models import Conversation, Message, RecentLocation, MusicPlaylist
     from device_api import router as device_router
     from camera_api import router as camera_router
     from vision_api import router as vision_router
@@ -158,7 +158,7 @@ class RealMusicProvider(BaseMusicProvider):
         search_url = f"{APPLE_MUSIC_BASE_URL.rstrip('/')}/search?{params}"
         request = Request(search_url, headers={"User-Agent": "VISIONARY-NEXUS/1.0", "Accept": "application/json"}, method="GET")
         try:
-            with urlopen(request, timeout=15) as response:
+            with urlopen(request, timeout=2) as response:
                 payload = json.loads(response.read().decode("utf-8", errors="ignore"))
         except (HTTPError, URLError, TimeoutError, ValueError):
             return []
@@ -216,7 +216,7 @@ class RealMusicProvider(BaseMusicProvider):
             method="GET",
         )
 
-        with urlopen(search_request, timeout=15) as response:
+        with urlopen(search_request, timeout=2) as response:
             search_data = json.loads(response.read().decode("utf-8", errors="ignore"))
 
         items = search_data.get("items", [])
@@ -240,7 +240,7 @@ class RealMusicProvider(BaseMusicProvider):
             method="GET",
         )
 
-        with urlopen(detail_request, timeout=15) as response:
+        with urlopen(detail_request, timeout=2) as response:
             detail_data = json.loads(response.read().decode("utf-8", errors="ignore"))
 
         detail_map = {
@@ -302,6 +302,83 @@ class RealMusicProvider(BaseMusicProvider):
         return tracks[:10]
 
 
+class AudiusMusicProvider(BaseMusicProvider):
+    """Free, public-catalog music search and full-track streaming via Audius."""
+
+    BASE_URL = "https://discoveryprovider.audius.co/v1"
+
+    def _request(self, path: str, params: dict | None = None):
+        query = urlencode(params or {})
+        url = f"{self.BASE_URL}/{path.lstrip('/')}" + (f"?{query}" if query else "")
+        request = Request(
+            url,
+            headers={"User-Agent": "VISIONARY-NEXUS/1.0", "Accept": "application/json"},
+            method="GET",
+        )
+        with urlopen(request, timeout=2) as response:
+            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+        return payload.get("data") or []
+
+    def search(self, query: str):
+        clean_query = (query or "").strip()
+        if not clean_query:
+            return []
+
+        # Correct common phonetic spelling of the Portuguese word "montagem"
+        # while preserving the rest of the user's words.
+        normalized_query = re.sub(r"\bmontegam\b", "montagem", clean_query, flags=re.IGNORECASE)
+        queries = [normalized_query]
+        if normalized_query.casefold() != clean_query.casefold():
+            queries.append(clean_query)
+
+        raw_tracks = []
+        seen_ids = set()
+        for candidate_query in queries:
+            try:
+                results = self._request("tracks/search", {"query": candidate_query, "limit": 10})
+            except (HTTPError, URLError, TimeoutError, ValueError):
+                continue
+            for item in results:
+                track_id = str(item.get("track_id") or item.get("id") or "")
+                if not track_id or track_id in seen_ids:
+                    continue
+                if not item.get("is_streamable", True) or item.get("is_stream_gated", False):
+                    continue
+                seen_ids.add(track_id)
+                raw_tracks.append(item)
+            if raw_tracks:
+                break
+
+        tracks = []
+        for index, item in enumerate(raw_tracks[:10]):
+            track_id = str(item.get("track_id") or item.get("id") or "")
+            title = item.get("title") or "Untitled track"
+            user = item.get("user") or {}
+            artist = user.get("name") or user.get("handle") or "Audius artist"
+            artwork = item.get("artwork") or {}
+            image = artwork.get("480x480") or artwork.get("150x150") or ""
+            stream = item.get("stream") or {}
+            audio_url = stream.get("url") if isinstance(stream, dict) else ""
+            if not audio_url and track_id:
+                audio_url = f"{self.BASE_URL}/tracks/{quote(track_id)}/stream"
+            if not audio_url:
+                continue
+            tracks.append({
+                "id": track_id,
+                "name": title,
+                "artist": artist,
+                "album": "",
+                "duration": int(item.get("duration") or 0) * 1000,
+                "image": image,
+                "audio": audio_url,
+                "url": f"https://audius.co{item.get('permalink')}" if item.get("permalink") else "https://audius.co",
+                "genre": item.get("genre") or "Audius",
+                "provider": "audius",
+                "score": 100 - index,
+            })
+        return tracks
+
+
 class NavidromeMusicProvider(BaseMusicProvider):
     def __init__(self):
         self.base_url = NAVIDROME_URL or "http://127.0.0.1:4533"
@@ -324,7 +401,7 @@ class NavidromeMusicProvider(BaseMusicProvider):
         request_url = f"{self.base_url}/rest/{endpoint}?{urlencode(query)}"
         request = Request(request_url, headers={"User-Agent": "VISIONARY-NEXUS/1.0"}, method="GET")
 
-        with urlopen(request, timeout=15) as response:
+        with urlopen(request, timeout=2) as response:
             payload = json.loads(response.read().decode("utf-8", errors="ignore"))
 
         response_data = payload.get("subsonic-response", {})
@@ -434,37 +511,131 @@ class MusicService:
                 provider = NavidromeMusicProvider()
             elif APPLE_MUSIC_PROVIDER == "mock":
                 provider = MockMusicProvider()
+            elif not YOUTUBE_API_KEY:
+                # Audius offers a free public music catalogue and streamable tracks
+                # without requiring a YouTube API key or a music subscription.
+                provider = AudiusMusicProvider()
             else:
                 provider = RealMusicProvider()
         self.provider = provider
 
     def search(self, query: str):
-        tracks = self.provider.search(query)
         normalized = (query or "").strip()
+        tracks = self.provider.search(normalized)
         source_name = "mock"
+        notice = "Mock music mode enabled."
+
         if isinstance(self.provider, NavidromeMusicProvider):
             source_name = "navidrome"
+            notice = "Navidrome library results are ready for playback."
+        elif isinstance(self.provider, AudiusMusicProvider):
+            source_name = "audius"
+            notice = (
+                "Full-track streaming from Audius. If the exact song is unavailable, "
+                "no short preview will be substituted."
+            )
         elif isinstance(self.provider, RealMusicProvider):
             source_name = "youtube" if YOUTUBE_API_KEY else "apple-itunes"
+            notice = (
+                "YouTube search results are returned for browser playback."
+                if YOUTUBE_API_KEY
+                else "Apple catalogue results include short previews where available."
+            )
+
+        # Prefer results that match the requested words, and avoid choosing a
+        # sub-minute clip when the same search returned longer playable tracks.
+        query_tokens = set(re.findall(r"[a-z0-9]+", normalized.casefold()))
+        def track_rank(track):
+            title = str(track.get("name") or "").casefold()
+            artist = str(track.get("artist") or "").casefold()
+            title_tokens = set(re.findall(r"[a-z0-9]+", title))
+            artist_tokens = set(re.findall(r"[a-z0-9]+", artist))
+            matched_title = len(query_tokens & title_tokens)
+            matched_artist = len(query_tokens & artist_tokens)
+            duration = int(track.get("duration") or 0)
+            exact_phrase = bool(normalized) and normalized.casefold() in title
+            return (
+                int(exact_phrase),
+                matched_title,
+                matched_artist,
+                int(duration >= 60000),
+                duration,
+            )
+
+        if tracks:
+            tracks.sort(key=track_rank, reverse=True)
+            tracks_at_least_one_minute = [
+                track for track in tracks
+                if int(track.get("duration") or 0) >= 60000
+            ]
+            if tracks_at_least_one_minute:
+                tracks = tracks_at_least_one_minute
+            if any(query_tokens & set(re.findall(r"[a-z0-9]+", str(track.get("name") or "").casefold())) for track in tracks):
+                notice = notice + " Short clips under 60 seconds are excluded when longer matches are available."
+
         return {
             "success": bool(tracks),
             "query": normalized,
             "tracks": tracks,
             "source": source_name,
-            "notice": "Navidrome search results are returned for browser playback." if isinstance(self.provider, NavidromeMusicProvider) else "Mock music mode enabled." if isinstance(self.provider, MockMusicProvider) else "YouTube search results are returned for browser playback." if YOUTUBE_API_KEY else "Apple catalogue results include short previews where available.",
+            "notice": notice,
         }
 
     def play(self, query: str):
-        result = self.search(query)
-        if not result["success"] or not result["tracks"]:
+        # Remove command phrasing before searching. Otherwise searching
+        # "play spooky" can return a podcast episode about spooky season instead
+        # of searching for the song title "spooky".
+        search_query = re.sub(
+            r"^\s*(?:(?:please\s+)?play|listen\s+to|put\s+on)\s+",
+            "",
+            (query or "").strip(),
+            flags=re.IGNORECASE,
+        ).strip()
+        result = self.search(search_query)
+        tracks = result.get("tracks") or []
+        if not result.get("success") or not tracks:
             return {"success": False, "message": "I couldn't find that song.", "tracks": []}
 
-        track = result["tracks"][0]
+        # Never start an unrelated first search result. If the user says
+        # "title by artist", validate title and artist against separate fields;
+        # a cover whose title contains the artist's name is not the requested artist.
+        stop_words = {"play", "please", "song", "music", "track", "the", "a", "an", "by", "on", "for", "me"}
+        artist_match = re.search(r"\bby\s+(.+)$", search_query, re.IGNORECASE)
+        title_query = search_query[:artist_match.start()].strip() if artist_match else search_query
+        title_tokens = set(re.findall(r"[a-z0-9]+", title_query.casefold())) - stop_words
+        artist_tokens = (
+            set(re.findall(r"[a-z0-9]+", artist_match.group(1).casefold())) - stop_words
+            if artist_match else set()
+        )
+        query_tokens = title_tokens | artist_tokens
+        if query_tokens:
+            def covers_query(track):
+                track_title_tokens = set(re.findall(r"[a-z0-9]+", str(track.get("name", "")).casefold()))
+                track_artist_tokens = set(re.findall(r"[a-z0-9]+", str(track.get("artist", "")).casefold()))
+                if artist_tokens:
+                    return title_tokens.issubset(track_title_tokens) and artist_tokens.issubset(track_artist_tokens)
+                return title_tokens.issubset(track_title_tokens) or title_tokens.issubset(track_artist_tokens)
+
+            matching_tracks = [track for track in tracks if covers_query(track)]
+            if not matching_tracks:
+                return {
+                    "success": False,
+                    "message": (
+                        f"I found related results, but none matched all the requested title/artist words "
+                        f"for '{query}'. I won't play an unrelated track."
+                    ),
+                    "tracks": tracks,
+                    "source": result.get("source"),
+                    "needs_confirmation": True,
+                }
+            tracks = matching_tracks
+
+        track = tracks[0]
         return {
             "success": True,
             "message": f"Playing {track.get('name', 'track')} by {track.get('artist', 'Unknown artist')}",
             "track": track,
-            "tracks": result["tracks"],
+            "tracks": tracks,
             "source": result["source"],
         }
 
@@ -1867,19 +2038,92 @@ def music_score(
 # MUSIC CONFIG
 # =========================================================
 
+@app.get("/api/music/playlists")
+def get_music_playlists():
+    """Return persisted playlists and their ordered tracks for the local app user."""
+    db = SessionLocal()
+    try:
+        rows = db.query(MusicPlaylist).filter(
+            MusicPlaylist.user_id == "local_user"
+        ).order_by(MusicPlaylist.created_at.asc(), MusicPlaylist.id.asc()).all()
+        items = []
+        for row in rows:
+            try:
+                tracks = json.loads(row.tracks_json or "[]")
+            except (TypeError, json.JSONDecodeError):
+                tracks = []
+            items.append({"name": row.name, "tracks": tracks})
+        return {"success": True, "playlists": items}
+    finally:
+        db.close()
+
+
+@app.put("/api/music/playlists")
+def save_music_playlists(request: dict):
+    """Persist the complete playlist collection without mixing it with playback queue state."""
+    incoming = request.get("playlists")
+    if not isinstance(incoming, list):
+        return {"success": False, "message": "Expected a playlists array."}
+
+    normalized = []
+    seen_names = set()
+    for item in incoming:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        tracks = item.get("tracks")
+        if not name or not isinstance(tracks, list):
+            continue
+        key = name.casefold()
+        if key in seen_names:
+            return {"success": False, "message": f"Duplicate playlist name: {name}"}
+        seen_names.add(key)
+        safe_tracks = [track for track in tracks if isinstance(track, dict)]
+        normalized.append((name[:160], safe_tracks))
+
+    db = SessionLocal()
+    try:
+        existing = db.query(MusicPlaylist).filter(
+            MusicPlaylist.user_id == "local_user"
+        ).all()
+        by_name = {row.name.casefold(): row for row in existing}
+        keep_ids = set()
+        for name, tracks in normalized:
+            row = by_name.get(name.casefold())
+            if row is None:
+                row = MusicPlaylist(user_id="local_user", name=name, tracks_json="[]")
+                db.add(row)
+            row.name = name
+            row.tracks_json = json.dumps(tracks, ensure_ascii=False)
+            row.updated_at = datetime.utcnow()
+            db.flush()
+            keep_ids.add(row.id)
+        for row in existing:
+            if row.id not in keep_ids:
+                db.delete(row)
+        db.commit()
+        return {"success": True, "count": len(normalized)}
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 @app.get("/api/music/config")
 def music_provider_config():
     navidrome_configured = bool(NAVIDROME_ENABLED and NAVIDROME_URL and NAVIDROME_USERNAME and NAVIDROME_PASSWORD)
     youtube_configured = bool(YOUTUBE_API_KEY)
     itunes_available = bool(APPLE_MUSIC_BASE_URL) and APPLE_MUSIC_PROVIDER != "mock"
-    configured = navidrome_configured or youtube_configured or itunes_available
-    provider = "navidrome" if navidrome_configured else "youtube" if youtube_configured else "apple-itunes" if itunes_available else "none"
+    audius_available = not navidrome_configured and not youtube_configured and APPLE_MUSIC_PROVIDER != "mock"
+    configured = navidrome_configured or youtube_configured or itunes_available or audius_available
+    provider = "navidrome" if navidrome_configured else "youtube" if youtube_configured else "audius" if audius_available else "apple-itunes" if itunes_available else "none"
     return {
         "success": configured,
         "provider": provider,
         "configured": configured,
-        "requiresApiKey": not configured,
-        "message": "Navidrome is configured." if navidrome_configured else "YouTube music is configured." if youtube_configured else "Apple catalogue search is ready; playback uses short previews where available." if itunes_available else "No music provider is configured. Set Apple Music, YouTube, or Navidrome provider settings.",
+        "requiresApiKey": False if audius_available else not configured,
+        "message": "Navidrome is configured." if navidrome_configured else "YouTube music is configured." if youtube_configured else "Free Audius search and full-track streaming are ready; some mainstream songs may not be in its catalogue." if audius_available else "Apple catalogue search is ready; playback uses short previews where available." if itunes_available else "No music provider is configured.",
         "apiKeyConfigured": youtube_configured or navidrome_configured,
     }
 
@@ -1926,6 +2170,37 @@ def music_previous():
     return music_service.previous()
 
 
+def correct_music_search_query(query: str) -> str:
+    """Correct likely song/artist spelling mistakes without inventing a different request."""
+    if groq is None or not query.strip():
+        return query.strip()
+    try:
+        completion = groq.chat.completions.create(
+            model="openai/gpt-oss-20b",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are correcting a possibly phonetic or badly misspelled song title/artist query. "
+                        "Infer the most likely intended real song or artist, correcting spelling aggressively when the sound is clear. "
+                        "Reply with only the corrected search phrase, no explanation and no quotes. "
+                        "Do not append generic words or invent an unrelated song. "
+                        "If no plausible correction can be inferred, repeat the original phrase exactly."
+                    ),
+                },
+                {"role": "user", "content": query},
+            ],
+            temperature=0,
+            max_completion_tokens=256,
+        )
+        corrected = (completion.choices[0].message.content or "").strip().strip('"').strip("'")
+        if corrected and len(corrected) <= max(160, len(query) * 3):
+            return corrected
+    except Exception as error:
+        print("Music query correction error:", str(error))
+    return query.strip()
+
+
 @app.post(
     "/api/music/search"
 )
@@ -1941,16 +2216,81 @@ def music_search(
             "tracks": [],
         }
 
-    result = music_service.search(query)
+    # Keep search on the critical playback path deterministic and fast.
+    # Never block a music search on a remote LLM spelling-correction request;
+    # the original query is preserved for the catalogue provider.
+    search_query = query
+    result = music_service.search(search_query)
+
+    # Short YouTube clips/Shorts are not suitable results when the user asked
+    # to play a song. Prefer normal-length tracks; if needed, retry a full-song
+    # query rather than returning a 15–30 second clip as the best match.
+    if result.get("success") and result.get("tracks"):
+        tracks = result["tracks"]
+        if result.get("source") == "youtube":
+            full_tracks = [
+                track for track in tracks
+                if not track.get("duration") or int(track.get("duration") or 0) >= 60000
+            ]
+            if not full_tracks:
+                retry_query = f"{search_query} official audio full song"
+                retry_result = music_service.search(retry_query)
+                retry_tracks = retry_result.get("tracks") or []
+                full_tracks = [
+                    track for track in retry_tracks
+                    if not track.get("duration") or int(track.get("duration") or 0) >= 60000
+                ]
+                if full_tracks:
+                    result = retry_result
+                    result["query"] = search_query
+            if full_tracks:
+                result["tracks"] = full_tracks
+                result["success"] = True
+            else:
+                result["tracks"] = []
+                result["success"] = False
+                result["message"] = "I found only very short clips. Try the song title plus the artist name."
+
+    # If correction didn't help, preserve the original query as a fallback.
+    if not result.get("success") and search_query.casefold() != query.casefold():
+        original_result = music_service.search(query)
+        if original_result.get("success") and original_result.get("tracks"):
+            result = original_result
+            search_query = query
+
+    # "montegam elder itis" is too ambiguous to identify a specific song safely.
+    # Offer related Audius results for the likely word "montagem", but mark them
+    # as suggestions so the frontend does not accidentally play the wrong track.
+    if (
+        not result.get("success")
+        and isinstance(music_service.provider, AudiusMusicProvider)
+        and re.search(r"\bmontegam\b", query, re.IGNORECASE)
+    ):
+        suggestions = music_service.search("montagem")
+        if suggestions.get("tracks"):
+            suggestions["needs_confirmation"] = True
+            suggestions["original_query"] = query
+            suggestions["corrected_query"] = "montagem"
+            suggestions["notice"] = (
+                "I couldn't confidently identify the full song title. "
+                "These are related Montagem tracks; choose the exact title before playback."
+            )
+            return suggestions
+
     if result.get("success"):
+        result["original_query"] = query
+        result["corrected_query"] = search_query
+        if search_query.casefold() != query.casefold():
+            result["notice"] = f"Search corrected to: {search_query}"
         return result
 
     return {
         "success": False,
         "query": query,
+        "corrected_query": search_query,
         "tracks": [],
         "source": getattr(music_service.provider, "__class__", type(music_service.provider)).__name__,
-        "message": "No music results were returned for that query.",
+        "message": result.get("message") or "No music results were returned for that query.",
     }
 
 
@@ -2123,6 +2463,183 @@ Smart glasses project
         )
 
         return "New Chat"
+
+
+# =========================================================
+# AI-BASED FEATURE INTENT ROUTER
+# =========================================================
+@app.post("/api/intent/classify")
+def classify_feature_intent(request: dict):
+    message = str(request.get("message") or "").strip()
+    context = request.get("context") if isinstance(request.get("context"), dict) else {}
+    active_tab = str(context.get("active_tab") or "").strip().lower()
+    if not message:
+        return {"intent": "general", "action": "none", "destination": "", "query": "", "polished_text": ""}
+    normalized_fallback = " ".join(message.lower().split())
+    if re.search(r"\b(?:listen to|hear)\s+(?:something|anything|some music|music|a song|some songs)\b", normalized_fallback):
+        return {"intent": "music", "action": "open", "destination": "", "query": "", "polished_text": message}
+    if any(phrase in normalized_fallback for phrase in (
+        "listen to it", "listen to that", "listen to this", "hear it", "hear that",
+        "hear this", "play that again", "put that on", "play it again",
+    )):
+        return {"intent": "music", "action": "resume", "destination": "", "query": "", "polished_text": message}
+    if groq is None:
+        return {"intent": "general", "action": "none", "destination": "", "query": message, "polished_text": message}
+
+    try:
+        completion = groq.chat.completions.create(
+            model="openai/gpt-oss-20b",
+            messages=[
+                {
+                    "role": "system",
+                    "content": """
+You are the natural-language understanding engine for Visionary Nexus smart glasses. Interpret what the user MEANS, not just exact command wording. People speak in fragments, polite requests, long sentences, and pronouns.
+Return JSON only:
+{"intent":"music|weather|navigation|vision|audio|dashboard|ai|notifications|device|settings|general","action":"play|pause|resume|next|previous|search|open|none","destination":"string","query":"string","polished_text":"string"}.
+
+Rules:
+- MUSIC: any request to listen to, put on, play, resume, find, or search for music, a song, artist, genre, or playlist. "I want to listen to phonk", "could you put my phonk on", and "play phonk" all mean music action=play, query="phonk". Strip filler like "some music", "a song", "please play", and generic words such as "playlist"/"song"/"music" when they are not part of the actual title. Preserve real titles. A question asking what a genre or artist means is general, not music playback.
+- HARD RULE: "I want to listen to it", "let me listen to it", "I want to hear it", "play that again", or "put that on" are music intents when referring to music/playback. Return intent=music, action=resume or play, query="". Never send these to general/AI merely because the target is a pronoun. If context.active_tab is music, resolve "it/that" to the current song or selected playlist.
+- Music controls: pause/stop => pause; continue/resume => resume; skip/next => next; previous/back => previous.
+- Use supplied context.active_tab as conversation context, not as an absolute rule. When a pronoun such as "it/that one" refers to the current playback and active_tab is music, choose music and the relevant playback action.
+- WEATHER: requests about current weather, rain, temperature, or forecasts. query is the requested location or subject.
+- NAVIGATION: only when the user wants directions or a route. Extract destination, never invent it.
+- VISION: asks what they are looking at, identify an object, or describe a scene.
+- AUDIO, DASHBOARD, NOTIFICATIONS, DEVICE, SETTINGS: choose when the user wants that feature opened or controlled.
+- AI: only when explicitly asking to open the AI assistant. Ordinary questions such as "what is 2 plus 2?" and "what is AI?" must be general.
+- GENERAL: calculations, explanations, and normal questions. Preserve the user's full meaning in polished_text.
+- Do not use exact phrase matching as the deciding rule. "I want to listen to" is a music intent even if it does not begin with "play".
+- polished_text: rewrite the complete utterance in clear, natural English, correcting speech-recognition errors and grammar without changing meaning, removing details, shortening long prompts, or answering the request. For a voice command, retain the user's intended command as a concise natural sentence.
+- Formatting is an AI decision: keep a simple question or ordinary thought as a paragraph. Use bullets only when the user has several distinct requirements, requested items, steps, or points that are genuinely easier to scan as a list. Do not force bullets onto every message.
+- For multi-part prompts, preserve every requirement and example; prefer clear bullets when they improve readability. Do not summarize long prompts or omit repeated details that may be meaningful.
+- query should contain only the music target or requested destination/subject, not the full command. For general intent, query and polished_text should preserve the complete user request.
+- Never hallucinate missing names or targets. If unsure, choose general unless the speech clearly expresses a feature intent.
+""".strip(),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {"message": message, "context": {"active_tab": active_tab}},
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+            temperature=0,
+            # Allow enough output for the complete polished version of long prompts.
+            max_completion_tokens=min(6000, max(1200, len(message) // 2)),
+            response_format={"type": "json_object"},
+        )
+        parsed = json.loads(completion.choices[0].message.content or "{}")
+        allowed = {"music", "weather", "navigation", "vision", "audio", "dashboard", "ai", "notifications", "device", "settings", "general"}
+        actions = {"play", "pause", "resume", "next", "previous", "search", "open", "none"}
+        intent = str(parsed.get("intent") or "general").lower()
+        if intent not in allowed:
+            intent = "general"
+        action = str(parsed.get("action") or "none").lower()
+        if action not in actions:
+            action = "none"
+        destination = str(parsed.get("destination") or "").strip()
+        query = str(parsed.get("query") or "").strip()
+        polished_text = str(parsed.get("polished_text") or message).strip()
+
+        # Resolve generic listening requests as navigation, not an accidental
+        # search for the literal word "something" or an unintended autoplay.
+        normalized_voice_request = " ".join(message.lower().split())
+        generic_listen_request = bool(re.search(
+            r"\b(?:i want to|i would like to|let me|can i|could i)?\s*(?:listen to|hear)\s+(?:something|anything|some music|music|a song|some songs)\b",
+            normalized_voice_request,
+        ))
+        if generic_listen_request:
+            intent = "music"
+            action = "open"
+            query = ""
+
+        # Context-dependent pronouns are music actions when the utterance
+        # explicitly asks to listen/hear/play; the Music UI resolves the
+        # reference to current playback or the selected saved playlist.
+        pronoun_playback_reference = any(phrase in normalized_voice_request for phrase in (
+            "listen to it", "listen to that", "listen to this",
+            "hear it", "hear that", "hear this", "play that again",
+            "put that on", "play it again",
+        ))
+        if pronoun_playback_reference:
+            intent = "music"
+            action = "resume"
+            query = ""
+
+        if intent == "navigation" and not destination:
+            intent = "general"
+        return {
+            "intent": intent,
+            "action": action,
+            "destination": destination,
+            "query": query,
+            "polished_text": polished_text,
+        }
+    except Exception as error:
+        print("Feature intent classification error:", str(error))
+        # Preserve the essential playback reference even if the AI provider
+        # temporarily fails to return valid structured JSON.
+        normalized_voice_request = " ".join(message.lower().split())
+        if any(phrase in normalized_voice_request for phrase in (
+            "listen to it", "listen to that", "listen to this",
+            "hear it", "hear that", "hear this", "play that again",
+        )):
+            return {
+                "intent": "music",
+                "action": "resume",
+                "destination": "",
+                "query": "",
+                "polished_text": "Resume the current music.",
+            }
+
+    return {"intent": "general", "action": "none", "destination": "", "query": message, "polished_text": message}
+
+
+@app.post("/api/dictation/polish")
+def polish_dictation(request: dict):
+    raw_text = str(request.get("text") or "")
+    language = str(request.get("language") or "auto").strip()
+    if not raw_text.strip():
+        return {"success": True, "polished_text": ""}
+    # Keep long dictated prompts intact; do not silently truncate them.
+    if groq is None:
+        return {"success": True, "polished_text": raw_text.strip(), "fallback": True}
+    if language.lower() in {"auto", "", "detect"}:
+        language_instruction = "Detect the language from the transcript and keep the corrected text in that same language and script."
+    else:
+        language_instruction = f"The selected speech language is {language}. Keep the corrected text in that language and script; do not translate it into English."
+    try:
+        completion = groq.chat.completions.create(
+            model="openai/gpt-oss-20b",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a careful multilingual dictation editor. " + language_instruction + " "
+                        "Rewrite the user's entire speech transcript as clear, polished, natural writing in the same language. "
+                        "Correct grammar, punctuation, capitalization, and obvious speech-recognition errors. Remove only filler or repetitions that clearly add no meaning. "
+                        "Preserve every detail, requirement, example, name, technical term, intent, tone, and the full meaning of the original. "
+                        "Never summarize or shorten a long transcript, and never invent missing words or instructions. "
+                        "Choose formatting intelligently: keep simple thoughts as paragraphs; use bullets only when the speaker clearly lists multiple distinct points, requirements, or steps and bullets improve readability. Do not force a list when it is not needed. "
+                        "If uncertain whether a phrase is a recognition error or meaningful content, preserve it rather than deleting it. "
+                        "If the input is already clear, make minimal corrections. Return only the corrected text, without quotes or commentary."
+                    ),
+                },
+                {"role": "user", "content": raw_text},
+            ],
+            temperature=0,
+            max_completion_tokens=min(6000, max(500, len(raw_text) // 2)),
+        )
+        polished = (completion.choices[0].message.content or "").strip()
+        # A surprisingly short result often means the model dropped dictated details.
+        # Preserve the original rather than silently losing part of the user's request.
+        if len(raw_text.strip()) >= 180 and len(polished) < len(raw_text.strip()) * 0.72:
+            return {"success": True, "polished_text": raw_text.strip(), "fallback": True, "reason": "possible_omission"}
+        return {"success": bool(polished), "polished_text": polished or raw_text.strip()}
+    except Exception as error:
+        print("Dictation polish error:", str(error))
+        return {"success": True, "polished_text": raw_text.strip(), "fallback": True}
 
 
 # =========================================================
@@ -2392,17 +2909,25 @@ def ask(
         )
 
         messages = [
-
             {
-                "role":
-                    item.role,
-
-                "content":
-                    item.content,
-            }
-
-            for item
-            in history
+                "role": "system",
+                "content": (
+                    "You are Visionary Nexus, a precise and helpful assistant. "
+                    "Answer the user's actual request. When the user asks to paraphrase, polish, rewrite, or improve a paragraph, "
+                    "rewrite the complete text while preserving all facts, examples, names, requirements, nuance, and approximate length; "
+                    "do not summarize or omit details. For ordinary questions, answer normally rather than paraphrasing the question. "
+                    "Choose formatting based on the content: use a short paragraph for a simple idea, numbered steps for sequences, "
+                    "and bullet points when there are multiple distinct items, options, requirements, or takeaways. Do not force bullets "
+                    "when prose is clearer. Use headings only when they help scanning. Keep answers well structured and avoid unnecessary filler."
+                ),
+            },
+            *[
+                {
+                    "role": item.role,
+                    "content": item.content,
+                }
+                for item in history
+            ],
         ]
 
         completion = (

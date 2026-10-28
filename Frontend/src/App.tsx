@@ -10,6 +10,7 @@ import Notifications from './components/Notifications'
 import Device from './components/Device'
 import Settings from './components/Settings'
 import { apiFetch, readJson } from './services/api'
+import VoiceControl from './components/VoiceControl'
 
 export type Tab = 'dashboard' | 'ai' | 'vision' | 'audio' | 'music' | 'weather' | 'nav' | 'notifications' | 'device' | 'settings'
 
@@ -92,6 +93,8 @@ interface SystemStatus {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard')
+  const [navigationDestination, setNavigationDestination] = useState('')
+  const [pendingVoiceCommand, setPendingVoiceCommand] = useState('')
   const [status, setStatus] = useState<SystemStatus>({ backend: false, aiProvider: '—', glassesOnline: 0, wifiLabel: 'UNKNOWN' })
 
   useEffect(() => {
@@ -126,6 +129,12 @@ export default function App() {
       window.clearInterval(interval)
     }
   }, [])
+
+  useEffect(() => {
+    if (activeTab !== 'ai' || !pendingVoiceCommand) return
+    window.dispatchEvent(new CustomEvent('visionary:voice-command', { detail: { text: pendingVoiceCommand, activeTab: 'ai' } }))
+    setPendingVoiceCommand('')
+  }, [activeTab, pendingVoiceCommand])
 
   return (
     <div className="min-h-screen bg-[#030712] text-white flex flex-row relative overflow-hidden">
@@ -247,14 +256,107 @@ export default function App() {
 
       {/* Main content */}
       <main className="flex-1 relative z-10 overflow-auto" style={{ minHeight: '100vh' }}>
-        <div className="animate-slide-in" key={activeTab}>
+        <VoiceControl onCommand={async (spoken) => {
+          // Route obvious playback commands locally first. Voice playback must
+          // never wait for a remote LLM round-trip; the backend AI remains the
+          // fallback for ambiguous, multi-feature requests.
+          const raw = spoken.trim();
+          const normalized = raw.toLowerCase().replace(/[.!?,]+/g, ' ').replace(/\s+/g, ' ').trim();
+          const genericListen = /\b(?:i want to|i would like to|let me|can i|could i)?\s*(?:listen to|hear)\s+(?:something|anything|some music|music|a song|some songs)\b/.test(normalized);
+          const pronounPlayback = /\b(?:listen to|hear)\s+(?:it|that|this)\b|\bplay\s+(?:it|that|this)\s+again\b|\bput\s+(?:it|that|this)\s+on\b|\bresume\s+(?:the )?(?:music|song|track)?\s*$/.test(normalized);
+          const musicVerb = /\b(?:play|listen to|put on|start playing|resume|pause|skip|next song|previous song|find me|search for)\b/.test(normalized);
+          if (genericListen || pronounPlayback || musicVerb) {
+            const action = /\b(?:pause|stop)\b/.test(normalized) ? 'pause'
+              : /\b(?:skip|next song)\b/.test(normalized) ? 'next'
+              : /\bprevious song\b/.test(normalized) ? 'previous'
+              : pronounPlayback || /\b(?:resume|continue)\b/.test(normalized) ? 'resume'
+              : genericListen ? 'open'
+              : /\b(?:find me|search for)\b/.test(normalized) ? 'search' : 'play';
+            let query = raw
+              .replace(/^\s*(?:hey\s+)?(?:visionary|nexus)?[,:-]?\s*/i, '')
+              .replace(/^\s*(?:please\s+)?(?:i want to listen to|i would like to listen to|let me listen to|can you play|could you play|please play|play|put on|listen to|start playing|find me|search for|resume|continue)\s*/i, '')
+              .replace(/\b(?:please|for me|right now|on my music|music|song|track|playlist)\b/gi, ' ')
+              .replace(/\s+/g, ' ').trim();
+            if (genericListen || pronounPlayback || /^(?:it|that|this|again|something|anything)$/i.test(query)) query = '';
+            setActiveTab('music');
+            window.dispatchEvent(new CustomEvent('visionary:voice-command', {
+              detail: { activeTab: 'music', intent: 'music', action, query, text: raw },
+            }));
+            return;
+          }
+          try {
+            const response = await apiFetch('/api/intent/classify', {
+              method: 'POST',
+              body: JSON.stringify({
+                message: spoken,
+                context: { active_tab: activeTab },
+              }),
+            })
+            const intent = await readJson<{
+              intent?: string
+              action?: string
+              destination?: string
+              query?: string
+              polished_text?: string
+            }>(response)
+            const routedIntent = (intent?.intent || 'general').toLowerCase()
+            const polished = intent?.polished_text?.trim() || spoken
+            if (routedIntent === 'music') {
+              setActiveTab('music')
+              window.dispatchEvent(new CustomEvent('visionary:voice-command', {
+                detail: {
+                  activeTab: 'music',
+                  intent: 'music',
+                  action: intent?.action || 'play',
+                  query: intent?.query || '',
+                  text: polished,
+                },
+              }))
+              return
+            }
+            if (routedIntent === 'navigation' && intent?.destination) {
+              setNavigationDestination(intent.destination)
+              setActiveTab('nav')
+              window.dispatchEvent(new CustomEvent('visionary:navigate', { detail: { destination: intent.destination } }))
+              return
+            }
+            const intentTabs: Partial<Record<string, Tab>> = {
+              weather: 'weather',
+              vision: 'vision',
+              audio: 'audio',
+              dashboard: 'dashboard',
+              ai: 'ai',
+              notifications: 'notifications',
+              device: 'device',
+              settings: 'settings',
+            }
+            const destinationTab = intentTabs[routedIntent]
+            if (destinationTab && routedIntent !== 'general') {
+              setActiveTab(destinationTab)
+              if (routedIntent === 'vision') {
+                window.dispatchEvent(new CustomEvent('visionary:vision-command', { detail: { text: polished } }))
+              }
+              return
+            }
+            setPendingVoiceCommand(polished)
+            setActiveTab('ai')
+          } catch (error) {
+            console.warn('AI voice understanding unavailable; forwarding speech to the AI Assistant.', error)
+            setPendingVoiceCommand(spoken)
+            setActiveTab('ai')
+          }
+        }} />
+        <div className="animate-slide-in">
           {activeTab === 'dashboard' && <Dashboard setActiveTab={setActiveTab} />}
-          {activeTab === 'ai' && <AIAssistant />}
+          {activeTab === 'ai' && <AIAssistant onNavigate={(destination) => { setNavigationDestination(destination); setActiveTab('nav') }} />}
           {activeTab === 'vision' && <Vision />}
           {activeTab === 'audio' && <AudioPanel />}
-          {activeTab === 'music' && <Music />}
+          {/* Keep Music mounted while other tabs are open so playback and playlist editing continue. */}
+          <div style={{ display: activeTab === 'music' ? 'block' : 'none' }} aria-hidden={activeTab !== 'music'}>
+            <Music />
+          </div>
           {activeTab === 'weather' && <Weather />}
-          {activeTab === 'nav' && <Navigation />}
+          {activeTab === 'nav' && <Navigation initialDestination={navigationDestination} />}
           {activeTab === 'notifications' && <Notifications />}
           {activeTab === 'device' && <Device />}
           {activeTab === 'settings' && <Settings />}

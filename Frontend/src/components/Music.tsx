@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { apiFetch, readJson } from '../services/api'
 
+declare global {
+  interface Window {
+    YT?: any
+    onYouTubeIframeAPIReady?: () => void
+  }
+}
+
 interface Track {
   id: string
   name: string
@@ -11,6 +18,13 @@ interface Track {
   audio?: string
   url?: string
   genre?: string
+  provider?: string
+  videoId?: string
+}
+
+interface SavedPlaylist {
+  name: string
+  tracks: Track[]
 }
 
 interface ProviderConfig {
@@ -35,17 +49,119 @@ function formatDuration(ms?: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
 }
 
+let youtubeApiPromise: Promise<any> | null = null
+function loadYouTubeApi(): Promise<any> {
+  if (window.YT?.Player) return Promise.resolve(window.YT)
+  if (!youtubeApiPromise) {
+    youtubeApiPromise = new Promise(resolve => {
+      const previousReady = window.onYouTubeIframeAPIReady
+      window.onYouTubeIframeAPIReady = () => {
+        previousReady?.()
+        resolve(window.YT)
+      }
+      if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
+        const script = document.createElement('script')
+        script.src = 'https://www.youtube.com/iframe_api'
+        script.async = true
+        document.head.appendChild(script)
+      }
+    })
+  }
+  return youtubeApiPromise
+}
+
 export default function Music() {
   const [config, setConfig] = useState<ProviderConfig>(emptyConfig)
   const [query, setQuery] = useState('')
   const [tracks, setTracks] = useState<Track[]>([])
   const [queue, setQueue] = useState<Track[]>([])
   const [current, setCurrent] = useState<Track | null>(null)
+  const [playlistName, setPlaylistName] = useState('')
+  const [editingPlaylistName, setEditingPlaylistName] = useState<string | null>(null)
+  const [selectedPlaylistName, setSelectedPlaylistName] = useState<string | null>(() => {
+    try {
+      return window.localStorage.getItem('visionary-nexus-music-selected-playlist')
+    } catch {
+      return null
+    }
+  })
+  // Hydrate saved playlists synchronously on first render so an early voice
+  // command can never see an empty list and accidentally fall back to YouTube.
+  const [playlists, setPlaylists] = useState<SavedPlaylist[]>(() => {
+    try {
+      const saved = window.localStorage.getItem('visionary-nexus-music-playlists')
+      const parsed: unknown = saved ? JSON.parse(saved) : []
+      return Array.isArray(parsed)
+        ? parsed.filter((item): item is SavedPlaylist =>
+            Boolean(item) && typeof item.name === 'string' && Array.isArray(item.tracks)
+          )
+        : []
+    } catch {
+      return []
+    }
+  })
+  const playlistsHydratedRef = useRef(false)
   const [playing, setPlaying] = useState(false)
   const [volume, setVolume] = useState(70)
   const [busy, setBusy] = useState(false)
+  const [importBusy, setImportBusy] = useState(false)
+  const [importStatus, setImportStatus] = useState('')
   const [message, setMessage] = useState('')
+  const [position, setPosition] = useState(0)
+  const [audioDuration, setAudioDuration] = useState(0)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const queueRef = useRef<Track[]>([])
+  const playTrackRef = useRef<((track: Track) => Promise<void>) | null>(null)
+  const advanceQueueRef = useRef<() => void>(() => {})
+  const activeSequenceRef = useRef<Track[]>([])
+  const activeIndexRef = useRef(-1)
+  const youtubePlayerRef = useRef<any>(null)
+  const youtubeContainerRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    queueRef.current = queue
+  }, [queue])
+
+  useEffect(() => {
+    if (selectedPlaylistName && !playlists.some(item => item.name === selectedPlaylistName)) {
+      setSelectedPlaylistName(null)
+      try { window.localStorage.removeItem('visionary-nexus-music-selected-playlist') } catch { /* storage unavailable */ }
+    }
+  }, [playlists, selectedPlaylistName])
+
+  const rememberSelectedPlaylist = (name: string | null) => {
+    setSelectedPlaylistName(name)
+    try {
+      if (name) window.localStorage.setItem('visionary-nexus-music-selected-playlist', name)
+      else window.localStorage.removeItem('visionary-nexus-music-selected-playlist')
+    } catch {
+      // Playlist contents remain saved even if selected-playlist memory is unavailable.
+    }
+  }
+
+  const persistPlaylists = (next: SavedPlaylist[]) => {
+    setPlaylists(next)
+    try {
+      window.localStorage.setItem('visionary-nexus-music-playlists', JSON.stringify(next))
+    } catch {
+      setMessage('Could not save playlists in this browser. Check browser storage settings.')
+    }
+    // The database is the durable source of truth; localStorage remains a
+    // fast offline cache and migration fallback.
+    if (playlistsHydratedRef.current) {
+      void apiFetch('/api/music/playlists', {
+        method: 'PUT',
+        body: JSON.stringify({ playlists: next }),
+      }).then(async response => {
+        const result = await readJson<{ success?: boolean; message?: string }>(response)
+        if (!response.ok || result?.success === false) {
+          setMessage(result?.message || 'Playlist database save failed. Your browser cache is still available.')
+        }
+      }).catch(() => {
+        setMessage('Playlist database is unavailable. The browser cache is still saved on this device.')
+      })
+    }
+  }
 
   const loadConfig = async () => {
     const response = await apiFetch('/api/music/config')
@@ -55,6 +171,43 @@ export default function Music() {
 
   useEffect(() => {
     void loadConfig()
+    void (async () => {
+      try {
+        const response = await apiFetch('/api/music/playlists')
+        const data = await readJson<{ success?: boolean; playlists?: SavedPlaylist[] }>(response)
+        if (!response.ok || !data?.success || !Array.isArray(data.playlists)) return
+        const remote = data.playlists.filter(item =>
+          Boolean(item) && typeof item.name === 'string' && Array.isArray(item.tracks)
+        )
+        if (remote.length) {
+          setPlaylists(remote)
+          try { window.localStorage.setItem('visionary-nexus-music-playlists', JSON.stringify(remote)) } catch { /* optional cache */ }
+        } else {
+          // One-time migration: preserve existing browser playlists when the
+          // newly added database table has no records yet.
+          let cached: SavedPlaylist[] = []
+          try {
+            const raw = window.localStorage.getItem('visionary-nexus-music-playlists')
+            const parsed: unknown = raw ? JSON.parse(raw) : []
+            if (Array.isArray(parsed)) cached = parsed.filter(item =>
+              Boolean(item) && typeof item.name === 'string' && Array.isArray(item.tracks)
+            )
+          } catch { /* malformed cache is ignored without deleting database data */ }
+          if (cached.length) {
+            setPlaylists(cached)
+            const migrated = await apiFetch('/api/music/playlists', {
+              method: 'PUT',
+              body: JSON.stringify({ playlists: cached }),
+            })
+            if (!migrated.ok) setMessage('Existing playlists remain in browser storage; database migration did not complete.')
+          }
+        }
+      } catch {
+        // Keep the local cache available when the backend is offline.
+      } finally {
+        playlistsHydratedRef.current = true
+      }
+    })()
     return () => {
       audioRef.current?.pause()
       audioRef.current = null
@@ -63,48 +216,150 @@ export default function Music() {
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume / 100
+    youtubePlayerRef.current?.setVolume?.(volume)
   }, [volume])
 
   const playTrack = async (track: Track) => {
     setCurrent(track)
+    setPosition(0)
+    setAudioDuration(0)
+    setMessage('')
+    if ((track.provider || '').toLowerCase() === 'youtube' && track.videoId) {
+      audioRef.current?.pause()
+      if (audioRef.current) audioRef.current.src = ''
+      setPlaying(true)
+      setMessage('Starting playback…')
+      return
+    }
     if (track.audio) {
       if (!audioRef.current) {
         audioRef.current = new Audio()
-        audioRef.current.addEventListener('ended', () => setPlaying(false))
+        audioRef.current.addEventListener('ended', () => advanceQueueRef.current())
+        audioRef.current.addEventListener('timeupdate', () => setPosition(audioRef.current?.currentTime || 0))
+        audioRef.current.addEventListener('loadedmetadata', () => setAudioDuration(audioRef.current?.duration || 0))
       }
       audioRef.current.src = track.audio
+      audioRef.current.currentTime = 0
       audioRef.current.volume = volume / 100
       try {
         await audioRef.current.play()
         setPlaying(true)
       } catch (error) {
         setPlaying(false)
-        setMessage(`Preview playback was blocked: ${error instanceof Error ? error.message : 'unknown error'}`)
+        setMessage(`Full-track playback failed: ${error instanceof Error ? error.message : 'unknown error'}`)
       }
+    } else {
+      setPlaying(false)
+      setMessage('This result has no full-track audio stream, so it cannot be played here.')
     }
-    const response = await apiFetch('/api/music/play', {
-      method: 'POST',
-      body: JSON.stringify({ query: track.name }),
-    })
-    const data = await readJson<{ success?: boolean; message?: string }>(response)
-    if (data?.message) setMessage(data.message)
   }
 
-  const searchTracks = async (event: React.FormEvent) => {
-    event.preventDefault()
-    const term = query.trim()
-    if (!term) return
+  playTrackRef.current = playTrack
+  advanceQueueRef.current = () => {
+    const sequence = activeSequenceRef.current
+    if (sequence.length && activeIndexRef.current >= 0 && activeIndexRef.current < sequence.length - 1) {
+      startSequenceTrack(sequence, activeIndexRef.current + 1)
+      return
+    }
+    if ((current?.provider || '').toLowerCase() === 'apple-itunes') {
+      setPlaying(false)
+      setMessage('Preview finished. Press Next to continue the queue manually.')
+      return
+    }
+    const [nextTrack, ...remaining] = queueRef.current
+    if (!nextTrack) {
+      setPlaying(false)
+      setMessage('Queue finished. Add more tracks to keep listening.')
+      return
+    }
+    queueRef.current = remaining
+    setQueue(remaining)
+    activeSequenceRef.current = [nextTrack, ...remaining]
+    activeIndexRef.current = 0
+    void playTrackRef.current?.(nextTrack)
+  }
+
+  useEffect(() => {
+    if ((current?.provider || '').toLowerCase() !== 'youtube' || !current?.videoId) {
+      return
+    }
+    let cancelled = false
+    let player: any = null
+    void loadYouTubeApi().then(YT => {
+      if (cancelled || !youtubeContainerRef.current) return
+      player = new YT.Player(youtubeContainerRef.current, {
+        width: '100%',
+        height: '100%',
+        videoId: current.videoId,
+        playerVars: { autoplay: 1, controls: 1, playsinline: 1, rel: 0 },
+        events: {
+          onReady: (event: any) => {
+            event.target.setVolume(volume)
+            event.target.playVideo?.()
+            setPlaying(true)
+            setMessage('')
+          },
+          onAutoplayBlocked: () => {
+            setPlaying(false)
+            setMessage('Your browser blocked automatic playback. Press Play in the YouTube player once; playlist navigation will then work normally.')
+          },
+          onStateChange: (event: any) => {
+            if (event.data === YT.PlayerState.ENDED) advanceQueueRef.current()
+            if (event.data === YT.PlayerState.PLAYING) setPlaying(true)
+            if (event.data === YT.PlayerState.PAUSED) setPlaying(false)
+          },
+          onError: () => {
+            setPlaying(false)
+            setMessage('This YouTube video is unavailable or cannot be embedded. Try another result.')
+          },
+        },
+      })
+      youtubePlayerRef.current = player
+    }).catch(() => {
+      if (!cancelled) setMessage('Could not load the YouTube player. Check your internet connection and try again.')
+    })
+    return () => {
+      cancelled = true
+      if (player && typeof player.destroy === 'function') player.destroy()
+      if (youtubePlayerRef.current === player) youtubePlayerRef.current = null
+    }
+  }, [current?.provider, current?.videoId])
+
+  const searchTracksByTerm = async (term: string, autoplay = false) => {
+    const searchTerm = term.trim()
+    if (!searchTerm) return
+    setQuery(searchTerm)
     setBusy(true)
     setMessage('')
     try {
       const response = await apiFetch('/api/music/search', {
         method: 'POST',
-        body: JSON.stringify({ query: term }),
+        body: JSON.stringify({ query: searchTerm }),
       })
-      const data = await readJson<{ success?: boolean; tracks?: Track[]; message?: string }>(response)
+      const data = await readJson<{ success?: boolean; tracks?: Track[]; message?: string; notice?: string; source?: string }>(response)
       const found = data?.tracks || []
       setTracks(found)
-      setMessage(data?.message || (found.length ? `Found ${found.length} track(s).` : 'No matches found.'))
+      if (autoplay && found.length) {
+        const firstPlayableIndex = found.findIndex(track => Boolean(track.videoId || track.audio))
+        if (firstPlayableIndex >= 0) {
+          const playable = found.slice(firstPlayableIndex)
+          activeSequenceRef.current = playable
+          activeIndexRef.current = 0
+          queueRef.current = playable.slice(1)
+          setQueue(playable.slice(1))
+          await playTrack(found[firstPlayableIndex])
+          setMessage(`No saved playlist matched “${searchTerm}”. Playing a music search result.`)
+        } else {
+          setMessage(`Found results for “${searchTerm}”, but none can be played by the current provider.`)
+        }
+      } else {
+        setMessage(
+          data?.notice ||
+          data?.message ||
+          (found.length ? `Found ${found.length} track(s) from ${data?.source || 'music provider'}.` : 'No matches found. Try a shorter title or artist name.')
+        )
+      }
+      if (autoplay && !found.length) setMessage(`No saved playlist named “${searchTerm}” and no music search results were found.`)
     } catch (error) {
       setMessage(`Music search failed: ${error instanceof Error ? error.message : 'unknown error'}`)
     } finally {
@@ -112,7 +367,28 @@ export default function Music() {
     }
   }
 
+  const searchTracks = async (event: React.FormEvent) => {
+    event.preventDefault()
+    await searchTracksByTerm(query)
+  }
+
+  const startSequenceTrack = (sequence: Track[], index: number) => {
+    if (index < 0 || index >= sequence.length) return
+    activeSequenceRef.current = sequence
+    activeIndexRef.current = index
+    const remaining = sequence.slice(index + 1)
+    queueRef.current = remaining
+    setQueue(remaining)
+    void playTrack(sequence[index])
+  }
+
   const control = async (action: 'pause' | 'resume' | 'next' | 'previous') => {
+    if (current?.provider?.toLowerCase() === 'youtube' && current.videoId && (action === 'pause' || action === 'resume')) {
+      if (action === 'pause') youtubePlayerRef.current?.pauseVideo?.()
+      else youtubePlayerRef.current?.playVideo?.()
+      setMessage('Use the YouTube player controls to seek and adjust volume.')
+      return
+    }
     if (action === 'pause') {
       audioRef.current?.pause()
       setPlaying(false)
@@ -120,15 +396,41 @@ export default function Music() {
     if (action === 'resume') {
       void audioRef.current?.play().then(() => setPlaying(true)).catch(() => setPlaying(false))
     }
-    if (action === 'next' && queue.length > 0) {
-      const [nextTrack, ...rest] = queue
-      setQueue(rest)
-      void playTrack(nextTrack)
+    if (action === 'next') {
+      const sequence = activeSequenceRef.current
+      if (sequence.length && activeIndexRef.current < sequence.length - 1) {
+        startSequenceTrack(sequence, activeIndexRef.current + 1)
+        return
+      }
+      if (queueRef.current.length > 0) {
+        const [nextTrack, ...rest] = queueRef.current
+        queueRef.current = rest
+        setQueue(rest)
+        activeSequenceRef.current = [nextTrack, ...rest]
+        activeIndexRef.current = 0
+        void playTrack(nextTrack)
+        return
+      }
+      setPlaying(false)
+      setMessage('You are at the end of this playlist.')
       return
     }
-    if (action === 'previous' && current) {
-      void playTrack(current)
-      return
+    if (action === 'previous') {
+      if (position > 3 && audioRef.current) {
+        audioRef.current.currentTime = 0
+        setPosition(0)
+        return
+      }
+      const sequence = activeSequenceRef.current
+      if (sequence.length && activeIndexRef.current > 0) {
+        startSequenceTrack(sequence, activeIndexRef.current - 1)
+        return
+      }
+      if (current) {
+        void playTrack(current)
+        setMessage('Restarting the first song.')
+        return
+      }
     }
     const response = await apiFetch(`/api/music/${action}`, { method: 'POST', body: JSON.stringify({}) })
     const data = await readJson<{ success?: boolean; message?: string }>(response)
@@ -136,8 +438,322 @@ export default function Music() {
   }
 
   const addToQueue = (track: Track) => {
-    setQueue(previous => (previous.some(item => item.id === track.id) ? previous : [...previous, track]))
+    setQueue(previous => {
+      if (previous.some(item => item.id === track.id)) return previous
+      const updated = [...previous, track]
+      queueRef.current = updated
+      return updated
+    })
   }
+
+  const savePlaylist = () => {
+    const name = playlistName.trim()
+    if (!name) {
+      setMessage('Enter a playlist name first.')
+      return
+    }
+    // Playing a saved playlist changes the playback queue, not the saved playlist.
+    // Only replace a playlist when explicitly editing it; otherwise save the full
+    // active sequence (including the currently playing track), not just its tail.
+    const activeSequence = activeSequenceRef.current
+    const currentSequenceIndex = current
+      ? activeSequence.findIndex(track => track.id === current.id)
+      : -1
+    const sequenceMatchesQueue = currentSequenceIndex >= 0 &&
+      queueRef.current.length === activeSequence.length - currentSequenceIndex - 1 &&
+      queueRef.current.every((track, index) => track.id === activeSequence[currentSequenceIndex + index + 1]?.id)
+    const items = editingPlaylistName
+      ? queue
+      : sequenceMatchesQueue
+        ? activeSequence
+        : current
+          ? [current, ...queue.filter(track => track.id !== current.id)]
+          : queue
+    if (!items.length) {
+      setMessage('Add songs to the queue before saving a playlist.')
+      return
+    }
+    const next = [...playlists.filter(item => item.name.toLowerCase() !== name.toLowerCase()), { name, tracks: [...items] }]
+    persistPlaylists(next)
+    rememberSelectedPlaylist(name)
+    setEditingPlaylistName(null)
+    setMessage(`Saved playlist “${name}” with ${items.length} track(s).`)
+  }
+
+  const renamePlaylist = (oldName: string) => {
+    const entered = window.prompt('Rename playlist', oldName)
+    if (entered === null) return
+    const newName = entered.trim()
+    if (!newName) {
+      setMessage('Playlist name cannot be empty.')
+      return
+    }
+    if (playlists.some(item => item.name.toLowerCase() === newName.toLowerCase() && item.name !== oldName)) {
+      setMessage('A playlist with that name already exists.')
+      return
+    }
+    if (newName === oldName) return
+    persistPlaylists(playlists.map(item => item.name === oldName ? { ...item, name: newName } : item))
+    if (selectedPlaylistName === oldName) rememberSelectedPlaylist(newName)
+    if (editingPlaylistName === oldName) setEditingPlaylistName(newName)
+    if (playlistName === oldName) setPlaylistName(newName)
+    setMessage(`Renamed playlist “${oldName}” to “${newName}”.`)
+  }
+
+  const playPlaylistByName = (name: string) => {
+    const playlist = playlists.find(item => item.name.toLowerCase() === name.toLowerCase())
+    if (!playlist || !playlist.tracks.length) {
+      setMessage('Playlist ' + name + ' is empty or was not found.')
+      return
+    }
+    setPlaylistName(playlist.name)
+    rememberSelectedPlaylist(playlist.name)
+    setEditingPlaylistName(null)
+    startSequenceTrack(playlist.tracks, 0)
+    setMessage('Playing playlist ' + playlist.name + '.')
+  }
+
+  const playPlaylist = () => {
+    const name = playlistName.trim()
+    if (!name) {
+      setMessage('Choose a playlist below or enter its name first.')
+      return
+    }
+    playPlaylistByName(name)
+  }
+
+  const playSavedTrack = (playlist: SavedPlaylist, index: number) => {
+    rememberSelectedPlaylist(playlist.name)
+    setPlaylistName(playlist.name)
+    startSequenceTrack(playlist.tracks, index)
+    setMessage('Playing ' + (playlist.tracks[index]?.name || 'track') + ' from ' + playlist.name + '.')
+  }
+
+  const removeSavedTrack = (playlistName: string, trackIndex: number) => {
+    const playlist = playlists.find(item => item.name === playlistName)
+    if (!playlist) return
+    const updatedTracks = playlist.tracks.filter((_, index) => index !== trackIndex)
+    persistPlaylists(playlists.map(item => item.name === playlistName ? { ...item, tracks: updatedTracks } : item))
+    if (editingPlaylistName === playlistName) {
+      queueRef.current = updatedTracks
+      setQueue(updatedTracks)
+    }
+    if (selectedPlaylistName === playlistName) {
+      const activeTrack = activeSequenceRef.current[activeIndexRef.current]
+      const removedTrack = playlist.tracks[trackIndex]
+      const nextSequence = activeSequenceRef.current.filter((track, index) => !(index === trackIndex && track.id === removedTrack?.id))
+      activeSequenceRef.current = nextSequence
+      const retainedIndex = activeTrack ? nextSequence.findIndex(track => track.id === activeTrack.id) : -1
+      activeIndexRef.current = retainedIndex >= 0 ? retainedIndex : Math.min(trackIndex, nextSequence.length - 1)
+      const remaining = nextSequence.slice(activeIndexRef.current + 1)
+      queueRef.current = remaining
+      setQueue(remaining)
+    }
+    setMessage('Removed song from ' + playlistName + '.')
+  }
+
+  const moveQueueItem = (index: number, direction: -1 | 1) => {
+    const target = index + direction
+    if (target < 0 || target >= queueRef.current.length) return
+    const reordered = [...queueRef.current]
+    ;[reordered[index], reordered[target]] = [reordered[target], reordered[index]]
+    queueRef.current = reordered
+    setQueue(reordered)
+    if (editingPlaylistName) {
+      persistPlaylists(playlists.map(item => item.name === editingPlaylistName ? { ...item, tracks: reordered } : item))
+    }
+  }
+
+  const importPlaylistFile = async (file: File) => {
+    setImportBusy(true)
+    setImportStatus('Reading playlist file…')
+    try {
+      const content = await file.text()
+      const rows: string[][] = []
+      let row: string[] = []
+      let cell = ''
+      let quoted = false
+      for (let index = 0; index < content.length; index += 1) {
+        const char = content[index]
+        if (char === '"' && quoted && content[index + 1] === '"') {
+          cell += '"'
+          index += 1
+        } else if (char === '"') {
+          quoted = !quoted
+        } else if (char === ',' && !quoted) {
+          row.push(cell.trim())
+          cell = ''
+        } else if ((char === '\n' || char === '\r') && !quoted) {
+          if (cell || row.length) {
+            row.push(cell.trim())
+            rows.push(row)
+          }
+          row = []
+          cell = ''
+        } else {
+          cell += char
+        }
+      }
+      if (cell || row.length) {
+        row.push(cell.trim())
+        rows.push(row)
+      }
+      if (!rows.length) throw new Error('The selected file is empty.')
+
+      const header = rows[0].map(value => value.toLowerCase().replace(/[^a-z0-9]/g, ''))
+      const titleIndex = header.findIndex(value => ['track', 'trackname', 'title', 'song', 'songtitle', 'name'].includes(value))
+      const artistIndex = header.findIndex(value => ['artist', 'artistname', 'performer'].includes(value))
+      const hasHeader = titleIndex >= 0
+      const firstDataRow = hasHeader ? 1 : 0
+      const resolvedTitleIndex = hasHeader ? titleIndex : 0
+      const resolvedArtistIndex = hasHeader && artistIndex >= 0 ? artistIndex : 1
+      const candidates = rows.slice(firstDataRow).map(values => ({
+        title: (values[resolvedTitleIndex] || '').trim(),
+        artist: (values[resolvedArtistIndex] || '').trim(),
+      })).filter(item => item.title && item.title.toLowerCase() !== 'track name')
+
+      if (!candidates.length) {
+        throw new Error('No track titles were found. Use a CSV with Track/Title and optional Artist columns.')
+      }
+
+      const imported: Track[] = []
+      let unmatched = 0
+      for (let index = 0; index < candidates.length; index += 1) {
+        const item = candidates[index]
+        setImportStatus(`Matching track ${index + 1} of ${candidates.length}: ${item.title}`)
+        try {
+          const response = await apiFetch('/api/music/search', {
+            method: 'POST',
+            body: JSON.stringify({ query: [item.title, item.artist].filter(Boolean).join(' ') }),
+          })
+          const data = await readJson<{ tracks?: Track[] }>(response)
+          const matched = data?.tracks?.[0]
+          if (matched) imported.push(matched)
+          else unmatched += 1
+        } catch {
+          unmatched += 1
+        }
+      }
+      if (!imported.length) throw new Error('No tracks could be matched in the configured music catalog.')
+      const suggestedName = file.name.replace(/\.(csv|txt)$/i, '').replace(/[_-]+/g, ' ').trim() || 'Imported playlist'
+      const existing = playlists.find(item => item.name.toLowerCase() === suggestedName.toLowerCase())
+      const name = existing
+        ? (window.confirm(`A playlist named “${suggestedName}” already exists. Replace it with the imported tracks?`)
+            ? suggestedName
+            : `${suggestedName} (imported ${new Date().toLocaleDateString()})`)
+        : suggestedName
+      const next = [...playlists.filter(item => item.name.toLowerCase() !== name.toLowerCase()), { name, tracks: imported }]
+      persistPlaylists(next)
+      rememberSelectedPlaylist(name)
+      setPlaylistName(name)
+      setImportStatus(`Imported ${imported.length} of ${candidates.length} tracks into “${name}”. ${unmatched ? `${unmatched} track(s) could not be matched.` : 'All tracks matched.'}`)
+    } catch (error) {
+      setImportStatus(error instanceof Error ? error.message : 'Playlist import failed.')
+    } finally {
+      setImportBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    const handleVoiceCommand = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        text?: string
+        activeTab?: string
+        intent?: string
+        action?: string
+        query?: string
+      }>).detail
+      if (detail?.activeTab !== 'music') return
+
+      const text = (detail.text || '').toLowerCase().replace(/[.!?,]+/g, ' ').replace(/\s+/g, ' ').trim()
+      const controlCommand = text.replace(/\s+(song|music)$/, '')
+      const action = (detail.action || '').toLowerCase()
+
+      // The AI already classified the meaning. Execute its structured action/query
+      // instead of trying to re-parse the full sentence with brittle phrase rules.
+      if (action === 'pause' || /^(pause|stop)( music)?$/.test(controlCommand)) { void control('pause'); return }
+      if (action === 'resume' || /^(resume|continue)( music)?$/.test(controlCommand)) {
+        if (current) { void control('resume'); return }
+        if (selectedPlaylistName) { playPlaylistByName(selectedPlaylistName); return }
+        setMessage('Nothing is playing yet. Say which song or playlist you want.')
+        return
+      }
+      if (action === 'next' || /^(next|skip|play next)( song)?$/.test(controlCommand)) { void control('next'); return }
+      if (action === 'previous' || /^(previous|prev|back|last|play previous)( song)?$/.test(controlCommand)) { void control('previous'); return }
+
+      const removeMatch = text.match(/^(?:remove|delete)\s+(.+?)\s+from\s+(?:the\s+)?playlist(?:\s+(.+))?$/)
+      if (removeMatch) {
+        const songName = removeMatch[1].trim()
+        const targetPlaylist = removeMatch[2]
+          ? playlists.find(item => item.name.toLowerCase() === removeMatch[2].trim())
+          : playlists.find(item => item.name === selectedPlaylistName)
+        const playlist = targetPlaylist || playlists.find(item => item.tracks.some(track => track.name.toLowerCase().includes(songName)))
+        if (!playlist) { setMessage('I could not find that playlist. Open Music to see your saved playlists.'); return }
+        const index = playlist.tracks.findIndex(track => track.name.toLowerCase().includes(songName))
+        if (index < 0) { setMessage(`I could not find “${songName}” in ${playlist.name}.`); return }
+        removeSavedTrack(playlist.name, index)
+        return
+      }
+
+      const rawTarget = detail.query?.trim() || ''
+      if (action === 'open' && !rawTarget) {
+        setMessage('Music is ready. Choose a saved playlist or search for a song when you want playback to start.')
+        return
+      }
+      const target = rawTarget || (() => {
+        const match = text.match(/^(?:play|put on|listen to|start playing|i want to listen to|i would like to listen to|can you play|could you play)\s+(.+)$/)
+        return match?.[1]?.trim() || ''
+      })()
+      const normalizedTarget = target
+        .toLowerCase()
+        .replace(/^(?:i want to listen to|i would like to listen to|i want|please play|play|put on|listen to|start playing|some|the|a|my)\s+/, '')
+        .replace(/\b(?:the|playlist)\b/g, '')
+        .replace(/\s+(?:music|song|track)$/, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+      // A pronoun-only request such as "play it again" means resume the current
+      // track; never send it to AI or search YouTube for the word "it".
+      if (!normalizedTarget || /^(it|that|this|that again|it again|music|song|something)$/.test(normalizedTarget)) {
+        if (current) { void control('resume'); return }
+        if (selectedPlaylistName) { playPlaylistByName(selectedPlaylistName); return }
+        setMessage('Nothing is playing yet. Say the song or playlist name you want.')
+        return
+      }
+
+      // Saved playlist names take priority over external search. Exact match first.
+      const playlist = playlists.find(item => item.name.trim().toLowerCase() === normalizedTarget) ||
+        playlists.find(item => item.name.trim().toLowerCase().includes(normalizedTarget)) ||
+        playlists.find(item => normalizedTarget.includes(item.name.trim().toLowerCase()))
+      if (playlist) {
+        if (!playlist.tracks.length) {
+          setMessage(`Your “${playlist.name}” playlist is empty.`)
+          return
+        }
+        playPlaylistByName(playlist.name)
+        return
+      }
+
+      // If the requested song is already in any saved playlist, play that saved
+      // track from its playlist sequence instead of creating a transient result.
+      const containingPlaylist = playlists.find(item =>
+        item.tracks.some(track => track.name.toLowerCase() === normalizedTarget ||
+          track.name.toLowerCase().includes(normalizedTarget))
+      )
+      if (containingPlaylist) {
+        const index = containingPlaylist.tracks.findIndex(track =>
+          track.name.toLowerCase() === normalizedTarget || track.name.toLowerCase().includes(normalizedTarget)
+        )
+        playSavedTrack(containingPlaylist, index)
+        return
+      }
+
+      void searchTracksByTerm(normalizedTarget, action !== 'search' && action !== 'open')
+    }
+
+    window.addEventListener('visionary:voice-command', handleVoiceCommand)
+    return () => window.removeEventListener('visionary:voice-command', handleVoiceCommand)
+  }, [playlists, selectedPlaylistName, current, position])
 
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-7xl mx-auto">
@@ -145,7 +761,7 @@ export default function Music() {
         <div>
           <h1 className="font-display text-2xl font-bold tracking-widest text-white">MUSIC</h1>
           <div className="font-mono text-xs text-white/30 tracking-widest mt-0.5 uppercase">
-            Provider abstraction · Apple Music · Navidrome · YouTube
+            Full-track playback · Audius · Navidrome · YouTube
           </div>
         </div>
         <div className="glass rounded-full px-4 py-2 flex items-center gap-2">
@@ -163,7 +779,7 @@ export default function Music() {
       )}
 
       {message && (
-        <div className="font-mono text-xs px-4 py-3 border border-cyan-400/30 text-cyan-100 bg-cyan-500/10">{message}</div>
+        <div className="font-mono text-xs px-4 py-3 border border-green-400/30 text-green-100 bg-green-500/10">{message}</div>
       )}
 
       <form onSubmit={event => void searchTracks(event)} className="flex gap-3">
@@ -176,7 +792,7 @@ export default function Music() {
         <button
           type="submit"
           disabled={busy || !query.trim()}
-          className="px-5 py-3 rounded-xl font-display text-[11px] tracking-widest border border-cyan-400/40 text-cyan-200 disabled:opacity-40"
+          className="px-5 py-3 rounded-xl font-display text-[11px] tracking-widest border border-green-400/40 text-green-200 disabled:opacity-40"
         >
           {busy ? 'SEARCHING' : 'SEARCH'}
         </button>
@@ -185,7 +801,19 @@ export default function Music() {
       {/* Now playing */}
       <div className="glass rounded-2xl p-5">
         <div className="font-display text-xs tracking-widest text-white/50 uppercase mb-4">Now Playing</div>
+        <div className="mb-5 space-y-3">
+          <label htmlFor="playlist-name" className="block font-mono text-[10px] tracking-widest text-white/40 uppercase">Playlist name</label>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input id="playlist-name" value={playlistName} onChange={event => setPlaylistName(event.target.value)} list="saved-playlist-names" placeholder="Type a playlist name to play it…" className="flex-1 min-w-0 bg-black/30 border border-white/15 px-4 py-3 text-white text-sm rounded-lg" />
+            <datalist id="saved-playlist-names">{playlists.map(playlist => <option key={playlist.name} value={playlist.name} />)}</datalist>
+            <button type="button" onClick={playPlaylist} className="px-4 py-3 rounded-lg border border-green-400/40 text-green-200 text-xs">PLAY PLAYLIST</button>
+            <button type="button" onClick={savePlaylist} className="px-4 py-3 rounded-lg border border-white/15 text-white/70 text-xs">SAVE QUEUE</button>
+          </div>
+          <p className="font-mono text-[10px] text-white/35">Save the current queue, or load an existing playlist below to edit it. While editing, queue more search results, reorder tracks, then save with the same name.</p>
+          {editingPlaylistName && <div className="flex items-center justify-between gap-3 rounded-lg border border-green-400/30 bg-green-400/5 px-3 py-2"><span className="font-mono text-[10px] text-green-200">EDITING: {editingPlaylistName}</span><button type="button" onClick={() => { setEditingPlaylistName(null); setPlaylistName('') }} className="text-[10px] text-white/60">CANCEL EDIT</button></div>}
+        </div>
         {current ? (
+          <div className="space-y-4">
           <div className="flex items-center gap-4">
             {current.image && <img src={current.image} alt="" className="w-16 h-16 rounded-lg object-cover border border-white/10" />}
             <div className="flex-1 min-w-0">
@@ -193,20 +821,31 @@ export default function Music() {
               <div className="text-xs text-white/60 truncate">{current.artist || 'Unknown artist'}{current.album ? ` · ${current.album}` : ''}</div>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={() => void control('previous')} className="px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs">Prev</button>
-              <button onClick={() => void control(playing ? 'pause' : 'resume')} className="px-3 py-2 rounded-lg border border-cyan-400/40 bg-cyan-400/10 text-xs text-cyan-200">
+              <button onClick={() => void control('previous')} className="px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs">Previous</button>
+              {!(current.provider?.toLowerCase() === 'youtube' && current.videoId) && <button onClick={() => void control(playing ? 'pause' : 'resume')} className="px-3 py-2 rounded-lg border border-green-400/40 bg-green-400/10 text-xs text-green-200">
                 {playing ? 'Pause' : 'Resume'}
-              </button>
+              </button>}
               <button onClick={() => void control('next')} className="px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs">Next</button>
             </div>
+          </div>
+          {current.provider?.toLowerCase() === 'youtube' && current.videoId ? (
+            <div className="w-full overflow-hidden rounded-xl border border-white/10 bg-black aspect-video">
+              <div ref={youtubeContainerRef} className="w-full h-full" />
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between font-mono text-[10px] text-white/40"><span>{formatDuration(position * 1000)}</span><span>{formatDuration(audioDuration * 1000)}</span></div>
+              <input aria-label="Seek song position" type="range" min={0} max={Math.max(audioDuration, 0)} step={1} value={Math.min(position, audioDuration || 0)} disabled={!audioDuration} onChange={event => { const next = Number(event.target.value); if (audioRef.current) { audioRef.current.currentTime = next; setPosition(next) } }} className="w-full disabled:opacity-40" style={{ accentColor: '#1ed760' }} />
+            </div>
+          )}
           </div>
         ) : (
           <p className="font-mono text-xs text-white/40">Nothing is playing yet. Search for a track to start.</p>
         )}
         <div className="mt-4 flex items-center gap-3">
           <span className="font-mono text-[10px] text-white/40 uppercase tracking-widest w-16">Volume</span>
-          <input type="range" min={0} max={100} value={volume} onChange={event => setVolume(Number(event.target.value))} className="flex-1" style={{ accentColor: '#00e5ff' }} />
-          <span className="font-mono text-xs text-cyan-400 w-10 text-right">{volume}%</span>
+          <input type="range" min={0} max={100} value={volume} onChange={event => setVolume(Number(event.target.value))} className="flex-1" style={{ accentColor: '#1ed760' }} />
+          <span className="font-mono text-xs text-green-400 w-10 text-right">{volume}%</span>
         </div>
       </div>
 
@@ -220,7 +859,7 @@ export default function Music() {
             <div className="space-y-2">
               {tracks.map(track => (
                 <div key={track.id} className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/5 transition-all">
-                  <button onClick={() => void playTrack(track)} className="w-9 h-9 rounded-lg bg-cyan-400/10 border border-cyan-400/30 text-cyan-300 text-xs flex-shrink-0">▶</button>
+                  <button onClick={() => void playTrack(track)} className="w-9 h-9 rounded-lg bg-green-400/10 border border-green-400/30 text-green-300 text-xs flex-shrink-0">▶</button>
                   <div className="flex-1 min-w-0">
                     <div className="text-xs text-white truncate">{track.name}</div>
                     <div className="text-[10px] text-white/50 truncate">{track.artist}{track.genre ? ` · ${track.genre}` : ''}</div>
@@ -247,13 +886,105 @@ export default function Music() {
                     <div className="text-xs text-white truncate">{track.name}</div>
                     <div className="text-[10px] text-white/50 truncate">{track.artist}</div>
                   </div>
-                  <button onClick={() => setQueue(previous => previous.filter((_, i) => i !== index))} className="px-2 py-1 rounded border border-white/10 text-[10px] text-white/60">Remove</button>
+                  <div className="flex items-center gap-1">
+                    <button aria-label={`Move ${track.name} up`} title="Move up" disabled={index === 0} onClick={() => moveQueueItem(index, -1)} className="px-2 py-1 rounded border border-white/10 text-[10px] text-white/60 disabled:opacity-20">↑</button>
+                    <button aria-label={`Move ${track.name} down`} title="Move down" disabled={index === queue.length - 1} onClick={() => moveQueueItem(index, 1)} className="px-2 py-1 rounded border border-white/10 text-[10px] text-white/60 disabled:opacity-20">↓</button>
+                    <button onClick={() => setQueue(previous => {
+                      const updated = previous.filter((_, i) => i !== index)
+                      queueRef.current = updated
+                      return updated
+                    })} className="px-2 py-1 rounded border border-white/10 text-[10px] text-white/60">Remove</button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </div>
       </div>
+
+      <div className="glass rounded-2xl p-5 space-y-3">
+        <div>
+          <div className="font-display text-xs tracking-widest text-white/70 uppercase">Import from another music service</div>
+          <p className="mt-2 text-xs text-white/45">Use TuneMyMusic to transfer or export your playlist, then import a CSV/TXT track list here. Visionary Nexus matches each track against the currently configured catalog.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <a href="https://www.tunemymusic.com/" target="_blank" rel="noreferrer" className="rounded-lg border border-green-400/35 px-3 py-2 text-xs text-green-200 hover:bg-green-400/10">Open TuneMyMusic</a>
+          <label className={`rounded-lg border border-white/15 px-3 py-2 text-xs text-white/80 cursor-pointer ${importBusy ? 'opacity-40 pointer-events-none' : 'hover:bg-white/5'}`}>
+            {importBusy ? 'IMPORTING…' : 'IMPORT CSV / TXT'}
+            <input type="file" accept=".csv,.txt,text/csv,text/plain" className="hidden" disabled={importBusy} onChange={event => {
+              const file = event.currentTarget.files?.[0]
+              event.currentTarget.value = ''
+              if (file) void importPlaylistFile(file)
+            }} />
+          </label>
+        </div>
+        {importStatus && <p role="status" className="text-xs text-green-100/80">{importStatus}</p>}
+      </div>
+
+      <div className="glass rounded-2xl p-5">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <div className="font-display text-xs tracking-widest text-white/70 uppercase">Your playlists</div>
+            <div className="text-xs text-white/40 mt-1">Choose a playlist to see every song, play any track, or remove a song.</div>
+          </div>
+          <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-white/50">{playlists.length} playlists</span>
+        </div>
+        {playlists.length === 0 ? (
+          <p className="font-mono text-xs text-white/40">No saved playlists yet. Queue a few songs, enter a name above, and press Save Queue.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
+            {playlists.map(playlist => (
+              <article key={playlist.name} className="group min-w-0 rounded-xl border border-white/5 bg-[#181818] p-3 transition-colors hover:bg-[#242424]">
+                <button type="button" onClick={() => rememberSelectedPlaylist(playlist.name)} className="block w-full text-left">
+                  {playlist.tracks[0]?.image ? (
+                    <img src={playlist.tracks[0].image} alt="" className="aspect-square w-full rounded-lg object-cover shadow-lg" />
+                  ) : (
+                    <div className="aspect-square w-full rounded-lg bg-gradient-to-br from-emerald-500/70 via-green-900 to-black flex items-center justify-center text-4xl text-white/80">♫</div>
+                  )}
+                  <span className="mt-3 block truncate font-semibold text-white">{playlist.name}</span>
+                  <span className="mt-1 block text-sm text-white/45">{playlist.tracks.length} {playlist.tracks.length === 1 ? 'song' : 'songs'}</span>
+                </button>
+                <div className="mt-3 flex items-center gap-2">
+                  <button type="button" onClick={() => playPlaylistByName(playlist.name)} aria-label={`Play ${playlist.name}`} className="flex h-10 w-10 items-center justify-center rounded-full bg-[#1ed760] text-lg font-bold text-black shadow-lg transition-transform hover:scale-105">▶</button>
+                  <button type="button" onClick={() => { setPlaylistName(playlist.name); setEditingPlaylistName(playlist.name); queueRef.current = [...playlist.tracks]; setQueue([...playlist.tracks]); setMessage(`Editing “${playlist.name}”. Add songs from Search Results, reorder the queue, then save.`) }} className="rounded-lg px-2 py-2 text-xs text-white/55 hover:bg-white/10 hover:text-white">Edit</button>
+                  <button type="button" onClick={() => renamePlaylist(playlist.name)} aria-label={`Rename ${playlist.name}`} className="rounded-lg px-2 py-2 text-xs text-white/55 hover:bg-white/10 hover:text-white">Rename</button>
+                  <button type="button" onClick={() => { if (window.confirm(`Delete “${playlist.name}”?`)) { persistPlaylists(playlists.filter(item => item.name !== playlist.name)); if (editingPlaylistName === playlist.name) setEditingPlaylistName(null); setMessage(`Deleted playlist “${playlist.name}”.`) } }} aria-label={`Delete ${playlist.name}`} className="ml-auto rounded-lg px-2 py-2 text-xs text-white/35 hover:bg-red-500/10 hover:text-red-300">Delete</button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {selectedPlaylistName && playlists.some(item => item.name === selectedPlaylistName) && (() => {
+        const playlist = playlists.find(item => item.name === selectedPlaylistName)!
+        return (
+          <section className="glass rounded-2xl p-5 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-white">{playlist.name}</h2>
+                <p className="text-xs text-white/45">{playlist.tracks.length} songs · Click any song to play it</p>
+              </div>
+              <button type="button" onClick={() => { setPlaylistName(playlist.name); setEditingPlaylistName(playlist.name); queueRef.current = [...playlist.tracks]; setQueue([...playlist.tracks]); setMessage('Editing ' + playlist.name + '. Add songs from Search Results, then save.') }} className="rounded-lg border border-green-400/30 px-3 py-2 text-xs text-green-200">Edit playlist</button>
+            </div>
+            {playlist.tracks.length === 0 ? (
+              <p className="rounded-xl bg-white/5 p-4 text-sm text-white/45">This playlist is empty. Edit it and add songs from Search Results.</p>
+            ) : playlist.tracks.map((track, index) => (
+              <div key={String(track.id) + '-' + index} className="flex items-center gap-3 rounded-xl p-3 hover:bg-white/5">
+                <span className="w-6 text-xs text-white/35">{index + 1}</span>
+                {track.image && <img src={track.image} alt="" className="h-11 w-11 rounded-lg object-cover" />}
+                <button type="button" onClick={() => playSavedTrack(playlist, index)} className="min-w-0 flex-1 text-left">
+                  <span className="block truncate text-sm text-white">{track.name}</span>
+                  <span className="block truncate text-xs text-white/50">{track.artist || 'Unknown artist'}</span>
+                </button>
+                <span className="hidden text-xs text-white/35 sm:inline">{formatDuration(track.duration)}</span>
+                <button type="button" title={'Play ' + track.name} aria-label={'Play ' + track.name} onClick={() => playSavedTrack(playlist, index)} className="rounded-lg border border-green-400/30 px-3 py-2 text-xs text-green-200">▶</button>
+                <button type="button" title={'Remove ' + track.name + ' from ' + playlist.name} aria-label={'Remove ' + track.name + ' from ' + playlist.name} onClick={() => removeSavedTrack(playlist.name, index)} className="rounded-lg border border-red-400/20 px-3 py-2 text-xs text-red-200 hover:bg-red-400/10">Remove</button>
+              </div>
+            ))}
+          </section>
+        )
+      })()}
     </div>
   )
 }
