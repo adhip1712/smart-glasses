@@ -2359,33 +2359,24 @@ def wake(
         .lower()
     )
 
-    wake_words = [
+    # Read the persisted custom phrase rather than a hard-coded allowlist.
+    db: Session = SessionLocal()
+    try:
+        row = db.query(Setting).filter(Setting.user_id == "local_user").first()
+        saved = json.loads(row.data) if row and row.data else {}
+        configured = str(saved.get("wake_word", DEFAULT_APP_SETTINGS["wake_word"])).strip()
+    except (ValueError, TypeError):
+        configured = DEFAULT_APP_SETTINGS["wake_word"]
+    finally:
+        db.close()
 
-        "hey visionary",
+    import re
+    normalized_phrase = " ".join(re.sub(r"[^\w\s]", " ", phrase).split())
+    normalized_wake = " ".join(re.sub(r"[^\w\s]", " ", configured.lower()).split())
+    padded_phrase = f" {normalized_phrase} "
+    detected = bool(normalized_wake) and f" {normalized_wake} " in padded_phrase
 
-        "hey visionary nexus",
-
-        "visionary",
-
-        "visionary nexus",
-    ]
-
-    detected = any(
-
-        word in phrase
-
-        for word
-        in wake_words
-    )
-
-    return {
-
-        "detected":
-            detected,
-
-        "phrase":
-            request.phrase,
-    }
+    return {"detected": detected, "phrase": request.phrase, "wake_word": configured}
 
 
 # =========================================================
