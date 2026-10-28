@@ -56,12 +56,15 @@ function findWakePhrase(transcript: string, wakeWord: string, sensitivity: strin
   const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const match = new RegExp(`(?:^|\\s)${escaped}(?=$|\\s)`).exec(text)
   if (match) return match.index + (match[0].startsWith(' ') ? 1 : 0)
-  if (sensitivity !== 'high' || phrase.split(' ').length !== 1) return -1
+  if (sensitivity !== 'high') return -1
   const words = text.split(' ')
-  for (let index = 0; index < words.length; index += 1) {
-    if (phrase.length >= 5 && editDistanceOne(words[index], phrase)) {
-      return words.slice(0, index).join(' ').length + (index ? 1 : 0)
-    }
+  const target = phrase.split(' ')
+  for (let index = 0; index <= words.length - target.length; index += 1) {
+    const candidate = words.slice(index, index + target.length)
+    const matches = candidate.every((word, offset) =>
+      word === target[offset] || (target[offset].length >= 5 && editDistanceOne(word, target[offset])),
+    )
+    if (matches) return words.slice(0, index).join(' ').length + (index ? 1 : 0)
   }
   return -1
 }
