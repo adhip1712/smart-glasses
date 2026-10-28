@@ -27,13 +27,13 @@ from sqlalchemy.orm import Session
 
 try:
     from backend.database import engine, SessionLocal, Base
-    from backend.models import Conversation, Message, RecentLocation, MusicPlaylist
+    from backend.models import Conversation, Message, RecentLocation, MusicPlaylist, Setting
     from backend.device_api import router as device_router
     from backend.camera_api import router as camera_router
     from backend.vision_api import router as vision_router
 except ImportError:
     from database import engine, SessionLocal, Base
-    from models import Conversation, Message, RecentLocation, MusicPlaylist
+    from models import Conversation, Message, RecentLocation, MusicPlaylist, Setting
     from device_api import router as device_router
     from camera_api import router as camera_router
     from vision_api import router as vision_router
@@ -1346,6 +1346,54 @@ def health():
         "timestamp":
             datetime.utcnow().isoformat(),
     }
+
+
+DEFAULT_APP_SETTINGS = {"wake_word": "Vision", "wake_word_sensitivity": "high", "wake_word_source": "auto"}
+
+
+@app.get("/api/settings")
+def get_app_settings():
+    db: Session = SessionLocal()
+    try:
+        row = db.query(Setting).filter(Setting.user_id == "local_user").first()
+        saved = json.loads(row.data) if row and row.data else {}
+        return {**DEFAULT_APP_SETTINGS, **saved}
+    except (ValueError, TypeError):
+        return dict(DEFAULT_APP_SETTINGS)
+    finally:
+        db.close()
+
+
+@app.put("/api/settings")
+def update_app_settings(payload: dict[str, str]):
+    wake_word = str(payload.get("wake_word", DEFAULT_APP_SETTINGS["wake_word"])).strip()
+    sensitivity = str(payload.get("wake_word_sensitivity", DEFAULT_APP_SETTINGS["wake_word_sensitivity"])).lower().strip()
+    source = str(payload.get("wake_word_source", DEFAULT_APP_SETTINGS["wake_word_source"])).lower().strip()
+    if not wake_word or len(wake_word) > 100:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="Wake word must be between 1 and 100 characters.")
+    if sensitivity not in {"low", "balanced", "high"}:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="Sensitivity must be low, balanced, or high.")
+    if source not in {"auto", "laptop", "glasses"}:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="Wake-word source must be auto, laptop, or glasses.")
+
+    db: Session = SessionLocal()
+    try:
+        row = db.query(Setting).filter(Setting.user_id == "local_user").first()
+        current = json.loads(row.data) if row and row.data else {}
+        current.update({"wake_word": wake_word, "wake_word_sensitivity": sensitivity, "wake_word_source": source})
+        if row is None:
+            row = Setting(user_id="local_user", data=json.dumps(current), updated_at=datetime.utcnow())
+            db.add(row)
+        else:
+            row.data = json.dumps(current)
+            row.updated_at = datetime.utcnow()
+        db.commit()
+        return {**DEFAULT_APP_SETTINGS, **current}
+    finally:
+        db.close()
 
 
 # =========================================================

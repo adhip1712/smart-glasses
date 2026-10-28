@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { apiFetch, readJson } from '../services/api'
 
 function Toggle({
   value,
@@ -180,7 +181,11 @@ export default function Settings() {
   const [micGain, setMicGain] = useState(70)
   const [micNoise, setMicNoise] = useState(true)
   const [micEcho, setMicEcho] = useState(true)
-  const [wakeWord, setWakeWord] = useState('Hey Orion')
+  const [wakeWord, setWakeWord] = useState('Vision')
+  const [wakeSensitivity, setWakeSensitivity] = useState('high')
+  const [wakeSource, setWakeSource] = useState('auto')
+  const [wakeSaved, setWakeSaved] = useState(false)
+  const [wakeSaveError, setWakeSaveError] = useState('')
 
   // =========================
   // SPEAKER
@@ -214,6 +219,51 @@ export default function Settings() {
   // =========================
   // AI CONNECTION
   // =========================
+
+  useEffect(() => {
+    const loadWakeSettings = async () => {
+      try {
+        const response = await apiFetch('/api/settings')
+        if (!response.ok) throw new Error('Could not load wake settings')
+        const saved = await readJson<{ wake_word?: string; wake_word_sensitivity?: string; wake_word_source?: string }>(response)
+        if (saved?.wake_word) setWakeWord(saved.wake_word)
+        if (saved?.wake_word_sensitivity) setWakeSensitivity(saved.wake_word_sensitivity)
+        if (saved?.wake_word_source) setWakeSource(saved.wake_word_source)
+      } catch {
+        try {
+          const saved = JSON.parse(localStorage.getItem('visionary-wake-settings') || '{}')
+          if (saved.wake_word) setWakeWord(saved.wake_word)
+          if (saved.wake_word_sensitivity) setWakeSensitivity(saved.wake_word_sensitivity)
+          if (saved.wake_word_source) setWakeSource(saved.wake_word_source)
+        } catch { /* keep defaults */ }
+      }
+    }
+    void loadWakeSettings()
+  }, [])
+
+  const saveWakeSettings = async () => {
+    const phrase = wakeWord.trim().split(' ').filter(Boolean).join(' ')
+    if (!phrase || phrase.length > 100) {
+      setWakeSaveError('Enter a phrase between 1 and 100 characters.')
+      return
+    }
+    const settings = { wake_word: phrase, wake_word_sensitivity: wakeSensitivity, wake_word_source: wakeSource }
+    setWakeSaveError('')
+    try {
+      const response = await apiFetch('/api/settings', { method: 'PUT', body: JSON.stringify(settings) })
+      if (!response.ok) throw new Error('Could not save wake settings')
+      const saved = (await readJson<typeof settings>(response)) || settings
+      localStorage.setItem('visionary-wake-settings', JSON.stringify(saved))
+      setWakeWord(saved.wake_word)
+      window.dispatchEvent(new CustomEvent('visionary:wake-settings-updated', { detail: saved }))
+      setWakeSaved(true)
+      window.setTimeout(() => setWakeSaved(false), 2200)
+    } catch {
+      localStorage.setItem('visionary-wake-settings', JSON.stringify(settings))
+      window.dispatchEvent(new CustomEvent('visionary:wake-settings-updated', { detail: settings }))
+      setWakeSaveError('Saved on this browser only; backend sync is unavailable.')
+    }
+  }
 
   const handleConnectAI = () => {
     if (aiProvider === 'Groq') {
@@ -486,21 +536,26 @@ export default function Settings() {
           />
         </SettingRow>
 
-        <SettingRow
-          label="Wake Word"
-          description="Trigger phrase"
-        >
-          <Select
-            options={[
-              'Hey Orion',
-              'Wake Up',
-              'Orion Listen',
-              'Smart Glass',
-            ]}
+        <SettingRow label="Custom Wake Word" description="Type any word or phrase; default is Vision">
+          <input
+            aria-label="Custom wake word"
             value={wakeWord}
-            onChange={setWakeWord}
+            onChange={event => setWakeWord(event.target.value)}
+            onKeyDown={event => { if (event.key === 'Enter') void saveWakeSettings() }}
+            maxLength={100}
+            placeholder="Vision, Orion, Hey Computer…"
+            className="w-48 max-w-full rounded-lg border border-cyan-400/20 bg-slate-950 px-3 py-2 font-mono text-xs text-cyan-200 outline-none focus:border-cyan-400/60"
           />
         </SettingRow>
+        <SettingRow label="Detection Sensitivity" description="High is the default; may increase false activations">
+          <Select options={['high', 'balanced', 'low']} value={wakeSensitivity} onChange={setWakeSensitivity} />
+        </SettingRow>
+        <p className="font-mono text-[10px] leading-relaxed text-white/35">Wake listening uses the browser speech-recognition service while the app is open. It listens through the operating system’s default microphone; when the glasses expose an audio input, select that input as the Windows default. Offline detection for arbitrary phrases needs a local speech recognizer or a trained model.</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" onClick={() => void saveWakeSettings()} className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 font-mono text-xs text-cyan-200 hover:bg-cyan-400/20">Save Wake Settings</button>
+          {wakeSaved && <span className="font-mono text-xs text-emerald-300">Saved</span>}
+          {wakeSaveError && <span role="status" className="font-mono text-xs text-amber-300">{wakeSaveError}</span>}
+        </div>
 
       </Section>
 

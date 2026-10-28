@@ -2637,7 +2637,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
           {/* TEXT INPUT */}
 
           <textarea
-            ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+            ref={inputRef as unknown as React.RefObject<HTMLTextAreaElement>}
             value={input}
             rows={1}
             onChange={event => setInput(event.target.value)}

@@ -29,6 +29,43 @@ const SPEECH_LANGUAGES = [
   { code: 'zh-CN', label: 'Chinese (Simplified)' },
 ]
 
+function normalizeWakeText(value: string) {
+  return value.toLowerCase().replace(/[.,!?;:]/g, ' ').split(' ').filter(Boolean).join(' ')
+}
+
+function editDistanceOne(a: string, b: string) {
+  if (a === b) return true
+  if (Math.abs(a.length - b.length) > 1) return false
+  let i = 0, j = 0, edits = 0
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue }
+    if (++edits > 1) return false
+    if (a.length > b.length) i++
+    else if (b.length > a.length) j++
+    else { i++; j++ }
+  }
+  if (i < a.length || j < b.length) edits++
+  return edits <= 1
+}
+
+function findWakePhrase(transcript: string, wakeWord: string, sensitivity: string) {
+  const text = normalizeWakeText(transcript)
+  const phrase = normalizeWakeText(wakeWord || 'Vision')
+  // Match the configured phrase as whole words, never as a substring (e.g. "vision" in "television").
+  if (!phrase) return -1
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = new RegExp(`(?:^|\\s)${escaped}(?=$|\\s)`).exec(text)
+  if (match) return match.index + (match[0].startsWith(' ') ? 1 : 0)
+  if (sensitivity !== 'high' || phrase.split(' ').length !== 1) return -1
+  const words = text.split(' ')
+  for (let index = 0; index < words.length; index += 1) {
+    if (phrase.length >= 5 && editDistanceOne(words[index], phrase)) {
+      return words.slice(0, index).join(' ').length + (index ? 1 : 0)
+    }
+  }
+  return -1
+}
+
 function insertIntoField(target: HTMLInputElement | HTMLTextAreaElement, text: string) {
   const start = target.selectionStart ?? target.value.length
   const end = target.selectionEnd ?? target.value.length
@@ -48,10 +85,18 @@ function insertIntoField(target: HTMLInputElement | HTMLTextAreaElement, text: s
 
 export default function VoiceControl({ onCommand }: VoiceControlProps) {
   const [listening, setListening] = useState(false)
+  const [wakeListening, setWakeListening] = useState(false)
+  const [wakeWord, setWakeWord] = useState('Vision')
+  const [wakeSensitivity, setWakeSensitivity] = useState('high')
   const [status, setStatus] = useState('')
   const [language, setLanguage] = useState('en-IN')
   const [liveTranscript, setLiveTranscript] = useState('')
   const recognitionRef = useRef<any>(null)
+  const wakeRecognitionRef = useRef<any>(null)
+  const wakeListeningRef = useRef(false)
+  const wakeRestartRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const wakeWordRef = useRef('Vision')
+  const wakeSensitivityRef = useRef('high')
   const toggleRef = useRef<(() => void) | null>(null)
   const targetRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null)
   const lastTextTargetRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null)
@@ -63,6 +108,34 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
   useEffect(() => {
     languageRef.current = language
   }, [language])
+
+  useEffect(() => {
+    wakeWordRef.current = wakeWord
+    wakeSensitivityRef.current = wakeSensitivity
+  }, [wakeWord, wakeSensitivity])
+
+  useEffect(() => {
+    let alive = true
+    apiFetch('/api/settings').then(readJson<{ wake_word?: string; wake_word_sensitivity?: string }>)
+      .then(settings => {
+        if (!alive) return
+        if (settings?.wake_word) setWakeWord(settings.wake_word)
+        if (settings?.wake_word_sensitivity) setWakeSensitivity(settings.wake_word_sensitivity)
+      }).catch(() => {
+        try {
+          const settings = JSON.parse(localStorage.getItem('visionary-wake-settings') || '{}')
+          if (settings.wake_word) setWakeWord(settings.wake_word)
+          if (settings.wake_word_sensitivity) setWakeSensitivity(settings.wake_word_sensitivity)
+        } catch { /* use defaults */ }
+      })
+    const update = (event: Event) => {
+      const detail = (event as CustomEvent<{ wake_word?: string; wake_word_sensitivity?: string }>).detail
+      if (detail?.wake_word) setWakeWord(detail.wake_word)
+      if (detail?.wake_word_sensitivity) setWakeSensitivity(detail.wake_word_sensitivity)
+    }
+    window.addEventListener('visionary:wake-settings-updated', update)
+    return () => { alive = false; window.removeEventListener('visionary:wake-settings-updated', update) }
+  }, [])
 
   useEffect(() => {
     const rememberTextTarget = (event: FocusEvent) => {
@@ -91,7 +164,10 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
 
   useEffect(() => () => {
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
+    if (wakeRestartRef.current) clearTimeout(wakeRestartRef.current)
+    wakeListeningRef.current = false
     try { recognitionRef.current?.abort() } catch { /* browser may already have closed it */ }
+    try { wakeRecognitionRef.current?.abort() } catch { /* browser may already have closed it */ }
   }, [])
 
   const processTranscript = async (rawTranscript: string, selectedLanguage: string) => {
@@ -130,7 +206,76 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
     }
   }
 
+  const stopWakeListening = () => {
+    wakeListeningRef.current = false
+    setWakeListening(false)
+    if (wakeRestartRef.current) clearTimeout(wakeRestartRef.current)
+    wakeRestartRef.current = null
+    try { wakeRecognitionRef.current?.abort() } catch { /* browser may already have closed it */ }
+    setStatus('Wake-word listening stopped.')
+  }
+
+  const startWakeListening = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      setStatus('Wake-word listening needs a supported browser such as Chrome.')
+      return
+    }
+    if (listening) {
+      try { recognitionRef.current?.stop() } catch { /* already stopped */ }
+      setListening(false)
+    }
+    wakeListeningRef.current = true
+    setWakeListening(true)
+    setStatus(`Listening for “${wakeWordRef.current}”. Keep Visionary Nexus open.`)
+    const recognition = new SpeechRecognition()
+    recognition.lang = languageRef.current
+    recognition.continuous = true
+    recognition.interimResults = true
+    wakeRecognitionRef.current = recognition
+    recognition.onresult = (event: any) => {
+      const transcript = Array.from(event.results as any[]).map(result => String(result?.[0]?.transcript || '')).join(' ')
+      const at = findWakePhrase(transcript, wakeWordRef.current, wakeSensitivityRef.current)
+      if (at < 0) return
+      const normalized = normalizeWakeText(transcript)
+      const phrase = normalizeWakeText(wakeWordRef.current)
+      const exactAt = normalized.indexOf(phrase, at)
+      const command = exactAt >= 0 ? normalized.slice(exactAt + phrase.length).trim() : normalized.slice(at).split(' ').slice(phrase.split(' ').length).join(' ').trim()
+      const last = event.results[event.results.length - 1]
+      if (command.length > 1 && last?.isFinal) {
+        setStatus(`Wake word detected. Running: ${command}`)
+        try { recognition.stop() } catch { /* auto-restart after onend */ }
+        onCommand(command)
+      } else {
+        setStatus(`Wake word detected. Say your command…`)
+      }
+    }
+    recognition.onerror = (event: any) => {
+      if (event.error === 'not-allowed') {
+        wakeListeningRef.current = false
+        setWakeListening(false)
+        setStatus('Microphone permission is blocked. Allow microphone access in your browser.')
+      }
+    }
+    recognition.onend = () => {
+      if (wakeListeningRef.current) {
+        wakeRestartRef.current = setTimeout(() => startWakeListening(), 450)
+      }
+    }
+    try { recognition.start() } catch {
+      wakeListeningRef.current = false
+      setWakeListening(false)
+      setStatus('Microphone is busy. Try again in a moment.')
+    }
+  }
+
+  const toggleWakeListening = () => {
+    if (wakeListeningRef.current) stopWakeListening()
+    else startWakeListening()
+  }
+
   const toggle = () => {
+    if (wakeListeningRef.current) stopWakeListening()
     if (listening) {
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
       try { recognitionRef.current?.stop() } catch { /* recognition may already have stopped */ }
@@ -235,6 +380,9 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
         >
           {SPEECH_LANGUAGES.map(item => <option key={item.code} value={item.code} className="bg-slate-900 text-white">{item.label}</option>)}
         </select>
+        <button type="button" onClick={toggleWakeListening} aria-pressed={wakeListening} aria-label={wakeListening ? 'Stop wake word listening' : 'Start wake word listening'} title={`Wake word: ${wakeWord}`} className={wakeListening ? 'flex items-center gap-2 rounded-full border border-purple-400/50 bg-purple-500/20 px-3 py-3 text-xs font-medium text-purple-100' : 'flex items-center gap-2 rounded-full border border-purple-400/30 bg-slate-950 px-3 py-3 text-xs font-medium text-purple-100 hover:bg-purple-400/10'}>
+          {wakeListening ? 'Wake On' : 'Wake'}
+        </button>
         <button type="button" onClick={toggle} aria-label={listening ? 'Stop voice input' : 'Start voice command or dictation'} title="Voice command / dictation" className={listening ? 'flex items-center gap-2 rounded-full border border-red-400/50 bg-red-500/20 px-4 py-3 text-sm font-medium text-red-100' : 'flex items-center gap-2 rounded-full border border-cyan-400/40 bg-slate-950 px-4 py-3 text-sm font-medium text-cyan-100 hover:bg-cyan-400/10'}>
           <span aria-hidden="true">{listening ? '■' : '🎙'}</span>
           {listening ? 'Stop' : 'Voice'}
