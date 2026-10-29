@@ -200,7 +200,9 @@ class RealMusicProvider(BaseMusicProvider):
             "type": "video",
             "videoEmbeddable": "true",
             "videoCategoryId": "10",
-            "maxResults": 10,
+            # Fetch several alternate uploads so a blocked or overlong first result
+            # does not prevent playback of the same song from another channel.
+            "maxResults": 25,
             "order": "relevance",
             "safeSearch": "moderate",
             "key": YOUTUBE_API_KEY,
@@ -298,8 +300,35 @@ class RealMusicProvider(BaseMusicProvider):
                 "score": 100 - index,
             })
 
-        tracks.sort(key=lambda item: item.get("score", 0), reverse=True)
-        return tracks[:10]
+        # Prefer the requested song in a normal-length upload over a 1-hour,
+        # ultra-slowed, or otherwise altered upload unless the user asked for it.
+        query_terms = set(re.findall(r"[a-z0-9]+", clean_query.casefold()))
+        asks_for_altered_version = bool(query_terms & {
+            "slowed", "ultra", "super", "speed", "sped", "nightcore", "remix",
+            "reverb", "extended", "hour", "hours", "1hr", "1hour", "loop", "looped",
+        })
+        altered_title_pattern = re.compile(
+            r"\b(?:ultra[ -]?slowed|super[ -]?slowed|slowed(?:[ -]+(?:and|\+|with)?[ -]*reverb)?|"
+            r"\d+\s*(?:hours?|hrs?|hr)\b|one[ -]?hour|1[ -]?hour|extended[ -]?mix|"
+            r"10[ -]?hours?|looped?)\b",
+            re.IGNORECASE,
+        )
+
+        def youtube_rank(track):
+            title = str(track.get("name") or "").casefold()
+            title_terms = set(re.findall(r"[a-z0-9]+", title))
+            duration_seconds = int(track.get("duration") or 0) // 1000
+            exact_phrase = bool(clean_query) and clean_query.casefold() in title
+            token_overlap = len(query_terms & title_terms)
+            altered_penalty = 0 if asks_for_altered_version or not altered_title_pattern.search(title) else 500
+            # Prefer ordinary song lengths when available; do not reject live versions.
+            duration_penalty = 0 if asks_for_altered_version else (250 if duration_seconds > 900 else 0)
+            normal_song_bonus = 20 if 90 <= duration_seconds <= 600 else 0
+            return (int(exact_phrase) * 1000 + token_overlap * 30 + normal_song_bonus
+                    - altered_penalty - duration_penalty + int(track.get("score", 0)))
+
+        tracks.sort(key=youtube_rank, reverse=True)
+        return tracks[:20]
 
 
 class AudiusMusicProvider(BaseMusicProvider):

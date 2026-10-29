@@ -150,6 +150,7 @@ export default function Music() {
   const shouldContinuePlaybackRef = useRef(false)
   const youtubePlayerRef = useRef<any>(null)
   const youtubeContainerRef = useRef<HTMLDivElement | null>(null)
+  const failedYouTubeIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     queueRef.current = queue
@@ -415,10 +416,44 @@ export default function Music() {
           onError: (event: any) => {
             setPlaying(false)
             const code = event?.data
-            setMessage(`YouTube could not play this video${code ? ` (error ${code})` : ''}. Skipping to the next track if available.`)
-            // Some videos become non-embeddable or unavailable after search.
-            // Skip them so the player does not remain blank on a broken result.
-            if (activeTrackIdRef.current === current.id) advanceQueueRef.current()
+            failedYouTubeIdsRef.current.add(current.videoId!)
+            setMessage(`This YouTube upload is unavailable (error ${code ?? 'unknown'}). Finding another channel's upload…`)
+
+            // Playlist entries may point to a blocked/overlong upload. Search the
+            // same title again, exclude failed video IDs, and try alternate uploads
+            // before moving on to an unrelated playlist track.
+            void (async () => {
+              try {
+                const cleanTitle = current.name
+                  .replace(/\s*[([{ -]*(?:ultra[ -]?slowed|super[ -]?slowed|slowed(?:\s*(?:\+|and|with)?\s*reverb)?|\d+\s*(?:hours?|hrs?|hr)|1\s*hour|extended\s*mix|looped?)[)\]} -]*\s*/ig, ' ')
+                  .replace(/\s+/g, ' ').trim()
+                const response = await apiFetch('/api/music/search', {
+                  method: 'POST', body: JSON.stringify({ query: cleanTitle || current.name }),
+                })
+                const data = await readJson<{ tracks?: Track[] }>(response)
+                const alternatives = (data?.tracks || []).filter(track =>
+                  track.provider?.toLowerCase() === 'youtube' && track.videoId &&
+                  !failedYouTubeIdsRef.current.has(track.videoId)
+                )
+                if (activeTrackIdRef.current !== current.id) return
+                if (alternatives.length) {
+                  const [alternative, ...rest] = alternatives
+                  activeSequenceRef.current = alternatives
+                  activeIndexRef.current = 0
+                  queueRef.current = rest
+                  setQueue(rest)
+                  setMessage(`Trying another upload: ${alternative.name} (${alternative.artist || 'YouTube'})`)
+                  await playTrackRef.current?.(alternative)
+                  return
+                }
+              } catch {
+                // Fall through to the user's existing playlist/queue.
+              }
+              if (activeTrackIdRef.current === current.id) {
+                setMessage('No other playable upload was found. Moving to the next queued track.')
+                advanceQueueRef.current()
+              }
+            })()
           },
         },
       })
