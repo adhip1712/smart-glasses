@@ -197,10 +197,12 @@ class RealMusicProvider(BaseMusicProvider):
                 "skip_download": True,
                 "extract_flat": "in_playlist",
                 "ignoreerrors": True,
-                "socket_timeout": 5,
+                "socket_timeout": 2,
+                "retries": 0,
+                "extractor_retries": 0,
             }
             with yt_dlp.YoutubeDL(options) as ydl:
-                payload = ydl.extract_info(f"ytsearch10:{query}", download=False)
+                payload = ydl.extract_info(f"ytsearch5:{query}", download=False)
         except Exception:
             return []
 
@@ -245,9 +247,8 @@ class RealMusicProvider(BaseMusicProvider):
             "type": "video",
             "videoEmbeddable": "true",
             "videoCategoryId": "10",
-            # Fetch several alternate uploads so a blocked or overlong first result
-            # does not prevent playback of the same song from another channel.
-            "maxResults": 25,
+            # Keep fallback searches fast while still checking several alternate channels.
+            "maxResults": 10,
             "order": "relevance",
             "safeSearch": "moderate",
             "key": YOUTUBE_API_KEY,
