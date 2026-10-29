@@ -291,7 +291,46 @@ export default function Music() {
   }, [current])
 
   const playTrack = async (track: Track) => {
-    const isYouTubeTrack = (track.provider || '').toLowerCase() === 'youtube' && Boolean(track.videoId)
+    // CSV rows that did not match during import are metadata only, not playable
+    // media. Resolve them against YouTube at playback time using the same title.
+    const providerName = (track.provider || '').toLowerCase()
+    if (providerName === 'unmatched' || (!track.videoId && !track.audio)) {
+      const requestedTitle = cleanYouTubeTrackTitle(track.name || '').trim()
+      const searchTerm = [requestedTitle, track.artist && !/not matched in current music catalog/i.test(track.artist) ? track.artist : ''].filter(Boolean).join(' ')
+      if (!requestedTitle) {
+        setPlaying(false)
+        setMessage('This CSV row has no song title to search for.')
+        return
+      }
+      setMessage(`Finding a playable YouTube upload for “${requestedTitle}”…`)
+      try {
+        const response = await apiFetch('/api/music/search', {
+          method: 'POST',
+          body: JSON.stringify({ query: searchTerm || requestedTitle }),
+        })
+        const data = await readJson<{ tracks?: Track[] }>(response)
+        const wanted = normalizedTrackText(requestedTitle)
+        const alternatives = (data?.tracks || []).filter(candidate => {
+          if (candidate.provider?.toLowerCase() !== 'youtube' || !candidate.videoId || isUnwantedYouTubeVariant(candidate)) return false
+          const candidateTitle = normalizedTrackText(cleanYouTubeTrackTitle(candidate.name || ''))
+          return candidateTitle === wanted || candidateTitle.startsWith(`${wanted} `) || wanted.startsWith(`${candidateTitle} `)
+        })
+        if (alternatives.length) {
+          const resolved = alternatives[0]
+          setMessage(`Found another upload: ${resolved.name} (${resolved.artist || 'YouTube'})`)
+          await playTrack({ ...resolved, id: track.id })
+          return
+        }
+        setPlaying(false)
+        setMessage(`No playable standard-length YouTube upload found for “${requestedTitle}”. The CSV entry is still saved; try searching the title manually.`)
+      } catch {
+        setPlaying(false)
+        setMessage(`Could not search YouTube for “${requestedTitle}”. Check the connection and try again.`)
+      }
+      return
+    }
+
+    const isYouTubeTrack = providerName === 'youtube' && Boolean(track.videoId)
     const requestedVariant = /\b(?:slowed|ultra|super|remix|nightcore|reverb|extended|hour|loop)\b/i.test(query)
     if (
       isYouTubeTrack &&
@@ -478,11 +517,14 @@ export default function Music() {
                 })
                 const data = await readJson<{ tracks?: Track[] }>(response)
                 const requestedVariant = /\b(?:slowed|ultra|super|remix|nightcore|reverb|extended|hour|loop)\b/i.test(query)
-                const alternatives = (data?.tracks || []).filter(track =>
-                  track.provider?.toLowerCase() === 'youtube' && track.videoId &&
-                  !failedYouTubeIdsRef.current.has(track.videoId) &&
-                  (requestedVariant || !isUnwantedYouTubeVariant(track))
-                )
+                const wantedTitle = normalizedTrackText(cleanYouTubeTrackTitle(cleanTitle || current.name))
+                const alternatives = (data?.tracks || []).filter(track => {
+                  if (track.provider?.toLowerCase() !== 'youtube' || !track.videoId || failedYouTubeIdsRef.current.has(track.videoId)) return false
+                  if (!requestedVariant && isUnwantedYouTubeVariant(track)) return false
+                  // Only retry uploads of the same song; do not jump to a different search result.
+                  const candidateTitle = normalizedTrackText(cleanYouTubeTrackTitle(track.name || ''))
+                  return candidateTitle === wantedTitle || candidateTitle.startsWith(`${wantedTitle} `) || wantedTitle.startsWith(`${candidateTitle} `)
+                })
                 if (activeTrackIdRef.current !== current.id) return
                 if (alternatives.length) {
                   const [alternative, ...rest] = alternatives
