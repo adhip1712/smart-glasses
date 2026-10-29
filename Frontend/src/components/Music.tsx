@@ -311,7 +311,7 @@ export default function Music() {
         const data = await readJson<{ tracks?: Track[] }>(response)
         const wanted = normalizedTrackText(requestedTitle)
         const alternatives = (data?.tracks || []).filter(candidate => {
-          if (candidate.provider?.toLowerCase() !== 'youtube' || !candidate.videoId || isUnwantedYouTubeVariant(candidate)) return false
+          if (candidate.provider?.toLowerCase() !== 'youtube' || !candidate.videoId || failedYouTubeIdsRef.current.has(candidate.videoId) || isUnwantedYouTubeVariant(candidate)) return false
           const candidateTitle = normalizedTrackText(cleanYouTubeTrackTitle(candidate.name || ''))
           return candidateTitle === wanted || candidateTitle.startsWith(`${wanted} `) || wanted.startsWith(`${candidateTitle} `)
         })
