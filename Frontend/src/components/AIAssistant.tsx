@@ -127,6 +127,32 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
 
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // Native browser speech gives real laptop-speaker output without changing
+  // the existing backend API contract. It uses the selected OS output device.
+  const speakResponse = (value: string) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      console.warn("Speech output is unavailable in this browser.")
+      return
+    }
+
+    const spokenText = value
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+      .replace(/[#*_>|~]/g, " ")
+      .replace(new RegExp(String.fromCharCode(96), "g"), " ")
+      .replace(/\s+/g, " ")
+      .trim()
+
+    if (!spokenText) return
+    window.speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance(spokenText)
+    utterance.lang = navigator.language || "en-US"
+    utterance.rate = 1
+    utterance.pitch = 1
+    utterance.volume = 1
+    window.speechSynthesis.speak(utterance)
+  }
+
   const audioRef =
     useRef<HTMLAudioElement | null>(null)
 
@@ -2020,6 +2046,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
         ...previous,
         assistantMessage,
       ])
+      speakResponse(assistantMessage.content)
 
       if (
         data.conversation_title
@@ -2043,6 +2070,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
         error
       )
 
+      const fallbackMessage = "Sorry, I couldn't connect to the AI backend."
       setMessages(previous => [
         ...previous,
         {
@@ -2050,10 +2078,10 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
             Date.now() +
             Math.random(),
           role: "ai",
-          content:
-            "Sorry, I couldn't connect to the AI backend.",
+          content: fallbackMessage,
         },
       ])
+      speakResponse(fallbackMessage)
     } finally {
       setIsThinking(false)
 
