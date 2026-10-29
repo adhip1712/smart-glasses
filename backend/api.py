@@ -186,6 +186,51 @@ class RealMusicProvider(BaseMusicProvider):
                 "score": 100 - index,
             })
         return tracks
+
+    def _search_ytdlp(self, query: str):
+        """Fallback search when YouTube Data API quota/rate limits are hit."""
+        try:
+            import yt_dlp
+            options = {
+                "quiet": True,
+                "no_warnings": True,
+                "skip_download": True,
+                "extract_flat": "in_playlist",
+                "ignoreerrors": True,
+                "socket_timeout": 5,
+            }
+            with yt_dlp.YoutubeDL(options) as ydl:
+                payload = ydl.extract_info(f"ytsearch25:{query}", download=False)
+        except Exception:
+            return []
+
+        tracks = []
+        for index, item in enumerate((payload or {}).get("entries") or []):
+            if not item:
+                continue
+            video_id = item.get("id")
+            if not video_id:
+                continue
+            title = item.get("title") or "YouTube Track"
+            channel = item.get("channel") or item.get("uploader") or "YouTube"
+            duration_seconds = int(item.get("duration") or 0)
+            track_url = f"https://www.youtube.com/watch?v={video_id}"
+            tracks.append({
+                "id": video_id,
+                "name": title,
+                "artist": channel,
+                "album": channel,
+                "duration": duration_seconds * 1000,
+                "image": item.get("thumbnail") or "",
+                "audio": track_url,
+                "url": track_url,
+                "genre": "YouTube",
+                "videoId": video_id,
+                "provider": "youtube",
+                "score": 100 - index,
+            })
+        return tracks
+
     def search(self, query: str):
         clean_query = (query or "").strip()
         if not clean_query:
@@ -218,8 +263,15 @@ class RealMusicProvider(BaseMusicProvider):
             method="GET",
         )
 
-        with urlopen(search_request, timeout=2) as response:
-            search_data = json.loads(response.read().decode("utf-8", errors="ignore"))
+        try:
+            with urlopen(search_request, timeout=2) as response:
+                search_data = json.loads(response.read().decode("utf-8", errors="ignore"))
+        except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+            # YouTube quota/rate-limit errors (including HTTP 429) must not crash
+            # music search. Fall back to yt-dlp's independent search extractor.
+            if isinstance(exc, HTTPError) and exc.code not in (403, 429, 500, 502, 503, 504):
+                raise
+            return self._search_ytdlp(clean_query)
 
         items = search_data.get("items", [])
         video_ids = [item.get("id", {}).get("videoId") for item in items if item.get("id", {}).get("videoId")]
@@ -242,8 +294,13 @@ class RealMusicProvider(BaseMusicProvider):
             method="GET",
         )
 
-        with urlopen(detail_request, timeout=2) as response:
-            detail_data = json.loads(response.read().decode("utf-8", errors="ignore"))
+        try:
+            with urlopen(detail_request, timeout=2) as response:
+                detail_data = json.loads(response.read().decode("utf-8", errors="ignore"))
+        except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+            if isinstance(exc, HTTPError) and exc.code not in (403, 429, 500, 502, 503, 504):
+                raise
+            return self._search_ytdlp(clean_query)
 
         detail_map = {
             item.get("id"): item
@@ -579,6 +636,17 @@ class MusicService:
             match_query = re.sub(r"\bmontegam\b", "montagem", normalized, flags=re.IGNORECASE)
         query_tokens_for_match = set(re.findall(r"[a-z0-9]+", match_query.casefold()))
 
+        asks_for_variant = bool(query_tokens_for_match & {
+            "slowed", "ultra", "super", "speed", "sped", "nightcore", "remix",
+            "reverb", "extended", "hour", "hours", "1hr", "1hour", "loop", "looped",
+        })
+        altered_title_pattern = re.compile(
+            r"\b(?:ultra[ -]?slowed|super[ -]?slowed|slowed(?:[ -]+(?:and|\+|with)?[ -]*reverb)?|"
+            r"\d+\s*(?:hours?|hrs?|hr)\b|one[ -]?hour|1[ -]?hour|extended[ -]?mix|10[ -]?hours?|looped?)\b",
+            re.IGNORECASE,
+        )
+        is_youtube_search = isinstance(self.provider, RealMusicProvider) and bool(YOUTUBE_API_KEY)
+
         def track_rank(track):
             title = str(track.get("name") or "").casefold()
             artist = str(track.get("artist") or "").casefold()
@@ -588,10 +656,17 @@ class MusicService:
             matched_artist = len(query_tokens_for_match & artist_tokens)
             duration = int(track.get("duration") or 0)
             exact_phrase = bool(match_query) and match_query.casefold() in title
+            altered = bool(altered_title_pattern.search(title))
+            prefer_requested_version = int(not is_youtube_search or asks_for_variant or not altered)
+            avoid_hour_loop = int(not is_youtube_search or asks_for_variant or duration <= 900000)
+            normal_song_bonus = int(is_youtube_search and 90000 <= duration <= 600000)
             return (
+                prefer_requested_version,
+                avoid_hour_loop,
                 int(exact_phrase),
                 matched_title,
                 matched_artist,
+                normal_song_bonus,
                 int(duration >= 60000),
                 duration,
             )
