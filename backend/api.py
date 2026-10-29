@@ -200,7 +200,7 @@ class RealMusicProvider(BaseMusicProvider):
                 "socket_timeout": 5,
             }
             with yt_dlp.YoutubeDL(options) as ydl:
-                payload = ydl.extract_info(f"ytsearch25:{query}", download=False)
+                payload = ydl.extract_info(f"ytsearch10:{query}", download=False)
         except Exception:
             return []
 

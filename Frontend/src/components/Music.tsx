@@ -55,9 +55,17 @@ function normalizedTrackText(value?: string): string {
     .replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ')
 }
 
-function isUnwantedYouTubeVariant(track: Track): boolean {
-  return (Number(track.duration) || 0) > 900000 ||
-    /\b(?:ultra[ -]?slowed|super[ -]?slowed|slowed(?:[ -]+(?:and|\+|with)?[ -]*reverb)?|\d+\s*(?:hours?|hrs?|hr)\b|one[ -]?hour|1[ -]?hour|extended[ -]?mix|looped?)\b/i.test(track.name || '')
+function wantsUltraSlowed(title: string): boolean {
+  return /\bultra[ -]?slowed\b/i.test(title || '')
+}
+
+function isUnwantedYouTubeVariant(track: Track, requireUltraSlowed = false): boolean {
+  const title = track.name || ''
+  const isLong = (Number(track.duration) || 0) > 900000
+  const isHourLoopOrExtended = /\b(?:\d+\s*(?:hours?|hrs?|hr)|one[ -]?hour|1[ -]?hour|extended[ -]?mix|looped?)\b/i.test(title)
+  const isUltra = wantsUltraSlowed(title)
+  const isOtherSlowed = /\b(?:super[ -]?slowed|slowed(?:\s*(?:\+|and|with)?\s*reverb)?)\b/i.test(title) && !isUltra
+  return isLong || isHourLoopOrExtended || (requireUltraSlowed ? !isUltra || isOtherSlowed : isUltra || isOtherSlowed)
 }
 
 function cleanYouTubeTrackTitle(title: string): string {
@@ -295,8 +303,10 @@ export default function Music() {
     // media. Resolve them against YouTube at playback time using the same title.
     const providerName = (track.provider || '').toLowerCase()
     if (providerName === 'unmatched' || (!track.videoId && !track.audio)) {
-      const requestedTitle = cleanYouTubeTrackTitle(track.name || '').trim()
-      const searchTerm = [requestedTitle, track.artist && !/not matched in current music catalog/i.test(track.artist) ? track.artist : ''].filter(Boolean).join(' ')
+      const originalTitle = (track.name || '').trim()
+      const requireUltraSlowed = wantsUltraSlowed(originalTitle)
+      const requestedTitle = cleanYouTubeTrackTitle(originalTitle).trim()
+      const searchTerm = [requestedTitle, requireUltraSlowed ? 'ultra slowed' : '', track.artist && !/not matched in current music catalog/i.test(track.artist) ? track.artist : ''].filter(Boolean).join(' ')
       if (!requestedTitle) {
         setPlaying(false)
         setMessage('This CSV row has no song title to search for.')
@@ -311,7 +321,7 @@ export default function Music() {
         const data = await readJson<{ tracks?: Track[] }>(response)
         const wanted = normalizedTrackText(requestedTitle)
         const alternatives = (data?.tracks || []).filter(candidate => {
-          if (candidate.provider?.toLowerCase() !== 'youtube' || !candidate.videoId || failedYouTubeIdsRef.current.has(candidate.videoId) || isUnwantedYouTubeVariant(candidate)) return false
+          if (candidate.provider?.toLowerCase() !== 'youtube' || !candidate.videoId || failedYouTubeIdsRef.current.has(candidate.videoId) || isUnwantedYouTubeVariant(candidate, requireUltraSlowed)) return false
           const candidateTitle = normalizedTrackText(cleanYouTubeTrackTitle(candidate.name || ''))
           return candidateTitle === wanted || candidateTitle.startsWith(`${wanted} `) || wanted.startsWith(`${candidateTitle} `)
         })
@@ -331,7 +341,7 @@ export default function Music() {
     }
 
     const isYouTubeTrack = providerName === 'youtube' && Boolean(track.videoId)
-    const requestedVariant = /\b(?:slowed|ultra|super|remix|nightcore|reverb|extended|hour|loop)\b/i.test(query)
+    const requestedVariant = /\b(?:slowed|ultra|super|remix|nightcore|reverb|extended|hour|loop)\b/i.test(track.name || query)
     if (
       isYouTubeTrack &&
       !requestedVariant &&
@@ -512,15 +522,16 @@ export default function Music() {
                 const cleanTitle = current.name
                   .replace(/\s*[([{ -]*(?:ultra[ -]?slowed|super[ -]?slowed|slowed(?:\s*(?:\+|and|with)?\s*reverb)?|\d+\s*(?:hours?|hrs?|hr)|1\s*hour|extended\s*mix|looped?)[)\]} -]*\s*/ig, ' ')
                   .replace(/\s+/g, ' ').trim()
+                const requireUltraSlowed = wantsUltraSlowed(current.name)
+                const searchQuery = [cleanTitle || current.name, requireUltraSlowed ? 'ultra slowed' : ''].filter(Boolean).join(' ')
                 const response = await apiFetch('/api/music/search', {
-                  method: 'POST', body: JSON.stringify({ query: cleanTitle || current.name }),
+                  method: 'POST', body: JSON.stringify({ query: searchQuery }),
                 })
                 const data = await readJson<{ tracks?: Track[] }>(response)
-                const requestedVariant = /\b(?:slowed|ultra|super|remix|nightcore|reverb|extended|hour|loop)\b/i.test(query)
                 const wantedTitle = normalizedTrackText(cleanYouTubeTrackTitle(cleanTitle || current.name))
                 const alternatives = (data?.tracks || []).filter(track => {
                   if (track.provider?.toLowerCase() !== 'youtube' || !track.videoId || failedYouTubeIdsRef.current.has(track.videoId)) return false
-                  if (!requestedVariant && isUnwantedYouTubeVariant(track)) return false
+                  if (isUnwantedYouTubeVariant(track, requireUltraSlowed)) return false
                   // Only retry uploads of the same song; do not jump to a different search result.
                   const candidateTitle = normalizedTrackText(cleanYouTubeTrackTitle(track.name || ''))
                   return candidateTitle === wantedTitle || candidateTitle.startsWith(`${wantedTitle} `) || wantedTitle.startsWith(`${candidateTitle} `)
