@@ -55,6 +55,17 @@ function normalizedTrackText(value?: string): string {
     .replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ')
 }
 
+function isUnwantedYouTubeVariant(track: Track): boolean {
+  return (Number(track.duration) || 0) > 900000 ||
+    /\b(?:ultra[ -]?slowed|super[ -]?slowed|slowed(?:[ -]+(?:and|\+|with)?[ -]*reverb)?|\d+\s*(?:hours?|hrs?|hr)\b|one[ -]?hour|1[ -]?hour|extended[ -]?mix|looped?)\b/i.test(track.name || '')
+}
+
+function cleanYouTubeTrackTitle(title: string): string {
+  return title
+    .replace(/\s*[([{ -]*(?:ultra[ -]?slowed|super[ -]?slowed|slowed(?:\s*(?:\+|and|with)?\s*reverb)?|\d+\s*(?:hours?|hrs?|hr)|1\s*hour|extended\s*mix|looped?)[)\]} -]*\s*/ig, ' ')
+    .replace(/\s+/g, ' ').trim()
+}
+
 function sameImportedTrack(a: Track, b: Track): boolean {
   const aTitle = normalizedTrackText(a.name)
   const bTitle = normalizedTrackText(b.name)
@@ -280,6 +291,41 @@ export default function Music() {
   }, [current])
 
   const playTrack = async (track: Track) => {
+    const isYouTubeTrack = (track.provider || '').toLowerCase() === 'youtube' && Boolean(track.videoId)
+    const requestedVariant = /\b(?:slowed|ultra|super|remix|nightcore|reverb|extended|hour|loop)\b/i.test(query)
+    if (
+      isYouTubeTrack &&
+      !requestedVariant &&
+      isUnwantedYouTubeVariant(track) &&
+      track.videoId &&
+      !failedYouTubeIdsRef.current.has(track.videoId)
+    ) {
+      // Saved playlists may contain an older 1-hour/slowed upload. Replace it
+      // with a normal-length version before playback, not only after player errors.
+      failedYouTubeIdsRef.current.add(track.videoId)
+      try {
+        const cleanTitle = cleanYouTubeTrackTitle(track.name)
+        const response = await apiFetch('/api/music/search', {
+          method: 'POST',
+          body: JSON.stringify({ query: cleanTitle || track.name }),
+        })
+        const data = await readJson<{ tracks?: Track[] }>(response)
+        const alternative = (data?.tracks || []).find(candidate =>
+          candidate.provider?.toLowerCase() === 'youtube' &&
+          Boolean(candidate.videoId) &&
+          !failedYouTubeIdsRef.current.has(candidate.videoId!) &&
+          !isUnwantedYouTubeVariant(candidate)
+        )
+        if (alternative) {
+          setMessage('Replacing the altered upload with a standard version: ' + alternative.name)
+          await playTrack(alternative)
+          return
+        }
+      } catch {
+        // Keep the saved track playable if alternate search is unavailable.
+      }
+    }
+
     shouldContinuePlaybackRef.current = true
     activeTrackIdRef.current = track.id
     setCurrent(track)
@@ -431,9 +477,11 @@ export default function Music() {
                   method: 'POST', body: JSON.stringify({ query: cleanTitle || current.name }),
                 })
                 const data = await readJson<{ tracks?: Track[] }>(response)
+                const requestedVariant = /\b(?:slowed|ultra|super|remix|nightcore|reverb|extended|hour|loop)\b/i.test(query)
                 const alternatives = (data?.tracks || []).filter(track =>
                   track.provider?.toLowerCase() === 'youtube' && track.videoId &&
-                  !failedYouTubeIdsRef.current.has(track.videoId)
+                  !failedYouTubeIdsRef.current.has(track.videoId) &&
+                  (requestedVariant || !isUnwantedYouTubeVariant(track))
                 )
                 if (activeTrackIdRef.current !== current.id) return
                 if (alternatives.length) {
