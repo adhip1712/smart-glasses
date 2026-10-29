@@ -542,18 +542,23 @@ class MusicService:
                 else "Apple catalogue results include short previews where available."
             )
 
-        # Prefer results that match the requested words, and avoid choosing a
-        # sub-minute clip when the same search returned longer playable tracks.
+        # Rank against the user's original query, but also account for the
+        # phonetic spelling correction used by the Audius provider.
         query_tokens = set(re.findall(r"[a-z0-9]+", normalized.casefold()))
+        match_query = normalized
+        if isinstance(self.provider, AudiusMusicProvider):
+            match_query = re.sub(r"\bmontegam\b", "montagem", normalized, flags=re.IGNORECASE)
+        query_tokens_for_match = set(re.findall(r"[a-z0-9]+", match_query.casefold()))
+
         def track_rank(track):
             title = str(track.get("name") or "").casefold()
             artist = str(track.get("artist") or "").casefold()
             title_tokens = set(re.findall(r"[a-z0-9]+", title))
             artist_tokens = set(re.findall(r"[a-z0-9]+", artist))
-            matched_title = len(query_tokens & title_tokens)
-            matched_artist = len(query_tokens & artist_tokens)
+            matched_title = len(query_tokens_for_match & title_tokens)
+            matched_artist = len(query_tokens_for_match & artist_tokens)
             duration = int(track.get("duration") or 0)
-            exact_phrase = bool(normalized) and normalized.casefold() in title
+            exact_phrase = bool(match_query) and match_query.casefold() in title
             return (
                 int(exact_phrase),
                 matched_title,
@@ -563,6 +568,20 @@ class MusicService:
             )
 
         if tracks:
+            # Do not report a completely unrelated Audius result as a successful
+            # match for a multi-word song title (e.g. "montegam elder" -> "Sem Demora").
+            # Single-word genre searches such as "phonk" remain broad by design.
+            if isinstance(self.provider, AudiusMusicProvider) and len(query_tokens_for_match) >= 2:
+                relevant_tracks = [
+                    track for track in tracks
+                    if query_tokens_for_match
+                    & (
+                        set(re.findall(r"[a-z0-9]+", str(track.get("name") or "").casefold()))
+                        | set(re.findall(r"[a-z0-9]+", str(track.get("artist") or "").casefold()))
+                    )
+                ]
+                tracks = relevant_tracks
+
             tracks.sort(key=track_rank, reverse=True)
             tracks_at_least_one_minute = [
                 track for track in tracks
@@ -570,7 +589,7 @@ class MusicService:
             ]
             if tracks_at_least_one_minute:
                 tracks = tracks_at_least_one_minute
-            if any(query_tokens & set(re.findall(r"[a-z0-9]+", str(track.get("name") or "").casefold())) for track in tracks):
+            if any(query_tokens_for_match & set(re.findall(r"[a-z0-9]+", str(track.get("name") or "").casefold())) for track in tracks):
                 notice = notice + " Short clips under 60 seconds are excluded when longer matches are available."
 
         return {
@@ -2315,7 +2334,20 @@ def music_search(
         and re.search(r"\bmontegam\b", query, re.IGNORECASE)
     ):
         suggestions = music_service.search("montagem")
-        if suggestions.get("tracks"):
+        suggestion_tracks = suggestions.get("tracks") or []
+        # Keep fallback suggestions tied to the corrected term; do not show
+        # unrelated tracks merely because the provider returned some results.
+        relevant_suggestions = [
+            track for track in suggestion_tracks
+            if re.search(
+                r"\bmontagem\b|\bmontegam\b",
+                f"{track.get('name') or ''} {track.get('artist') or ''}",
+                re.IGNORECASE,
+            )
+        ]
+        suggestions["tracks"] = relevant_suggestions
+        suggestions["success"] = bool(relevant_suggestions)
+        if relevant_suggestions:
             suggestions["needs_confirmation"] = True
             suggestions["original_query"] = query
             suggestions["corrected_query"] = "montagem"

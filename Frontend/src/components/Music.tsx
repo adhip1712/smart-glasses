@@ -40,13 +40,40 @@ const emptyConfig: ProviderConfig = {
   provider: 'none',
   configured: false,
   requiresApiKey: true,
-  message: 'Checking music provider…',
+  message: 'Checking music provider...',
 }
 
 function formatDuration(ms?: number): string {
   if (!ms) return ''
   const total = Math.round(ms / 1000)
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+}
+
+function normalizedTrackText(value?: string): string {
+  return (value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ')
+}
+
+function sameImportedTrack(a: Track, b: Track): boolean {
+  const aTitle = normalizedTrackText(a.name)
+  const bTitle = normalizedTrackText(b.name)
+  const aArtist = normalizedTrackText(a.artist)
+  const bArtist = normalizedTrackText(b.artist)
+  return aTitle === bTitle && (!aArtist || !bArtist || aArtist === bArtist)
+}
+
+function choosePlaylistMatch(candidates: Track[], requestedTitle: string, requestedArtist: string): Track | undefined {
+  const title = normalizedTrackText(requestedTitle)
+  const artist = normalizedTrackText(requestedArtist)
+  if (!title) return undefined
+  const exactTitle = candidates.filter(track => normalizedTrackText(track.name) === title)
+  if (exactTitle.length) {
+    return exactTitle.find(track => !artist || normalizedTrackText(track.artist) === artist) || exactTitle[0]
+  }
+  // Do not silently substitute sequels, remixes, or slowed versions for the
+  // requested original. Import only an exact normalized title match.
+  return undefined
 }
 
 let youtubeApiPromise: Promise<any> | null = null
@@ -78,6 +105,8 @@ export default function Music() {
   const [current, setCurrent] = useState<Track | null>(null)
   const [playlistName, setPlaylistName] = useState('')
   const [editingPlaylistName, setEditingPlaylistName] = useState<string | null>(null)
+  const [renamingPlaylistName, setRenamingPlaylistName] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
   const [selectedPlaylistName, setSelectedPlaylistName] = useState<string | null>(() => {
     try {
       return window.localStorage.getItem('visionary-nexus-music-selected-playlist')
@@ -106,6 +135,8 @@ export default function Music() {
   const [busy, setBusy] = useState(false)
   const [importBusy, setImportBusy] = useState(false)
   const [importStatus, setImportStatus] = useState('')
+  const [draggingQueueIndex, setDraggingQueueIndex] = useState<number | null>(null)
+  const [draggingPlaylistTrackIndex, setDraggingPlaylistTrackIndex] = useState<number | null>(null)
   const [message, setMessage] = useState('')
   const [position, setPosition] = useState(0)
   const [audioDuration, setAudioDuration] = useState(0)
@@ -115,6 +146,8 @@ export default function Music() {
   const advanceQueueRef = useRef<() => void>(() => {})
   const activeSequenceRef = useRef<Track[]>([])
   const activeIndexRef = useRef(-1)
+  const activeTrackIdRef = useRef<string | null>(null)
+  const shouldContinuePlaybackRef = useRef(false)
   const youtubePlayerRef = useRef<any>(null)
   const youtubeContainerRef = useRef<HTMLDivElement | null>(null)
 
@@ -219,7 +252,35 @@ export default function Music() {
     youtubePlayerRef.current?.setVolume?.(volume)
   }, [volume])
 
+  // Chrome may suspend background-tab work. If a track's transition was
+  // interrupted, resume the intended track when the page becomes active again.
+  // This never overrides an explicit user pause.
+  useEffect(() => {
+    const recoverPlayback = () => {
+      const audio = audioRef.current
+      const track = current
+      if (!shouldContinuePlaybackRef.current || !audio || !track?.audio ||
+          (track.provider || '').toLowerCase() === 'youtube' || !audio.paused || document.hidden) return
+      if (activeTrackIdRef.current !== track.id) return
+      void audio.play().then(() => {
+        setPlaying(true)
+        setMessage('')
+      }).catch(() => {
+        setPlaying(false)
+        setMessage('Playback needs a tap to resume because Chrome blocked background playback.')
+      })
+    }
+    document.addEventListener('visibilitychange', recoverPlayback)
+    window.addEventListener('pageshow', recoverPlayback)
+    return () => {
+      document.removeEventListener('visibilitychange', recoverPlayback)
+      window.removeEventListener('pageshow', recoverPlayback)
+    }
+  }, [current])
+
   const playTrack = async (track: Track) => {
+    shouldContinuePlaybackRef.current = true
+    activeTrackIdRef.current = track.id
     setCurrent(track)
     setPosition(0)
     setAudioDuration(0)
@@ -228,7 +289,7 @@ export default function Music() {
       audioRef.current?.pause()
       if (audioRef.current) audioRef.current.src = ''
       setPlaying(true)
-      setMessage('Starting playback…')
+      setMessage('Starting playback...')
       return
     }
     if (track.audio) {
@@ -246,7 +307,46 @@ export default function Music() {
         setPlaying(true)
       } catch (error) {
         setPlaying(false)
-        setMessage(`Full-track playback failed: ${error instanceof Error ? error.message : 'unknown error'}`)
+        if (document.hidden) {
+          const audio = audioRef.current
+          let retryInFlight = false
+          const cleanupRetry = () => {
+            document.removeEventListener('visibilitychange', retryPlayback)
+            audio?.removeEventListener('canplay', retryPlayback)
+            audio?.removeEventListener('playing', cleanupRetry)
+          }
+          const retryPlayback = () => {
+            // Keep retry listeners installed until playback actually starts.
+            // Chrome can reject the first play() call for a newly loaded source
+            // while this tab is backgrounded; removing listeners on that first
+            // rejection meant the track never retried when the user returned.
+            if (!audio || activeTrackIdRef.current !== track.id ||
+                !shouldContinuePlaybackRef.current) {
+              cleanupRetry()
+              return
+            }
+            if (document.hidden && audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return
+            if (retryInFlight || !audio.paused) return
+            retryInFlight = true
+            void audio.play().then(() => {
+              setPlaying(true)
+              setMessage('')
+              cleanupRetry()
+            }).catch(() => {
+              // Leave listeners active; canplay or returning to this tab retries.
+            }).finally(() => {
+              retryInFlight = false
+            })
+          }
+          audio?.addEventListener('canplay', retryPlayback)
+          audio?.addEventListener('playing', cleanupRetry, { once: true })
+          document.addEventListener('visibilitychange', retryPlayback)
+          setMessage('Waiting for the next track to load in the background.')
+          // Handle the case where the source became ready before listeners attached.
+          retryPlayback()
+        } else {
+          setMessage('Full-track playback failed: ' + (error instanceof Error ? error.message : 'unknown error'))
+        }
       }
     } else {
       setPlaying(false)
@@ -261,11 +361,8 @@ export default function Music() {
       startSequenceTrack(sequence, activeIndexRef.current + 1)
       return
     }
-    if ((current?.provider || '').toLowerCase() === 'apple-itunes') {
-      setPlaying(false)
-      setMessage('Preview finished. Press Next to continue the queue manually.')
-      return
-    }
+    // Do not stop at the end of an Apple/iTunes preview: queued tracks and
+    // playlist sequences must advance automatically, including in background tabs.
     const [nextTrack, ...remaining] = queueRef.current
     if (!nextTrack) {
       setPlaying(false)
@@ -286,8 +383,15 @@ export default function Music() {
     let cancelled = false
     let player: any = null
     void loadYouTubeApi().then(YT => {
-      if (cancelled || !youtubeContainerRef.current) return
-      player = new YT.Player(youtubeContainerRef.current, {
+      const container = youtubeContainerRef.current
+      if (cancelled || !container) return
+      // YouTube replaces the element passed to YT.Player with an iframe. Create
+      // a fresh child for each track so React's ref never points at a destroyed iframe.
+      const playerHost = document.createElement('div')
+      playerHost.style.width = '100%'
+      playerHost.style.height = '100%'
+      container.replaceChildren(playerHost)
+      player = new YT.Player(playerHost, {
         width: '100%',
         height: '100%',
         videoId: current.videoId,
@@ -308,9 +412,13 @@ export default function Music() {
             if (event.data === YT.PlayerState.PLAYING) setPlaying(true)
             if (event.data === YT.PlayerState.PAUSED) setPlaying(false)
           },
-          onError: () => {
+          onError: (event: any) => {
             setPlaying(false)
-            setMessage('This YouTube video is unavailable or cannot be embedded. Try another result.')
+            const code = event?.data
+            setMessage(`YouTube could not play this video${code ? ` (error ${code})` : ''}. Skipping to the next track if available.`)
+            // Some videos become non-embeddable or unavailable after search.
+            // Skip them so the player does not remain blank on a broken result.
+            if (activeTrackIdRef.current === current.id) advanceQueueRef.current()
           },
         },
       })
@@ -322,6 +430,7 @@ export default function Music() {
       cancelled = true
       if (player && typeof player.destroy === 'function') player.destroy()
       if (youtubePlayerRef.current === player) youtubePlayerRef.current = null
+      youtubeContainerRef.current?.replaceChildren()
     }
   }, [current?.provider, current?.videoId])
 
@@ -348,9 +457,9 @@ export default function Music() {
           queueRef.current = playable.slice(1)
           setQueue(playable.slice(1))
           await playTrack(found[firstPlayableIndex])
-          setMessage(`No saved playlist matched “${searchTerm}”. Playing a music search result.`)
+          setMessage(`No saved playlist matched "${searchTerm}". Playing a music search result.`)
         } else {
-          setMessage(`Found results for “${searchTerm}”, but none can be played by the current provider.`)
+          setMessage(`Found results for "${searchTerm}", but none can be played by the current provider.`)
         }
       } else {
         setMessage(
@@ -359,7 +468,7 @@ export default function Music() {
           (found.length ? `Found ${found.length} track(s) from ${data?.source || 'music provider'}.` : 'No matches found. Try a shorter title or artist name.')
         )
       }
-      if (autoplay && !found.length) setMessage(`No saved playlist named “${searchTerm}” and no music search results were found.`)
+      if (autoplay && !found.length) setMessage(`No saved playlist named "${searchTerm}" and no music search results were found.`)
     } catch (error) {
       setMessage(`Music search failed: ${error instanceof Error ? error.message : 'unknown error'}`)
     } finally {
@@ -390,10 +499,12 @@ export default function Music() {
       return
     }
     if (action === 'pause') {
+      shouldContinuePlaybackRef.current = false
       audioRef.current?.pause()
       setPlaying(false)
     }
     if (action === 'resume') {
+      shouldContinuePlaybackRef.current = true
       void audioRef.current?.play().then(() => setPlaying(true)).catch(() => setPlaying(false))
     }
     if (action === 'next') {
@@ -477,13 +588,17 @@ export default function Music() {
     persistPlaylists(next)
     rememberSelectedPlaylist(name)
     setEditingPlaylistName(null)
-    setMessage(`Saved playlist “${name}” with ${items.length} track(s).`)
+    setMessage(`Saved playlist "${name}" with ${items.length} track(s).`)
   }
 
   const renamePlaylist = (oldName: string) => {
-    const entered = window.prompt('Rename playlist', oldName)
-    if (entered === null) return
-    const newName = entered.trim()
+    setRenamingPlaylistName(oldName)
+    setRenameDraft(oldName)
+    setMessage('Enter the new playlist name and choose Save name.')
+  }
+
+  const commitPlaylistRename = (oldName: string) => {
+    const newName = renameDraft.trim()
     if (!newName) {
       setMessage('Playlist name cannot be empty.')
       return
@@ -492,12 +607,15 @@ export default function Music() {
       setMessage('A playlist with that name already exists.')
       return
     }
-    if (newName === oldName) return
-    persistPlaylists(playlists.map(item => item.name === oldName ? { ...item, name: newName } : item))
-    if (selectedPlaylistName === oldName) rememberSelectedPlaylist(newName)
-    if (editingPlaylistName === oldName) setEditingPlaylistName(newName)
-    if (playlistName === oldName) setPlaylistName(newName)
-    setMessage(`Renamed playlist “${oldName}” to “${newName}”.`)
+    if (newName !== oldName) {
+      persistPlaylists(playlists.map(item => item.name === oldName ? { ...item, name: newName } : item))
+      if (selectedPlaylistName === oldName) rememberSelectedPlaylist(newName)
+      if (editingPlaylistName === oldName) setEditingPlaylistName(newName)
+      if (playlistName === oldName) setPlaylistName(newName)
+      setMessage(`Renamed playlist "${oldName}" to "${newName}".`)
+    }
+    setRenamingPlaylistName(null)
+    setRenameDraft('')
   }
 
   const playPlaylistByName = (name: string) => {
@@ -555,18 +673,51 @@ export default function Music() {
   const moveQueueItem = (index: number, direction: -1 | 1) => {
     const target = index + direction
     if (target < 0 || target >= queueRef.current.length) return
-    const reordered = [...queueRef.current]
-    ;[reordered[index], reordered[target]] = [reordered[target], reordered[index]]
+    reorderQueueItem(index, target)
+  }
+
+  const reorderSavedPlaylistTrack = (playlistName: string, fromIndex: number, toIndex: number) => {
+    const playlist = playlists.find(item => item.name === playlistName)
+    if (!playlist || fromIndex < 0 || toIndex < 0 || fromIndex >= playlist.tracks.length || toIndex >= playlist.tracks.length || fromIndex === toIndex) return
+    const reorderedTracks = [...playlist.tracks]
+    const [movedTrack] = reorderedTracks.splice(fromIndex, 1)
+    reorderedTracks.splice(toIndex, 0, movedTrack)
+    const next = playlists.map(item => item.name === playlistName ? { ...item, tracks: reorderedTracks } : item)
+    persistPlaylists(next)
+    if (editingPlaylistName === playlistName) {
+      queueRef.current = [...reorderedTracks]
+      setQueue([...reorderedTracks])
+    }
+    if (selectedPlaylistName === playlistName) {
+      activeSequenceRef.current = [...reorderedTracks]
+      const currentIndex = current ? reorderedTracks.findIndex(track => track.id === current.id) : -1
+      activeIndexRef.current = currentIndex
+      const remaining = currentIndex >= 0 ? reorderedTracks.slice(currentIndex + 1) : [...reorderedTracks]
+      queueRef.current = remaining
+      setQueue(remaining)
+    }
+    setMessage(`Saved the new song order for "${playlistName}".`)
+  }
+
+  const reorderQueueItem = (fromIndex: number, toIndex: number) => {
+    const existing = queueRef.current
+    if (fromIndex < 0 || toIndex < 0 || fromIndex >= existing.length || toIndex >= existing.length || fromIndex === toIndex) return
+    const reordered = [...existing]
+    const [moved] = reordered.splice(fromIndex, 1)
+    reordered.splice(toIndex, 0, moved)
     queueRef.current = reordered
     setQueue(reordered)
     if (editingPlaylistName) {
       persistPlaylists(playlists.map(item => item.name === editingPlaylistName ? { ...item, tracks: reordered } : item))
+    } else if (activeSequenceRef.current.length && activeIndexRef.current >= 0) {
+      const prefix = activeSequenceRef.current.slice(0, activeIndexRef.current + 1)
+      activeSequenceRef.current = [...prefix, ...reordered]
     }
   }
 
   const importPlaylistFile = async (file: File) => {
     setImportBusy(true)
-    setImportStatus('Reading playlist file…')
+    setImportStatus('Reading playlist file...')
     try {
       const content = await file.text()
       const rows: string[][] = []
@@ -580,7 +731,7 @@ export default function Music() {
           index += 1
         } else if (char === '"') {
           quoted = !quoted
-        } else if (char === ',' && !quoted) {
+        } else if ((char === ',' || char === '\t' || char === ';') && !quoted) {
           row.push(cell.trim())
           cell = ''
         } else if ((char === '\n' || char === '\r') && !quoted) {
@@ -602,7 +753,7 @@ export default function Music() {
 
       const header = rows[0].map(value => value.toLowerCase().replace(/[^a-z0-9]/g, ''))
       const titleIndex = header.findIndex(value => ['track', 'trackname', 'title', 'song', 'songtitle', 'name'].includes(value))
-      const artistIndex = header.findIndex(value => ['artist', 'artistname', 'performer'].includes(value))
+      const artistIndex = header.findIndex(value => ['artist', 'artistname', 'artistnames', 'performer'].includes(value))
       const hasHeader = titleIndex >= 0
       const firstDataRow = hasHeader ? 1 : 0
       const resolvedTitleIndex = hasHeader ? titleIndex : 0
@@ -627,18 +778,36 @@ export default function Music() {
             body: JSON.stringify({ query: [item.title, item.artist].filter(Boolean).join(' ') }),
           })
           const data = await readJson<{ tracks?: Track[] }>(response)
-          const matched = data?.tracks?.[0]
-          if (matched) imported.push(matched)
-          else unmatched += 1
+          const matched = choosePlaylistMatch(data?.tracks || [], item.title, item.artist)
+          if (matched) {
+            // Preserve every source row, including intentional duplicate tracks.
+            imported.push({ ...matched, id: `import-${index}-${matched.id}` })
+          } else {
+            // Keep unmatched songs in the playlist instead of silently dropping
+            // them. They remain visible and can be searched/resolved later.
+            unmatched += 1
+            imported.push({
+              id: `import-unmatched-${Date.now()}-${index}`,
+              name: item.title,
+              artist: item.artist || 'Not matched in current music catalog',
+              provider: 'unmatched',
+            })
+          }
         } catch {
           unmatched += 1
+          imported.push({
+            id: `import-unmatched-${Date.now()}-${index}`,
+            name: item.title,
+            artist: item.artist || 'Not matched in current music catalog',
+            provider: 'unmatched',
+          })
         }
       }
-      if (!imported.length) throw new Error('No tracks could be matched in the configured music catalog.')
+      if (!imported.length) throw new Error('No track titles were found in the selected file.')
       const suggestedName = file.name.replace(/\.(csv|txt)$/i, '').replace(/[_-]+/g, ' ').trim() || 'Imported playlist'
       const existing = playlists.find(item => item.name.toLowerCase() === suggestedName.toLowerCase())
       const name = existing
-        ? (window.confirm(`A playlist named “${suggestedName}” already exists. Replace it with the imported tracks?`)
+        ? (window.confirm(`A playlist named "${suggestedName}" already exists. Replace it with the imported tracks?`)
             ? suggestedName
             : `${suggestedName} (imported ${new Date().toLocaleDateString()})`)
         : suggestedName
@@ -646,7 +815,7 @@ export default function Music() {
       persistPlaylists(next)
       rememberSelectedPlaylist(name)
       setPlaylistName(name)
-      setImportStatus(`Imported ${imported.length} of ${candidates.length} tracks into “${name}”. ${unmatched ? `${unmatched} track(s) could not be matched.` : 'All tracks matched.'}`)
+      setImportStatus(`Imported ${imported.length} of ${candidates.length} tracks into "${name}". ${unmatched ? `${unmatched} track(s) could not be matched.` : 'All tracks matched.'}`)
     } catch (error) {
       setImportStatus(error instanceof Error ? error.message : 'Playlist import failed.')
     } finally {
@@ -690,7 +859,7 @@ export default function Music() {
         const playlist = targetPlaylist || playlists.find(item => item.tracks.some(track => track.name.toLowerCase().includes(songName)))
         if (!playlist) { setMessage('I could not find that playlist. Open Music to see your saved playlists.'); return }
         const index = playlist.tracks.findIndex(track => track.name.toLowerCase().includes(songName))
-        if (index < 0) { setMessage(`I could not find “${songName}” in ${playlist.name}.`); return }
+        if (index < 0) { setMessage(`I could not find "${songName}" in ${playlist.name}.`); return }
         removeSavedTrack(playlist.name, index)
         return
       }
@@ -727,7 +896,7 @@ export default function Music() {
         playlists.find(item => normalizedTarget.includes(item.name.trim().toLowerCase()))
       if (playlist) {
         if (!playlist.tracks.length) {
-          setMessage(`Your “${playlist.name}” playlist is empty.`)
+          setMessage(`Your "${playlist.name}" playlist is empty.`)
           return
         }
         playPlaylistByName(playlist.name)
@@ -761,13 +930,13 @@ export default function Music() {
         <div>
           <h1 className="font-display text-2xl font-bold tracking-widest text-white">MUSIC</h1>
           <div className="font-mono text-xs text-white/30 tracking-widest mt-0.5 uppercase">
-            Full-track playback · Audius · Navidrome · YouTube
+            Full-track playback | Audius | Navidrome | YouTube
           </div>
         </div>
         <div className="glass rounded-full px-4 py-2 flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full ${config.configured ? 'bg-green-400' : 'bg-amber-400'}`} />
           <span className="font-mono text-[10px] uppercase tracking-widest text-white/60">
-            {config.provider} · {config.configured ? 'configured' : 'not configured'}
+            {config.provider} | {config.configured ? 'configured' : 'not configured'}
           </span>
         </div>
       </div>
@@ -786,7 +955,7 @@ export default function Music() {
         <input
           value={query}
           onChange={event => setQuery(event.target.value)}
-          placeholder="Search for a song or artist…"
+          placeholder="Search for a song or artist..."
           className="flex-1 bg-black/30 border border-white/15 px-4 py-3 text-white text-sm"
         />
         <button
@@ -804,7 +973,7 @@ export default function Music() {
         <div className="mb-5 space-y-3">
           <label htmlFor="playlist-name" className="block font-mono text-[10px] tracking-widest text-white/40 uppercase">Playlist name</label>
           <div className="flex flex-col sm:flex-row gap-2">
-            <input id="playlist-name" value={playlistName} onChange={event => setPlaylistName(event.target.value)} list="saved-playlist-names" placeholder="Type a playlist name to play it…" className="flex-1 min-w-0 bg-black/30 border border-white/15 px-4 py-3 text-white text-sm rounded-lg" />
+            <input id="playlist-name" value={playlistName} onChange={event => setPlaylistName(event.target.value)} list="saved-playlist-names" placeholder="Type a playlist name to play it..." className="flex-1 min-w-0 bg-black/30 border border-white/15 px-4 py-3 text-white text-sm rounded-lg" />
             <datalist id="saved-playlist-names">{playlists.map(playlist => <option key={playlist.name} value={playlist.name} />)}</datalist>
             <button type="button" onClick={playPlaylist} className="px-4 py-3 rounded-lg border border-green-400/40 text-green-200 text-xs">PLAY PLAYLIST</button>
             <button type="button" onClick={savePlaylist} className="px-4 py-3 rounded-lg border border-white/15 text-white/70 text-xs">SAVE QUEUE</button>
@@ -818,7 +987,7 @@ export default function Music() {
             {current.image && <img src={current.image} alt="" className="w-16 h-16 rounded-lg object-cover border border-white/10" />}
             <div className="flex-1 min-w-0">
               <div className="text-sm text-white font-medium truncate">{current.name}</div>
-              <div className="text-xs text-white/60 truncate">{current.artist || 'Unknown artist'}{current.album ? ` · ${current.album}` : ''}</div>
+              <div className="text-xs text-white/60 truncate">{current.artist || 'Unknown artist'}{current.album ? `  - ${current.album}` : ''}</div>
             </div>
             <div className="flex items-center gap-2">
               <button onClick={() => void control('previous')} className="px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-xs">Previous</button>
@@ -829,9 +998,7 @@ export default function Music() {
             </div>
           </div>
           {current.provider?.toLowerCase() === 'youtube' && current.videoId ? (
-            <div className="w-full overflow-hidden rounded-xl border border-white/10 bg-black aspect-video">
-              <div ref={youtubeContainerRef} className="w-full h-full" />
-            </div>
+            <div ref={youtubeContainerRef} className="w-full overflow-hidden rounded-xl border border-white/10 bg-black aspect-video" />
           ) : (
             <div className="space-y-2">
               <div className="flex items-center justify-between font-mono text-[10px] text-white/40"><span>{formatDuration(position * 1000)}</span><span>{formatDuration(audioDuration * 1000)}</span></div>
@@ -854,7 +1021,7 @@ export default function Music() {
         <div className="glass rounded-2xl p-5">
           <div className="font-display text-xs tracking-widest text-white/50 uppercase mb-4">Search Results ({tracks.length})</div>
           {tracks.length === 0 ? (
-            <p className="font-mono text-xs text-white/40">No results yet. Try “Bohemian Rhapsody” or any artist.</p>
+            <p className="font-mono text-xs text-white/40">No results yet. Try "Bohemian Rhapsody" or any artist.</p>
           ) : (
             <div className="space-y-2">
               {tracks.map(track => (
@@ -862,7 +1029,7 @@ export default function Music() {
                   <button onClick={() => void playTrack(track)} className="w-9 h-9 rounded-lg bg-green-400/10 border border-green-400/30 text-green-300 text-xs flex-shrink-0">▶</button>
                   <div className="flex-1 min-w-0">
                     <div className="text-xs text-white truncate">{track.name}</div>
-                    <div className="text-[10px] text-white/50 truncate">{track.artist}{track.genre ? ` · ${track.genre}` : ''}</div>
+                    <div className="text-[10px] text-white/50 truncate">{track.artist}{track.genre ? `  - ${track.genre}` : ''}</div>
                   </div>
                   <span className="font-mono text-[10px] text-white/30">{formatDuration(track.duration)}</span>
                   <button onClick={() => addToQueue(track)} className="px-2 py-1 rounded border border-white/10 text-[10px] text-white/60">Queue</button>
@@ -880,7 +1047,17 @@ export default function Music() {
           ) : (
             <div className="space-y-2">
               {queue.map((track, index) => (
-                <div key={`${track.id}-${index}`} className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/5 transition-all">
+                <div
+                  key={`${track.id}-${index}`}
+                  draggable
+                  onDragStart={event => { setDraggingQueueIndex(index); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', String(index)) }}
+                  onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'move' }}
+                  onDrop={event => { event.preventDefault(); const sourceIndex = Number(event.dataTransfer.getData('text/plain')); if (Number.isInteger(sourceIndex)) reorderQueueItem(sourceIndex, index); setDraggingQueueIndex(null) }}
+                  onDragEnd={() => setDraggingQueueIndex(null)}
+                  className={`flex items-center gap-3 p-2 rounded-xl border border-transparent hover:bg-white/5 transition-all cursor-grab active:cursor-grabbing ${draggingQueueIndex === index ? 'opacity-40 border-green-400/40' : ''}`}
+                  title="Drag to reorder"
+                >
+                  <span aria-label="Drag to reorder" className="text-white/35 select-none">⠿</span>
                   <span className="font-mono text-[10px] text-white/30 w-5">{index + 1}</span>
                   <div className="flex-1 min-w-0">
                     <div className="text-xs text-white truncate">{track.name}</div>
@@ -910,7 +1087,7 @@ export default function Music() {
         <div className="flex flex-wrap items-center gap-3">
           <a href="https://www.tunemymusic.com/" target="_blank" rel="noreferrer" className="rounded-lg border border-green-400/35 px-3 py-2 text-xs text-green-200 hover:bg-green-400/10">Open TuneMyMusic</a>
           <label className={`rounded-lg border border-white/15 px-3 py-2 text-xs text-white/80 cursor-pointer ${importBusy ? 'opacity-40 pointer-events-none' : 'hover:bg-white/5'}`}>
-            {importBusy ? 'IMPORTING…' : 'IMPORT CSV / TXT'}
+            {importBusy ? 'IMPORTING...' : 'IMPORT CSV / TXT'}
             <input type="file" accept=".csv,.txt,text/csv,text/plain" className="hidden" disabled={importBusy} onChange={event => {
               const file = event.currentTarget.files?.[0]
               event.currentTarget.value = ''
@@ -944,12 +1121,22 @@ export default function Music() {
                   <span className="mt-3 block truncate font-semibold text-white">{playlist.name}</span>
                   <span className="mt-1 block text-sm text-white/45">{playlist.tracks.length} {playlist.tracks.length === 1 ? 'song' : 'songs'}</span>
                 </button>
-                <div className="mt-3 flex items-center gap-2">
+                <div className="mt-3 flex flex-wrap items-center gap-2">
                   <button type="button" onClick={() => playPlaylistByName(playlist.name)} aria-label={`Play ${playlist.name}`} className="flex h-10 w-10 items-center justify-center rounded-full bg-[#1ed760] text-lg font-bold text-black shadow-lg transition-transform hover:scale-105">▶</button>
-                  <button type="button" onClick={() => { setPlaylistName(playlist.name); setEditingPlaylistName(playlist.name); queueRef.current = [...playlist.tracks]; setQueue([...playlist.tracks]); setMessage(`Editing “${playlist.name}”. Add songs from Search Results, reorder the queue, then save.`) }} className="rounded-lg px-2 py-2 text-xs text-white/55 hover:bg-white/10 hover:text-white">Edit</button>
+                  <button type="button" onClick={() => { setPlaylistName(playlist.name); setEditingPlaylistName(playlist.name); queueRef.current = [...playlist.tracks]; setQueue([...playlist.tracks]); setMessage(`Editing "${playlist.name}". Add songs from Search Results, reorder the queue, then save.`) }} className="rounded-lg px-2 py-2 text-xs text-white/55 hover:bg-white/10 hover:text-white">Edit</button>
                   <button type="button" onClick={() => renamePlaylist(playlist.name)} aria-label={`Rename ${playlist.name}`} className="rounded-lg px-2 py-2 text-xs text-white/55 hover:bg-white/10 hover:text-white">Rename</button>
-                  <button type="button" onClick={() => { if (window.confirm(`Delete “${playlist.name}”?`)) { persistPlaylists(playlists.filter(item => item.name !== playlist.name)); if (editingPlaylistName === playlist.name) setEditingPlaylistName(null); setMessage(`Deleted playlist “${playlist.name}”.`) } }} aria-label={`Delete ${playlist.name}`} className="ml-auto rounded-lg px-2 py-2 text-xs text-white/35 hover:bg-red-500/10 hover:text-red-300">Delete</button>
+                  <button type="button" onClick={() => { if (window.confirm(`Delete "${playlist.name}"?`)) { persistPlaylists(playlists.filter(item => item.name !== playlist.name)); if (editingPlaylistName === playlist.name) setEditingPlaylistName(null); if (renamingPlaylistName === playlist.name) setRenamingPlaylistName(null); setMessage(`Deleted playlist "${playlist.name}".`) } }} aria-label={`Delete ${playlist.name}`} className="ml-auto rounded-lg px-2 py-2 text-xs text-white/35 hover:bg-red-500/10 hover:text-red-300">Delete</button>
                 </div>
+                {renamingPlaylistName === playlist.name && (
+                  <form className="mt-3 flex flex-col gap-2" onSubmit={event => { event.preventDefault(); commitPlaylistRename(playlist.name) }}>
+                    <label className="text-xs text-white/60" htmlFor={`rename-playlist-${playlist.name}`}>New playlist name</label>
+                    <input id={`rename-playlist-${playlist.name}`} autoFocus value={renameDraft} onChange={event => setRenameDraft(event.target.value)} className="w-full min-w-0 rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-white" maxLength={80} />
+                    <div className="flex gap-2">
+                      <button type="submit" className="rounded-lg bg-green-400/15 px-3 py-2 text-xs text-green-200">Save name</button>
+                      <button type="button" onClick={() => { setRenamingPlaylistName(null); setRenameDraft('') }} className="rounded-lg px-3 py-2 text-xs text-white/60 hover:bg-white/10">Cancel</button>
+                    </div>
+                  </form>
+                )}
               </article>
             ))}
           </div>
@@ -963,14 +1150,24 @@ export default function Music() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-white">{playlist.name}</h2>
-                <p className="text-xs text-white/45">{playlist.tracks.length} songs · Click any song to play it</p>
+                <p className="text-xs text-white/45">{playlist.tracks.length} songs | Click any song to play it</p>
               </div>
               <button type="button" onClick={() => { setPlaylistName(playlist.name); setEditingPlaylistName(playlist.name); queueRef.current = [...playlist.tracks]; setQueue([...playlist.tracks]); setMessage('Editing ' + playlist.name + '. Add songs from Search Results, then save.') }} className="rounded-lg border border-green-400/30 px-3 py-2 text-xs text-green-200">Edit playlist</button>
             </div>
             {playlist.tracks.length === 0 ? (
               <p className="rounded-xl bg-white/5 p-4 text-sm text-white/45">This playlist is empty. Edit it and add songs from Search Results.</p>
             ) : playlist.tracks.map((track, index) => (
-              <div key={String(track.id) + '-' + index} className="flex items-center gap-3 rounded-xl p-3 hover:bg-white/5">
+              <div
+                key={String(track.id) + '-' + index}
+                draggable={editingPlaylistName === playlist.name}
+                onDragStart={event => { if (editingPlaylistName !== playlist.name) { event.preventDefault(); return }; setDraggingPlaylistTrackIndex(index); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', String(index)) }}
+                onDragOver={event => { if (editingPlaylistName === playlist.name) { event.preventDefault(); event.dataTransfer.dropEffect = 'move' } }}
+                onDrop={event => { if (editingPlaylistName !== playlist.name) return; event.preventDefault(); const from = Number(event.dataTransfer.getData('text/plain')); if (Number.isInteger(from)) reorderSavedPlaylistTrack(playlist.name, from, index); setDraggingPlaylistTrackIndex(null) }}
+                onDragEnd={() => setDraggingPlaylistTrackIndex(null)}
+                className={`flex items-center gap-3 rounded-xl p-3 hover:bg-white/5 ${editingPlaylistName === playlist.name ? 'cursor-grab active:cursor-grabbing' : ''} ${draggingPlaylistTrackIndex === index ? 'opacity-40 border border-green-400/40' : ''}`}
+                title={editingPlaylistName === playlist.name ? 'Drag to reorder playlist tracks' : undefined}
+              >
+                {editingPlaylistName === playlist.name && <span className="select-none text-white/35" aria-label="Drag to reorder">⠿</span>}
                 <span className="w-6 text-xs text-white/35">{index + 1}</span>
                 {track.image && <img src={track.image} alt="" className="h-11 w-11 rounded-lg object-cover" />}
                 <button type="button" onClick={() => playSavedTrack(playlist, index)} className="min-w-0 flex-1 text-left">
@@ -978,6 +1175,7 @@ export default function Music() {
                   <span className="block truncate text-xs text-white/50">{track.artist || 'Unknown artist'}</span>
                 </button>
                 <span className="hidden text-xs text-white/35 sm:inline">{formatDuration(track.duration)}</span>
+                {editingPlaylistName === playlist.name && <div className="flex items-center gap-1"><button type="button" aria-label={`Move ${track.name} up in playlist`} title="Move up" disabled={index === 0} onClick={() => reorderSavedPlaylistTrack(playlist.name, index, index - 1)} className="rounded border border-white/10 px-2 py-1 text-xs text-white/60 disabled:opacity-20">↑</button><button type="button" aria-label={`Move ${track.name} down in playlist`} title="Move down" disabled={index === playlist.tracks.length - 1} onClick={() => reorderSavedPlaylistTrack(playlist.name, index, index + 1)} className="rounded border border-white/10 px-2 py-1 text-xs text-white/60 disabled:opacity-20">↓</button></div>}
                 <button type="button" title={'Play ' + track.name} aria-label={'Play ' + track.name} onClick={() => playSavedTrack(playlist, index)} className="rounded-lg border border-green-400/30 px-3 py-2 text-xs text-green-200">▶</button>
                 <button type="button" title={'Remove ' + track.name + ' from ' + playlist.name} aria-label={'Remove ' + track.name + ' from ' + playlist.name} onClick={() => removeSavedTrack(playlist.name, index)} className="rounded-lg border border-red-400/20 px-3 py-2 text-xs text-red-200 hover:bg-red-400/10">Remove</button>
               </div>
