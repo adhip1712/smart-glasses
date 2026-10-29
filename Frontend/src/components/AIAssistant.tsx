@@ -126,12 +126,15 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
   // =======================================================
 
   const inputRef = useRef<HTMLInputElement>(null)
+  const [speechStatus, setSpeechStatus] = useState("Voice not tested")
 
-  // Native browser speech gives real laptop-speaker output without changing
-  // the existing backend API contract. It uses the selected OS output device.
+  // Browser speech uses the laptop's selected audio output and preserves all
+  // existing backend APIs. The test button provides a user-gesture unlock.
   const speakResponse = (value: string) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      console.warn("Speech output is unavailable in this browser.")
+    if (typeof window === "undefined" || !("speechSynthesis" in window) ||
+        typeof SpeechSynthesisUtterance === "undefined") {
+      setSpeechStatus("Speech unavailable in this browser")
+      console.error("Speech output is unavailable in this browser.")
       return
     }
 
@@ -145,11 +148,19 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
 
     if (!spokenText) return
     window.speechSynthesis.cancel()
+    window.speechSynthesis.resume()
     const utterance = new SpeechSynthesisUtterance(spokenText)
     utterance.lang = navigator.language || "en-US"
     utterance.rate = 1
     utterance.pitch = 1
     utterance.volume = 1
+    utterance.onstart = () => setSpeechStatus("Speaking")
+    utterance.onend = () => setSpeechStatus("Voice ready")
+    utterance.onerror = (event) => {
+      setSpeechStatus(`Speech error: ${event.error}`)
+      console.error("Browser speech synthesis failed:", event.error)
+    }
+    setSpeechStatus("Starting voice…")
     window.speechSynthesis.speak(utterance)
   }
 
@@ -2215,6 +2226,20 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
         </div>
 
         <div className="flex items-center gap-3">
+
+          <div className="flex flex-col items-end gap-1">
+            <button
+              type="button"
+              onClick={() => speakResponse("Visionary Nexus voice responses are working. You should hear this through your laptop speakers.")}
+              className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-xs font-medium text-white hover:bg-cyan-400/20 transition-all"
+              aria-label="Test spoken responses"
+            >
+              Test Voice
+            </button>
+            <span className="max-w-40 text-[10px] opacity-60" aria-live="polite">
+              {speechStatus}
+            </span>
+          </div>
 
           {/* MUSIC STATUS */}
 
