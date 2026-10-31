@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import Dashboard from './components/Dashboard'
 import AIAssistant from './components/AIAssistant'
 import Vision from './components/Vision'
-import AudioPanel from './components/AudioPanel'
 import Music from './components/Music'
 import Weather from './components/Weather'
 import Navigation from './components/Navigation'
@@ -11,8 +10,12 @@ import Device from './components/Device'
 import Settings from './components/Settings'
 import { apiFetch, readJson } from './services/api'
 import VoiceControl from './components/VoiceControl'
+import { speakText } from './services/speech'
+import IntroSplash from './components/IntroSplash'
+import AuthScreen from './components/AuthScreen'
+import { getToken, getStoredUser, setSession } from './services/api'
 
-export type Tab = 'dashboard' | 'ai' | 'vision' | 'audio' | 'music' | 'weather' | 'nav' | 'notifications' | 'device' | 'settings'
+export type Tab = 'dashboard' | 'ai' | 'vision' | 'music' | 'weather' | 'nav' | 'notifications' | 'device' | 'settings'
 
 const DashIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
@@ -31,11 +34,6 @@ const EyeIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
     <circle cx="12" cy="12" r="3" />
-  </svg>
-)
-const WaveIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
-    <path d="M2 12h2M20 12h2M6 8v8M10 5v14M14 7v10M18 9v6" strokeLinecap="round" />
   </svg>
 )
 const ChipIcon = () => (
@@ -75,7 +73,6 @@ const tabs = [
   { id: 'dashboard' as Tab, label: 'Dashboard', Icon: DashIcon },
   { id: 'ai' as Tab, label: 'AI Assistant', Icon: AIIcon },
   { id: 'vision' as Tab, label: 'Vision', Icon: EyeIcon },
-  { id: 'audio' as Tab, label: 'Audio', Icon: WaveIcon },
   { id: 'music' as Tab, label: 'Music', Icon: MusicIcon },
   { id: 'weather' as Tab, label: 'Weather', Icon: WeatherIcon },
   { id: 'nav' as Tab, label: 'Navigation', Icon: NavIcon },
@@ -96,6 +93,33 @@ export default function App() {
   const [navigationDestination, setNavigationDestination] = useState('')
   const [pendingVoiceCommand, setPendingVoiceCommand] = useState('')
   const [status, setStatus] = useState<SystemStatus>({ backend: false, aiProvider: '—', glassesOnline: 0, wifiLabel: 'UNKNOWN' })
+  const [authReady, setAuthReady] = useState(false)
+  const [authenticated, setAuthenticated] = useState(false)
+  const [showIntro, setShowIntro] = useState(true)
+  const [introKey, setIntroKey] = useState(0)
+
+  useEffect(() => {
+    let mounted = true
+    const restoreSession = async () => {
+      const token = getToken()
+      if (!token) {
+        if (mounted) setAuthReady(true)
+        return
+      }
+      try {
+        const response = await apiFetch('/api/auth/session')
+        if (!response.ok) throw new Error('Session expired')
+        if (mounted) setAuthenticated(true)
+      } catch {
+        setSession(null, null)
+        if (mounted) setAuthenticated(false)
+      } finally {
+        if (mounted) setAuthReady(true)
+      }
+    }
+    void restoreSession()
+    return () => { mounted = false }
+  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -136,6 +160,25 @@ export default function App() {
     setPendingVoiceCommand('')
   }, [activeTab, pendingVoiceCommand])
 
+  if (!authReady) {
+    return <div className="min-h-screen bg-[#030b20]" aria-label="Restoring session" />
+  }
+
+  if (showIntro) {
+    return <IntroSplash key={introKey} onComplete={() => setShowIntro(false)} />
+  }
+
+  if (!authenticated) {
+    return <AuthScreen onAuthenticated={() => {
+      setAuthenticated(true)
+      setShowIntro(true)
+      setIntroKey(current => current + 1)
+    }} />
+  }
+
+  const storedUser = getStoredUser()
+  const displayName = storedUser?.display_name?.trim() || storedUser?.email?.split('@')[0] || 'My Workspace'
+
   return (
     <div className="min-h-screen bg-[#030712] text-white flex flex-row relative overflow-hidden">
       {/* Background grid */}
@@ -143,14 +186,14 @@ export default function App() {
 
       {/* Background ambient orbs */}
       <div
-        className="fixed w-[600px] h-[600px] rounded-full pointer-events-none z-0 animate-orb"
+        className="vn-ambient fixed w-[600px] h-[600px] rounded-full pointer-events-none z-0 animate-orb"
         style={{
           top: '-10%', left: '-10%',
           background: 'radial-gradient(circle, rgba(0,229,255,0.06) 0%, transparent 70%)',
         }}
       />
       <div
-        className="fixed w-[500px] h-[500px] rounded-full pointer-events-none z-0"
+        className="vn-ambient fixed w-[500px] h-[500px] rounded-full pointer-events-none z-0"
         style={{
           bottom: '-5%', right: '-5%',
           background: 'radial-gradient(circle, rgba(168,85,247,0.08) 0%, transparent 70%)',
@@ -158,7 +201,7 @@ export default function App() {
         }}
       />
       <div
-        className="fixed w-[400px] h-[400px] rounded-full pointer-events-none z-0"
+        className="vn-ambient fixed w-[400px] h-[400px] rounded-full pointer-events-none z-0"
         style={{
           top: '40%', left: '40%',
           background: 'radial-gradient(circle, rgba(77,158,255,0.04) 0%, transparent 70%)',
@@ -167,27 +210,21 @@ export default function App() {
       />
 
       {/* Vertical tab rail — always visible so the content keeps full width */}
-      <aside className="flex flex-col w-[68px] md:w-64 min-h-screen relative z-10 flex-shrink-0"
+      <aside className="vn-sidebar flex flex-col w-[232px] min-h-screen relative z-10 flex-shrink-0 max-md:w-[68px]"
         style={{
           background: 'rgba(3, 7, 18, 0.8)',
           backdropFilter: 'blur(24px)',
           borderRight: '1px solid rgba(0, 229, 255, 0.1)',
           boxShadow: '4px 0 40px rgba(0, 0, 0, 0.5)',
         }}>
-        {/* Logo */}
-        <div className="px-3 md:px-6 py-6 md:py-8 border-b border-white/5">
-          <div className="flex items-center gap-3">
-            <div className="relative w-10 h-10 flex-shrink-0">
-              <div className="absolute inset-0 rounded-full border border-cyan-400/60" style={{ animation: 'ring-spin 8s linear infinite' }} />
-              <div className="absolute inset-1 rounded-full border border-purple-500/40" style={{ animation: 'ring-spin-reverse 12s linear infinite' }} />
-              <div className="absolute inset-2.5 rounded-full bg-cyan-400/20 border border-cyan-400/80"
-                style={{ boxShadow: '0 0 12px rgba(0,229,255,0.6), inset 0 0 8px rgba(0,229,255,0.3)' }} />
+        {/* Signed-in workspace identity */}
+        <div className="vn-sidebar-identity px-3 md:px-5 py-5 border-b border-white/5">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="vn-avatar w-9 h-9 flex-shrink-0 rounded-lg flex items-center justify-center font-semibold text-sm" aria-hidden="true">{displayName.charAt(0).toUpperCase()}</div>
+            <div className="hidden md:block leading-tight min-w-0">
+              <div className="vn-display-name" title={displayName}>{displayName}</div>
+              <div className="mt-1 text-[10px] tracking-[0.12em] text-slate-400 uppercase">Personal workspace</div>
             </div>
-            <div className="hidden md:block">
-              <div className="font-display text-xs font-bold tracking-[0.2em] text-white/90">VISIONARY</div>
-              <div className="font-display text-xs font-bold tracking-[0.2em] text-cyan-400" style={{ textShadow: '0 0 12px rgba(0,229,255,0.7)' }}>NEXUS</div>
-            </div>
-            <div className="md:hidden font-display text-[10px] font-bold tracking-[0.15em] text-cyan-400" style={{ textShadow: '0 0 12px rgba(0,229,255,0.7)' }}>VN</div>
           </div>
           <div className="mt-3 flex items-center gap-2">
             <div
@@ -256,6 +293,15 @@ export default function App() {
 
       {/* Main content */}
       <main className="flex-1 relative z-10 overflow-auto" style={{ minHeight: '100vh' }}>
+        <header className="vn-topbar">
+          <div>
+            <div className="vn-topbar-title">{tabs.find(tab => tab.id === activeTab)?.label || 'Workspace'}</div>
+            <div className="vn-topbar-subtitle">Visionary Nexus <span className="mx-1 text-slate-600">/</span> Smart glasses workspace</div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="vn-status-pill"><span className="vn-status-dot" style={{ background: status.backend ? '#4cc69a' : '#d69b50' }} />{status.backend ? 'System connected' : 'Backend unavailable'}</span>
+          </div>
+        </header>
         <VoiceControl onCommand={async (spoken) => {
           // Route obvious playback commands locally first. Voice playback must
           // never wait for a remote LLM round-trip; the backend AI remains the
@@ -264,7 +310,12 @@ export default function App() {
           const normalized = raw.toLowerCase().replace(/[.!?,]+/g, ' ').replace(/\s+/g, ' ').trim();
           const genericListen = /\b(?:i want to|i would like to|let me|can i|could i)?\s*(?:listen to|hear)\s+(?:something|anything|some music|music|a song|some songs)\b/.test(normalized);
           const pronounPlayback = /\b(?:listen to|hear)\s+(?:it|that|this)\b|\bplay\s+(?:it|that|this)\s+again\b|\bput\s+(?:it|that|this)\s+on\b|\bresume\s+(?:the )?(?:music|song|track)?\s*$/.test(normalized);
-          const musicVerb = /\b(?:play|listen to|put on|start playing|resume|pause|skip|next song|previous song|find me|search for)\b/.test(normalized);
+          // Only explicit music-control phrasing may trigger playback. A verb such as
+          // "play" inside ordinary speech ("I play forward in football") must
+          // not hijack the current screen and open Music.
+          const explicitMusicCommand = /^(?:(?:hey\s+)?(?:visionary|nexus)[,:-]?\s*)?(?:(?:please|can you|could you|would you|will you|i want to|i'd like to|i would like to|let me)\s+)*(?:play|listen to|put on|start playing|resume|pause|skip|next song|previous song|find me|search for)\b/.test(normalized);
+          const contextualMusicAction = /\b(?:listen to|put on|start playing|resume|pause|skip|next song|previous song|find me|search for)\b/.test(normalized);
+          const musicVerb = explicitMusicCommand || contextualMusicAction;
           if (genericListen || pronounPlayback || musicVerb) {
             const action = /\b(?:pause|stop)\b/.test(normalized) ? 'pause'
               : /\b(?:skip|next song)\b/.test(normalized) ? 'next'
@@ -315,6 +366,7 @@ export default function App() {
               return
             }
             if (routedIntent === 'navigation' && intent?.destination) {
+              speakText(`Getting directions to ${intent.destination}.`)
               setNavigationDestination(intent.destination)
               setActiveTab('nav')
               window.dispatchEvent(new CustomEvent('visionary:navigate', { detail: { destination: intent.destination } }))
@@ -323,7 +375,7 @@ export default function App() {
             const intentTabs: Partial<Record<string, Tab>> = {
               weather: 'weather',
               vision: 'vision',
-              audio: 'audio',
+              audio: 'ai',
               dashboard: 'dashboard',
               ai: 'ai',
               notifications: 'notifications',
@@ -332,9 +384,10 @@ export default function App() {
             }
             const destinationTab = intentTabs[routedIntent]
             if (destinationTab && routedIntent !== 'general') {
+              speakText(`Opening ${routedIntent}.`)
               setActiveTab(destinationTab)
               if (routedIntent === 'vision') {
-                window.dispatchEvent(new CustomEvent('visionary:vision-command', { detail: { text: polished } }))
+                window.dispatchEvent(new CustomEvent('visionary:vision-command', { detail: { text: polished, action: intent?.action || 'analyze' } }))
               }
               return
             }
@@ -342,15 +395,15 @@ export default function App() {
             setActiveTab('ai')
           } catch (error) {
             console.warn('AI voice understanding unavailable; forwarding speech to the AI Assistant.', error)
+            speakText('I could not classify that request yet. Opening the AI Assistant.')
             setPendingVoiceCommand(spoken)
             setActiveTab('ai')
           }
         }} />
-        <div className="animate-slide-in">
+        <div className="animate-slide-in vn-content">
           {activeTab === 'dashboard' && <Dashboard setActiveTab={setActiveTab} />}
-          {activeTab === 'ai' && <AIAssistant onNavigate={(destination) => { setNavigationDestination(destination); setActiveTab('nav') }} />}
+          {activeTab === 'ai' && <AIAssistant onNavigate={(destination) => { setNavigationDestination(destination); setActiveTab('nav') }} onMusic={() => setActiveTab('music')} />}
           {activeTab === 'vision' && <Vision />}
-          {activeTab === 'audio' && <AudioPanel />}
           {/* Keep Music mounted while other tabs are open so playback and playlist editing continue. */}
           <div style={{ display: activeTab === 'music' ? 'block' : 'none' }} aria-hidden={activeTab !== 'music'}>
             <Music />
@@ -359,7 +412,11 @@ export default function App() {
           {activeTab === 'nav' && <Navigation initialDestination={navigationDestination} />}
           {activeTab === 'notifications' && <Notifications />}
           {activeTab === 'device' && <Device />}
-          {activeTab === 'settings' && <Settings />}
+          {activeTab === 'settings' && <Settings onSignOut={() => {
+            setAuthenticated(false)
+            setShowIntro(false)
+            setActiveTab('dashboard')
+          }} />}
         </div>
       </main>
 

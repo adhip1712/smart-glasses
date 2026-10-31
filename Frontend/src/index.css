@@ -3,6 +3,7 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @import 'tailwindcss';
+@import './professional.css';
 
 @keyframes ring-expand {
   0% { transform: scale(1); opacity: 0.7; }

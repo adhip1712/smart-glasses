@@ -4,10 +4,15 @@ import { cameraSnapshotUrl, fetchCameraStatus, type CameraStatus } from '../api/
 import {
   fetchVisionDetections,
   fetchVisionStatus,
+  fetchVisionEvents,
+  analyzeVisionScene,
+  type VisionEvent,
+  type VisionEventStatus,
   startVision,
   stopVision,
   visionFrameUrl,
   visionVideoAvailable,
+  VISION_TOKEN,
   type VisionDetection,
   type VisionDetections,
   type VisionStatus,
@@ -66,6 +71,9 @@ export default function Vision() {
   const [scanY, setScanY] = useState(0)
   const [showObjects, setShowObjects] = useState(true)
   const [captureFlash, setCaptureFlash] = useState(false)
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const [photoError, setPhotoError] = useState('')
+  const [photoResult, setPhotoResult] = useState<any>(null)
 
   // Real ESP32-CAM state. The screen keeps working when the board is absent:
   // `camera` stays null, `frameFailed` falls back to the simulated visuals.
@@ -82,6 +90,10 @@ export default function Vision() {
   const [visionError, setVisionError] = useState('')
   const [visionFrameTick, setVisionFrameTick] = useState(0)
   const [visionFrameFailed, setVisionFrameFailed] = useState(false)
+  const [eventStatus, setEventStatus] = useState<VisionEventStatus | null>(null)
+  const [eventBusy, setEventBusy] = useState(false)
+  const [eventResult, setEventResult] = useState<VisionEvent | null>(null)
+  const [eventError, setEventError] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -111,6 +123,37 @@ export default function Vision() {
       clearInterval(interval)
     }
   }, [])
+
+  // Event analysis is separate from the real-time detector and never uploads every frame.
+  useEffect(() => {
+    let cancelled = false
+    const poll = async () => {
+      const result = await fetchVisionEvents()
+      if (!cancelled && result) {
+        setEventStatus(result)
+        if (!eventResult && result.events?.length) setEventResult(result.events[0])
+      }
+    }
+    poll()
+    const interval = setInterval(poll, 5000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [eventResult])
+
+  const handleAnalyzeScene = async () => {
+    setEventBusy(true)
+    setEventError('')
+    try {
+      const result = await analyzeVisionScene()
+      if (result.status === 'ok') setEventResult(result)
+      else setEventError(result.error || 'Scene analysis is not available.')
+      const latest = await fetchVisionEvents()
+      if (latest) setEventStatus(latest)
+    } catch (error) {
+      setEventError(error instanceof Error ? error.message : 'Scene analysis failed.')
+    } finally {
+      setEventBusy(false)
+    }
+  }
 
   // Poll detections only while the worker is running.
   useEffect(() => {
@@ -143,6 +186,15 @@ export default function Vision() {
     const interval = setInterval(() => setVisionFrameTick(t => t + 1), 1500)
 
     return () => clearInterval(interval)
+  }, [vision?.running, visionFrameFailed])
+
+  // Retry a failed stream automatically. This matters when the UI first loaded
+  // before the Vite proxy/backend token configuration was ready.
+  useEffect(() => {
+    if (!vision?.running || !visionVideoAvailable() || !visionFrameFailed) return
+
+    const retry = setTimeout(() => setVisionFrameFailed(false), 3000)
+    return () => clearTimeout(retry)
   }, [vision?.running, visionFrameFailed])
 
   const handleVisionToggle = async () => {
@@ -215,10 +267,10 @@ export default function Vision() {
   const realObjects = (visionDetections?.detections ?? [])
     .map(toOverlay)
     .filter((item): item is OverlayObject => item !== null)
-  const overlayObjects: OverlayObject[] =
-    realObjects.length > 0
-      ? realObjects
-      : detectedObjects.map(obj => ({ ...obj, key: obj.label, trackId: null }))
+  // Never show placeholder objects while the real ML worker is running.
+  const overlayObjects: OverlayObject[] = vision?.running
+    ? realObjects
+    : detectedObjects.map(obj => ({ ...obj, key: obj.label, trackId: null }))
   const usingRealDetections = realObjects.length > 0
 
   const mlResolution = visionDetections?.frame?.width
@@ -245,10 +297,33 @@ export default function Vision() {
     return () => clearInterval(interval)
   }, [scanning])
 
-  const handleCapture = () => {
+  const handleCapture = async () => {
     setCaptureFlash(true)
-    setTimeout(() => setCaptureFlash(false), 300)
+    window.setTimeout(() => setCaptureFlash(false), 300)
+    setPhotoBusy(true)
+    setPhotoError('')
+    try {
+      const response = await fetch('/api/vision/photo', { method: 'POST', headers: VISION_TOKEN ? { Authorization: `Bearer ${VISION_TOKEN}` } : {} })
+      const result = await response.json()
+      if (!response.ok || result.status !== 'ok') throw new Error(result.error || 'Photo capture is unavailable.')
+      setPhotoResult(result)
+    } catch (error) {
+      setPhotoError(error instanceof Error ? error.message : 'Photo capture failed.')
+    } finally {
+      setPhotoBusy(false)
+    }
   }
+
+  useEffect(() => {
+    const receiveVisionCommand = (event: Event) => {
+      const detail = (event as CustomEvent<{ action?: string }>).detail
+      const action = String(detail?.action || '').toLowerCase()
+      if (action === 'capture' || action === 'photo') void handleCapture()
+      else if (action === 'analyze' || action === 'identify' || action === 'describe') void handleAnalyzeScene()
+    }
+    window.addEventListener('visionary:vision-command', receiveVisionCommand)
+    return () => window.removeEventListener('visionary:vision-command', receiveVisionCommand)
+  })
 
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-7xl mx-auto">
@@ -437,7 +512,7 @@ export default function Vision() {
                 boxShadow: '0 0 16px rgba(0,229,255,0.15)',
               }}
             >
-              CAPTURE
+              {photoBusy ? 'CAPTURING…' : 'CAPTURE PHOTO'}
             </button>
             <button
               onClick={handleVisionToggle}
@@ -453,7 +528,9 @@ export default function Vision() {
               {visionBusy ? 'WAITING…' : vision?.running ? 'STOP DETECTION' : 'START DETECTION'}
             </button>
             <button
-              className="px-5 py-2.5 rounded-xl font-display text-[11px] tracking-widest transition-all duration-300 hover:scale-105"
+              onClick={handleAnalyzeScene}
+              disabled={eventBusy || !vision?.running}
+              className="px-5 py-2.5 rounded-xl font-display text-[11px] tracking-widest transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:hover:scale-100"
               style={{
                 background: 'rgba(168,85,247,0.1)',
                 border: '1px solid rgba(168,85,247,0.4)',
@@ -461,7 +538,7 @@ export default function Vision() {
                 boxShadow: '0 0 16px rgba(168,85,247,0.15)',
               }}
             >
-              ANALYZE SCENE
+              {eventBusy ? 'QWEN3-VL ANALYZING…' : 'AI ANALYZE SCENE'}
             </button>
             <button
               onClick={() => setScanning(!scanning)}
@@ -551,7 +628,7 @@ export default function Vision() {
             <div className="font-display text-xs tracking-widest text-white/50 uppercase mb-4">
               Detected Objects ({overlayObjects.length})
               <span className="ml-2 normal-case tracking-normal text-white/25">
-                {usingRealDetections ? 'live' : 'preview'}
+                {vision?.running ? 'live' : 'preview'}
               </span>
             </div>
             {vision?.running && usingRealDetections === false && (
@@ -580,15 +657,51 @@ export default function Vision() {
             </div>
           </div>
 
+          {/* OpenAI event analysis. It is intentionally separate from local FPS/detections. */}
+          <div className="glass rounded-2xl p-5">
+            <div className="font-display text-xs tracking-widest text-white/50 uppercase mb-3">AI Event Analysis</div>
+            <div className="font-mono text-[10px] text-white/40 mb-3">
+              {eventStatus?.mode === 'local+ollama' ? `Local Qwen3-VL · ${eventStatus.model || 'vision model'} · on-demand image understanding` : 'Local vision analysis · starting'}
+            </div>
+            {eventResult?.status === 'ok' ? (
+              <>
+                <div className="font-mono text-xs text-white/80 leading-relaxed">{eventResult.summary}</div>
+                {eventResult.observable_details?.length ? (
+                  <ul className="mt-2 space-y-1 list-disc pl-4 font-mono text-[10px] text-white/50">
+                    {eventResult.observable_details.map((detail, index) => <li key={`${index}-${detail}`}>{detail}</li>)}
+                  </ul>
+                ) : null}
+                <div className="mt-3 font-mono text-[9px] text-white/30">
+                  {eventResult.event_type?.replaceAll('_', ' ')} · {Math.round((eventResult.confidence ?? 0) * 100)}% model confidence
+                </div>
+              </>
+            ) : (
+              <p className="font-mono text-[10px] text-white/40 leading-relaxed">{eventError || eventStatus?.last_error || 'Start detection, then run AI Analyze Scene. Qwen3-VL checks the camera image and compares its interpretation with live YOLO detections. No cloud API key is required.'}</p>
+            )}
+            <p className="mt-3 font-mono text-[9px] text-white/25">Reports visible events only. It cannot determine identity or intent from appearance.</p>
+          </div>
+
+          {photoResult && (
+            <div className="glass rounded-2xl p-5">
+              <div className="font-display text-xs tracking-widest text-white/60 uppercase mb-3">Captured photo</div>
+              {photoResult.photo_data_url && <img src={photoResult.photo_data_url} alt="Captured camera photo for AI inspection" className="w-full rounded-xl border border-white/10 mb-3" />}
+              <p className="font-mono text-xs text-white/80 leading-relaxed">{photoResult.summary || 'Photo captured successfully.'}</p>
+              {photoResult.observable_details?.length ? <ul className="mt-3 space-y-1 list-disc pl-4 font-mono text-[11px] text-white/60">{photoResult.observable_details.map((item: string, index: number) => <li key={`${index}-${item}`}>{item}</li>)}</ul> : null}
+              <div className="mt-2 font-mono text-[9px] text-white/30">{photoResult.model || 'Vision AI'} · high-detail image analysis</div>
+            </div>
+          )}
+          {photoError && <div className="glass rounded-xl p-3 text-xs text-rose-300">{photoError}</div>}
           {/* Scene description */}
           <div className="glass rounded-2xl p-5">
             <div className="font-display text-xs tracking-widest text-white/50 uppercase mb-3">Scene Analysis</div>
             <p className="font-mono text-xs text-white/60 leading-relaxed">
-              {usingRealDetections
-                ? `YOLO found ${overlayObjects.length} object(s) across ${Object.keys(visionDetections?.labels ?? {}).length} class(es): ${Object.entries(visionDetections?.labels ?? {}).map(([name, count]) => `${name} ×${count}`).join(', ')}.`
+              {vision?.running
+                ? (usingRealDetections
+                  ? 'YOLO found ' + overlayObjects.length + ' object(s) across ' + Object.keys(visionDetections?.labels ?? {}).length + ' class(es): ' + Object.entries(visionDetections?.labels ?? {}).map(([name, count]) => name + ' ?' + count).join(', ') + '.'
+                  : 'No objects detected above ' + (vision?.model?.confidence ?? 0.4).toFixed(2) + ' confidence in the latest frame.')
                 : sceneDescription}
             </p>
-            {!usingRealDetections && (
+            {!vision?.running && (
               <div className="font-mono text-[9px] text-white/25 mt-2">
                 placeholder text - start detection to replace it with real results
               </div>
@@ -596,8 +709,8 @@ export default function Vision() {
             <div className="mt-4 pt-4 border-t border-white/5 grid grid-cols-2 gap-3">
               {[
                 { label: 'Objects', value: String(overlayObjects.length), color: '#00e5ff' },
-                { label: 'People', value: String(visionDetections?.labels?.person ?? (usingRealDetections ? 0 : 1)), color: '#a855f7' },
-                { label: 'Classes', value: String(Object.keys(visionDetections?.labels ?? {}).length || (usingRealDetections ? 0 : 4)), color: '#4d9eff' },
+                { label: 'People', value: String(vision?.running ? (visionDetections?.labels?.person ?? 0) : 1), color: '#a855f7' },
+                { label: 'Classes', value: String(vision?.running ? Object.keys(visionDetections?.labels ?? {}).length : 4), color: '#4d9eff' },
                 { label: 'FPS', value: vision?.running ? (vision.fps ?? 0).toFixed(1) : '–', color: '#4ade80' },
               ].map(({ label, value, color }) => (
                 <div key={label} className="text-center p-2 rounded-lg"

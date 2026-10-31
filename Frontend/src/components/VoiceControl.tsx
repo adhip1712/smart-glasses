@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { apiFetch, readJson } from '../services/api'
 import { correctDictation, isTextEntry } from '../services/dictation'
+import { stopSpeaking } from '../services/speech'
 
 interface VoiceControlProps {
   onCommand: (text: string) => void
@@ -95,6 +96,9 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
   const [language, setLanguage] = useState('en-IN')
   const [liveTranscript, setLiveTranscript] = useState('')
   const recognitionRef = useRef<any>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const mediaStreamRef = useRef<MediaStream | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
   const wakeRecognitionRef = useRef<any>(null)
   const wakeListeningRef = useRef(false)
   const wakeRestartRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -170,6 +174,8 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
     if (wakeRestartRef.current) clearTimeout(wakeRestartRef.current)
     wakeListeningRef.current = false
     try { recognitionRef.current?.abort() } catch { /* browser may already have closed it */ }
+    try { mediaRecorderRef.current?.stop() } catch { /* recorder may already have stopped */ }
+    mediaStreamRef.current?.getTracks().forEach(track => track.stop())
     try { wakeRecognitionRef.current?.abort() } catch { /* browser may already have closed it */ }
   }, [])
 
@@ -219,6 +225,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
   }
 
   const startWakeListening = () => {
+    stopSpeaking()
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SpeechRecognition) {
       setStatus('Wake-word listening needs a supported browser such as Chrome.')
@@ -278,18 +285,19 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
   }
 
   const toggle = () => {
+    stopSpeaking()
     if (wakeListeningRef.current) stopWakeListening()
     if (listening) {
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
-      try { recognitionRef.current?.stop() } catch { /* recognition may already have stopped */ }
-      setListening(false)
-      setStatus('Finishing your dictation…')
-      return
-    }
-
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SpeechRecognition) {
-      setStatus('Voice input needs a supported browser such as Chrome.')
+      const recorder = mediaRecorderRef.current
+      if (recorder && recorder.state !== 'inactive') {
+        setStatus('Transcribing your recording…')
+        recorder.stop()
+      } else {
+        try { recognitionRef.current?.stop() } catch { /* recognition may already have stopped */ }
+        setListening(false)
+        setStatus('Finishing your dictation…')
+      }
       return
     }
 
@@ -300,6 +308,94 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
       : lastTextTargetRef.current?.isConnected
         ? lastTextTargetRef.current
         : null
+
+    // Prefer server-side Whisper for text-field dictation. Commands and wake-word
+    // listening still use browser recognition to avoid changing their behavior.
+    if (targetRef.current && navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined') {
+      const selectedLanguage = languageRef.current
+      void (async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+          mediaStreamRef.current = stream
+          audioChunksRef.current = []
+          const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(type => MediaRecorder.isTypeSupported(type))
+          const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+          mediaRecorderRef.current = recorder
+          recorder.ondataavailable = event => { if (event.data.size > 0) audioChunksRef.current.push(event.data) }
+          recorder.onerror = () => setStatus('Audio recording failed. Check microphone access and try again.')
+          recorder.onstop = async () => {
+            const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+            audioChunksRef.current = []
+            stream.getTracks().forEach(track => track.stop())
+            mediaStreamRef.current = null
+            mediaRecorderRef.current = null
+            setListening(false)
+            if (!blob.size) { setStatus('No audio was captured. Try again.'); return }
+            setStatus('Transcribing with Whisper…')
+            const form = new FormData()
+            form.append('audio', blob, blob.type.includes('mp4') ? 'dictation.m4a' : 'dictation.webm')
+            form.append('language', selectedLanguage)
+            try {
+              const response = await apiFetch('/api/voice/transcribe', { method: 'POST', body: form })
+              const result = await readJson<{ success?: boolean; text?: string; engine?: string; message?: string }>(response)
+              if (response.ok && result?.success && result.text?.trim()) {
+                setStatus(`Transcribed with ${result.engine || 'cloud speech recognition'}; polishing…`)
+                await processTranscript(result.text, selectedLanguage)
+              } else {
+                const BrowserRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+                if (BrowserRecognition) {
+                  setStatus('Whisper unavailable; falling back to browser recognition…')
+                  const fallback = new BrowserRecognition()
+                  fallback.lang = selectedLanguage
+                  fallback.continuous = false
+                  fallback.interimResults = false
+                  fallback.onresult = (event: any) => {
+                    const transcript = Array.from(event.results as any[]).map(item => String(item?.[0]?.transcript || '')).join(' ').trim()
+                    void processTranscript(transcript, selectedLanguage)
+                  }
+                  fallback.onerror = () => setStatus(result?.message || 'Both transcription methods failed. Check microphone and backend settings.')
+                  fallback.start()
+                } else {
+                  setStatus(result?.message || 'Cloud transcription is unavailable. Check the backend STT configuration.')
+                }
+              }
+            } catch (error) {
+              console.warn('Cloud transcription request failed.', error)
+              const BrowserRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+              if (BrowserRecognition) {
+                setStatus('Cloud transcription failed; falling back to browser recognition…')
+                const fallback = new BrowserRecognition()
+                fallback.lang = selectedLanguage
+                fallback.continuous = false
+                fallback.interimResults = false
+                fallback.onresult = (event: any) => {
+                  const transcript = Array.from(event.results as any[]).map(item => String(item?.[0]?.transcript || '')).join(' ').trim()
+                  void processTranscript(transcript, selectedLanguage)
+                }
+                fallback.onerror = () => setStatus('Both transcription methods failed. Check microphone and backend settings.')
+                fallback.start()
+              } else {
+                setStatus('Cloud transcription failed. Check the backend connection and try again.')
+              }
+            }
+          }
+          recorder.start(250)
+          setListening(true)
+          setStatus('Recording dictation for Whisper… tap Stop when finished.')
+        } catch (error) {
+          console.warn('Microphone recording unavailable.', error)
+          setStatus('Microphone access failed. Allow microphone access and try again.')
+          setListening(false)
+        }
+      })()
+      return
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      setStatus('Voice input needs a supported browser with microphone access.')
+      return
+    }
 
     transcriptRef.current = ''
     interimRef.current = ''

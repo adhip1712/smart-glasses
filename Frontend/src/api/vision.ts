@@ -27,11 +27,17 @@
 
 import { API_BASE } from './camera'
 
-const viteEnv =
-  (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {}
+/**
+ * Read the Vite variable through its statically-replaced expression. Accessing
+ * import.meta.env through a type-cast/dynamic object can survive Vite's build
+ * transform and be undefined in the browser, silently disabling video.
+ */
+declare const __VISION_STREAM_TOKEN__: string
+const viteVisionToken: string =
+  typeof __VISION_STREAM_TOKEN__ === 'string' ? __VISION_STREAM_TOKEN__ : ''
 
 /** Optional: set VITE_VISION_TOKEN to enable the annotated video preview. */
-export const VISION_TOKEN = viteEnv.VITE_VISION_TOKEN ?? ''
+export const VISION_TOKEN = viteVisionToken
 
 export interface VisionBox {
   x1: number
@@ -121,6 +127,36 @@ export interface VisionActionResult {
   error?: string
 }
 
+export interface VisionEvent {
+  status: string
+  event_type?: string
+  summary?: string
+  observable_details?: string[]
+  confidence?: number
+  needs_attention?: boolean
+  reason?: string
+  timestamp?: number
+  model?: string
+  error?: string
+}
+
+export interface VisionPhotoResult extends VisionEvent {
+  photo_data_url?: string
+  photo_bytes?: number
+}
+
+export interface VisionEventStatus {
+  enabled: boolean
+  mode?: string
+  cloud_enabled?: boolean
+  running: boolean
+  model?: string
+  cooldown_seconds?: number
+  last_analysis_at?: number | null
+  last_error?: string
+  events: VisionEvent[]
+}
+
 function authHeaders(): Record<string, string> {
   return VISION_TOKEN ? { Authorization: `Bearer ${VISION_TOKEN}` } : {}
 }
@@ -183,17 +219,41 @@ export async function stopVision(): Promise<VisionActionResult | null> {
   }
 }
 
-/**
- * URL of the latest annotated JPEG. Returns '' when no token is configured,
- * because the backend refuses to serve frames to an unauthenticated client.
- */
-export function visionFrameUrl(tick = 0): string {
-  if (!VISION_TOKEN) return ''
-
-  return `${API_BASE}/api/vision/frame?token=${encodeURIComponent(VISION_TOKEN)}&_=${tick}`
+/** Event-analysis readiness and recent event reports. */
+export async function fetchVisionEvents(): Promise<VisionEventStatus | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/vision/events`, { headers: authHeaders() })
+    return response.ok ? await readJson<VisionEventStatus>(response) : null
+  } catch {
+    return null
+  }
 }
 
-/** Whether the annotated video preview can be shown from the browser. */
+/** Ask the backend to analyze the latest frame once; no continuous frame upload. */
+export async function analyzeVisionScene(): Promise<VisionEvent> {
+  const response = await fetch(`${API_BASE}/api/vision/events/analyze`, { method: 'POST', headers: authHeaders() })
+  const result = await readJson<VisionEvent>(response)
+  if (!result) throw new Error('The event analysis service returned an unreadable response.')
+  if (!response.ok && !result.error) throw new Error(`Scene analysis failed (${response.status}).`)
+  return result
+}
+
+/**
+ * URL for the continuous MJPEG camera stream. An <img> can display this
+ * directly; unlike repeatedly reloading /frame, the browser keeps one live
+ * connection and paints each incoming JPEG as it arrives.
+ */
+export function visionFrameUrl(_tick = 0): string {
+  // In local Vite mode the dev-server proxy adds the protected token server-side,
+  // so the browser never needs the secret in an image URL.
+  const auth = VISION_TOKEN ? `?token=${encodeURIComponent(VISION_TOKEN)}` : ''
+  return `${API_BASE}/api/vision/stream${auth}`
+}
+
+/**
+ * The local Vite proxy authenticates the stream server-side. For a separately
+ * deployed frontend, configure VITE_VISION_TOKEN as usual.
+ */
 export function visionVideoAvailable(): boolean {
-  return Boolean(VISION_TOKEN)
+  return Boolean(VISION_TOKEN) || !API_BASE
 }

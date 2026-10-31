@@ -16,8 +16,9 @@ import jwt
 
 from dotenv import load_dotenv
 
-from fastapi import FastAPI
+from fastapi import FastAPI, File, Form, UploadFile, Request as FastAPIRequest
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from pydantic import BaseModel
 
@@ -27,13 +28,15 @@ from sqlalchemy.orm import Session
 
 try:
     from backend.database import engine, SessionLocal, Base
-    from backend.models import Conversation, Message, RecentLocation, MusicPlaylist, Setting
+    from backend.models import Conversation, Message, RecentLocation, MusicPlaylist, Setting, User
+    from backend.auth_api import router as auth_router, authenticate_token
     from backend.device_api import router as device_router
     from backend.camera_api import router as camera_router
     from backend.vision_api import router as vision_router
 except ImportError:
     from database import engine, SessionLocal, Base
-    from models import Conversation, Message, RecentLocation, MusicPlaylist, Setting
+    from models import Conversation, Message, RecentLocation, MusicPlaylist, Setting, User
+    from auth_api import router as auth_router, authenticate_token
     from device_api import router as device_router
     from camera_api import router as camera_router
     from vision_api import router as vision_router
@@ -186,6 +189,53 @@ class RealMusicProvider(BaseMusicProvider):
                 "score": 100 - index,
             })
         return tracks
+
+    def _search_ytdlp(self, query: str):
+        """Fallback search when YouTube Data API quota/rate limits are hit."""
+        try:
+            import yt_dlp
+            options = {
+                "quiet": True,
+                "no_warnings": True,
+                "skip_download": True,
+                "extract_flat": "in_playlist",
+                "ignoreerrors": True,
+                "socket_timeout": 2,
+                "retries": 0,
+                "extractor_retries": 0,
+            }
+            with yt_dlp.YoutubeDL(options) as ydl:
+                payload = ydl.extract_info(f"ytsearch5:{query}", download=False)
+        except Exception:
+            return []
+
+        tracks = []
+        for index, item in enumerate((payload or {}).get("entries") or []):
+            if not item:
+                continue
+            video_id = item.get("id")
+            if not video_id:
+                continue
+            title = item.get("title") or "YouTube Track"
+            channel = item.get("channel") or item.get("uploader") or "YouTube"
+            duration_seconds = int(item.get("duration") or 0)
+            track_url = f"https://www.youtube.com/watch?v={video_id}"
+            tracks.append({
+                "id": video_id,
+                "name": title,
+                "artist": channel,
+                "album": channel,
+                "duration": duration_seconds * 1000,
+                "image": item.get("thumbnail") or "",
+                "audio": track_url,
+                "url": track_url,
+                "genre": "YouTube",
+                "videoId": video_id,
+                "provider": "youtube",
+                "score": 100 - index,
+            })
+        return tracks
+
     def search(self, query: str):
         clean_query = (query or "").strip()
         if not clean_query:
@@ -200,7 +250,8 @@ class RealMusicProvider(BaseMusicProvider):
             "type": "video",
             "videoEmbeddable": "true",
             "videoCategoryId": "10",
-            "maxResults": 10,
+            # Fetch alternate uploads so one bad result does not block playback.
+            "maxResults": 25,
             "order": "relevance",
             "safeSearch": "moderate",
             "key": YOUTUBE_API_KEY,
@@ -216,8 +267,15 @@ class RealMusicProvider(BaseMusicProvider):
             method="GET",
         )
 
-        with urlopen(search_request, timeout=2) as response:
-            search_data = json.loads(response.read().decode("utf-8", errors="ignore"))
+        try:
+            with urlopen(search_request, timeout=2) as response:
+                search_data = json.loads(response.read().decode("utf-8", errors="ignore"))
+        except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+            # YouTube quota/rate-limit errors (including HTTP 429) must not crash
+            # the whole music endpoint. Use yt-dlp search as a secondary provider.
+            if isinstance(exc, HTTPError) and exc.code not in (403, 429, 500, 502, 503, 504):
+                raise
+            return self._search_ytdlp(clean_query)
 
         items = search_data.get("items", [])
         video_ids = [item.get("id", {}).get("videoId") for item in items if item.get("id", {}).get("videoId")]
@@ -240,8 +298,13 @@ class RealMusicProvider(BaseMusicProvider):
             method="GET",
         )
 
-        with urlopen(detail_request, timeout=2) as response:
-            detail_data = json.loads(response.read().decode("utf-8", errors="ignore"))
+        try:
+            with urlopen(detail_request, timeout=2) as response:
+                detail_data = json.loads(response.read().decode("utf-8", errors="ignore"))
+        except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+            if isinstance(exc, HTTPError) and exc.code not in (403, 429, 500, 502, 503, 504):
+                raise
+            return self._search_ytdlp(clean_query)
 
         detail_map = {
             item.get("id"): item
@@ -298,8 +361,32 @@ class RealMusicProvider(BaseMusicProvider):
                 "score": 100 - index,
             })
 
-        tracks.sort(key=lambda item: item.get("score", 0), reverse=True)
-        return tracks[:10]
+        # Prefer standard-length versions unless the user requested a variant.
+        query_terms = set(re.findall(r"[a-z0-9]+", clean_query.casefold()))
+        asks_for_variant = bool(query_terms & {
+            "slowed", "ultra", "super", "speed", "sped", "nightcore", "remix",
+            "reverb", "extended", "hour", "hours", "1hr", "1hour", "loop", "looped",
+        })
+        altered_title_pattern = re.compile(
+            r"\b(?:ultra[ -]?slowed|super[ -]?slowed|slowed(?:[ -]+(?:and|\+|with)?[ -]*reverb)?|"
+            r"\d+\s*(?:hours?|hrs?|hr)\b|one[ -]?hour|1[ -]?hour|extended[ -]?mix|10[ -]?hours?|looped?)\b",
+            re.IGNORECASE,
+        )
+
+        def youtube_rank(track):
+            title = str(track.get("name") or "").casefold()
+            title_terms = set(re.findall(r"[a-z0-9]+", title))
+            duration_seconds = int(track.get("duration") or 0) // 1000
+            overlap = len(query_terms & title_terms)
+            exact_phrase = bool(clean_query) and clean_query.casefold() in title
+            altered_penalty = 0 if asks_for_variant or not altered_title_pattern.search(title) else 500
+            duration_penalty = 0 if asks_for_variant else (250 if duration_seconds > 900 else 0)
+            normal_length_bonus = 20 if 90 <= duration_seconds <= 600 else 0
+            return (int(exact_phrase) * 1000 + overlap * 30 + normal_length_bonus
+                    - altered_penalty - duration_penalty + int(track.get("score", 0)))
+
+        tracks.sort(key=youtube_rank, reverse=True)
+        return tracks[:20]
 
 
 class AudiusMusicProvider(BaseMusicProvider):
@@ -542,9 +629,22 @@ class MusicService:
                 else "Apple catalogue results include short previews where available."
             )
 
-        # Prefer results that match the requested words, and avoid choosing a
-        # sub-minute clip when the same search returned longer playable tracks.
+        # Rank the user's requested version, not just title overlap. The YouTube
+        # provider may return ultra-slowed/1-hour uploads before ordinary versions.
         query_tokens = set(re.findall(r"[a-z0-9]+", normalized.casefold()))
+        asks_for_variant = bool(query_tokens & {
+            "slowed", "ultra", "super", "speed", "sped", "nightcore", "remix",
+            "reverb", "mashup", "mash", "cover", "extended", "hour", "hours",
+            "1hr", "1hour", "loop", "looped",
+        })
+        altered_title_pattern = re.compile(
+            r"\b(?:ultra[ -]?slowed|super[ -]?slowed|slowed(?:[ -]+(?:and|\+|with)?[ -]*reverb)?|"
+            r"reverb|mash[ -]?up|remix|nightcore|sped[ -]?up|speed[ -]?up|cover version|"
+            r"\d+\s*(?:hours?|hrs?|hr)\b|one[ -]?hour|1[ -]?hour|extended[ -]?mix|10[ -]?hours?|looped?)\b",
+            re.IGNORECASE,
+        )
+        is_youtube_search = isinstance(self.provider, RealMusicProvider) and bool(YOUTUBE_API_KEY)
+
         def track_rank(track):
             title = str(track.get("name") or "").casefold()
             artist = str(track.get("artist") or "").casefold()
@@ -554,10 +654,19 @@ class MusicService:
             matched_artist = len(query_tokens & artist_tokens)
             duration = int(track.get("duration") or 0)
             exact_phrase = bool(normalized) and normalized.casefold() in title
+            altered = bool(altered_title_pattern.search(title))
+            prefer_requested_version = int(not is_youtube_search or asks_for_variant or not altered)
+            avoid_hour_loop = int(
+                not is_youtube_search or asks_for_variant or duration <= 900000
+            )
+            normal_song_bonus = int(is_youtube_search and 90000 <= duration <= 600000)
             return (
+                prefer_requested_version,
+                avoid_hour_loop,
                 int(exact_phrase),
                 matched_title,
                 matched_artist,
+                normal_song_bonus,
                 int(duration >= 60000),
                 duration,
             )
@@ -572,6 +681,18 @@ class MusicService:
                 tracks = tracks_at_least_one_minute
             if any(query_tokens & set(re.findall(r"[a-z0-9]+", str(track.get("name") or "").casefold())) for track in tracks):
                 notice = notice + " Short clips under 60 seconds are excluded when longer matches are available."
+
+            # For ordinary song requests, prefer standard versions over reverb,
+            # mashup, remix, nightcore, sped-up, cover, or loop uploads. Only
+            # apply this filter when clean alternatives actually exist.
+            if is_youtube_search and not asks_for_variant:
+                standard_tracks = [
+                    track for track in tracks
+                    if not altered_title_pattern.search(str(track.get("name") or ""))
+                    and int(track.get("duration") or 0) <= 900000
+                ]
+                if standard_tracks:
+                    tracks = standard_tracks
 
         return {
             "success": bool(tracks),
@@ -1160,6 +1281,8 @@ app = FastAPI(
     version="7.0.0"
 )
 
+app.include_router(auth_router)
+
 
 # =========================================================
 # DEVICE LIFECYCLE ROUTES
@@ -1227,6 +1350,28 @@ async def _lifespan_with_vision_cleanup(application):
 
 
 app.router.lifespan_context = _lifespan_with_vision_cleanup
+
+
+# =========================================================
+# APPLICATION AUTHENTICATION
+# =========================================================
+
+@app.middleware("http")
+async def require_account_session(request: FastAPIRequest, call_next):
+    path = request.url.path
+    public_prefixes = (
+        "/api/auth/login", "/api/auth/register", "/api/health",
+        "/api/device/", "/api/camera/", "/api/vision/",
+    )
+    is_public = path == "/" or any(path == prefix or path.startswith(prefix) for prefix in public_prefixes)
+    if path.startswith("/api/") and not is_public:
+        authorization = request.headers.get("authorization", "")
+        scheme, _, token = authorization.partition(" ")
+        user = authenticate_token(token) if scheme.lower() == "bearer" and token else None
+        if not user:
+            return JSONResponse(status_code=401, content={"detail": "Sign in to access Visionary Nexus."})
+        request.state.auth_user = user
+    return await call_next(request)
 
 
 # =========================================================
@@ -2534,7 +2679,7 @@ def classify_feature_intent(request: dict):
                     "content": """
 You are the natural-language understanding engine for Visionary Nexus smart glasses. Interpret what the user MEANS, not just exact command wording. People speak in fragments, polite requests, long sentences, and pronouns.
 Return JSON only:
-{"intent":"music|weather|navigation|vision|audio|dashboard|ai|notifications|device|settings|general","action":"play|pause|resume|next|previous|search|open|none","destination":"string","query":"string","polished_text":"string"}.
+{"intent":"music|weather|navigation|vision|audio|dashboard|ai|notifications|device|settings|general","action":"play|pause|resume|next|previous|search|open|capture|analyze|none","destination":"string","query":"string","polished_text":"string"}.
 
 Rules:
 - MUSIC: any request to listen to, put on, play, resume, find, or search for music, a song, artist, genre, or playlist. "I want to listen to phonk", "could you put my phonk on", and "play phonk" all mean music action=play, query="phonk". Strip filler like "some music", "a song", "please play", and generic words such as "playlist"/"song"/"music" when they are not part of the actual title. Preserve real titles. A question asking what a genre or artist means is general, not music playback.
@@ -2543,7 +2688,7 @@ Rules:
 - Use supplied context.active_tab as conversation context, not as an absolute rule. When a pronoun such as "it/that one" refers to the current playback and active_tab is music, choose music and the relevant playback action.
 - WEATHER: requests about current weather, rain, temperature, or forecasts. query is the requested location or subject.
 - NAVIGATION: only when the user wants directions or a route. Extract destination, never invent it.
-- VISION: asks what they are looking at, identify an object, or describe a scene.
+- VISION: when a user asks what is visible, identify an item, or describe the view, use action=analyze. When a user asks to take or click a picture, use action=capture. This is an AI interpretation, not a fixed phrase list.
 - AUDIO, DASHBOARD, NOTIFICATIONS, DEVICE, SETTINGS: choose when the user wants that feature opened or controlled.
 - AI: only when explicitly asking to open the AI assistant. Ordinary questions such as "what is 2 plus 2?" and "what is AI?" must be general.
 - GENERAL: calculations, explanations, and normal questions. Preserve the user's full meaning in polished_text.
@@ -2570,7 +2715,7 @@ Rules:
         )
         parsed = json.loads(completion.choices[0].message.content or "{}")
         allowed = {"music", "weather", "navigation", "vision", "audio", "dashboard", "ai", "notifications", "device", "settings", "general"}
-        actions = {"play", "pause", "resume", "next", "previous", "search", "open", "none"}
+        actions = {"play", "pause", "resume", "next", "previous", "search", "open", "capture", "analyze", "none"}
         intent = str(parsed.get("intent") or "general").lower()
         if intent not in allowed:
             intent = "general"
@@ -2633,6 +2778,51 @@ Rules:
             }
 
     return {"intent": "general", "action": "none", "destination": "", "query": message, "polished_text": message}
+
+
+@app.post("/api/voice/synthesize")
+def synthesize_voice_endpoint(request: dict):
+    """Generate speech audio server-side; provider credentials never reach the browser."""
+    text = str(request.get("text") or "").strip()
+    if not text:
+        return {"success": False, "engine": "unavailable", "message": "There is no text to speak."}
+    try:
+        try:
+            from backend.voice import synthesize as synthesize_audio
+        except ImportError:
+            from voice import synthesize as synthesize_audio
+        return synthesize_audio(text)
+    except Exception as error:
+        print("Voice synthesis endpoint failed:", type(error).__name__)
+        return {"success": False, "engine": "unavailable", "message": "Voice synthesis is temporarily unavailable."}
+
+
+@app.post("/api/voice/transcribe")
+async def transcribe_voice_audio_endpoint(
+    audio: UploadFile = File(...),
+    language: str = Form("auto"),
+):
+    """Transcribe recorded microphone audio with the configured cloud STT provider."""
+    payload = await audio.read()
+    if not payload:
+        return {"success": False, "engine": "unavailable", "text": "", "message": "No audio was uploaded."}
+    try:
+        try:
+            from backend.voice import transcribe as transcribe_audio
+        except ImportError:
+            from voice import transcribe as transcribe_audio
+        result = transcribe_audio(
+            payload,
+            filename=audio.filename or "dictation.webm",
+            content_type=audio.content_type or "audio/webm",
+        )
+        # Do not expose provider exceptions, request headers, or credentials to clients.
+        if not result.get("success"):
+            result["message"] = "Cloud transcription was unavailable. You can retry or use browser recognition."
+        result["language"] = language
+        return result
+    finally:
+        await audio.close()
 
 
 @app.post("/api/dictation/polish")

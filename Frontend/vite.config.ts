@@ -1,17 +1,36 @@
-import { defineConfig, type HtmlTagDescriptor, type Plugin } from 'vite'
+import { defineConfig, loadEnv, type HtmlTagDescriptor, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'node:path'
+import { readFileSync } from 'node:fs'
 
 import siteConfiguration from './.figma/make/site.json'
 
 
 // Vite config — https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
+  // Load local frontend settings explicitly so the preview token is available
+  // even in native config-loader/dev-server environments.
+  const frontendRoot = path.resolve(__dirname)
+  const env = loadEnv(mode, frontendRoot, '')
+  // Explicit fallback for environments using Vite's native config loader.
+  // Never print this value; it is a camera-access secret.
+  let localVisionToken = env.VITE_VISION_TOKEN ?? ''
+  try {
+    const localEnv = readFileSync(path.join(frontendRoot, '.env.local'), 'utf8')
+    const tokenLine = localEnv.split(/\r?\n/).find((line) => line.trim().startsWith('VITE_VISION_TOKEN='))
+    if (tokenLine) localVisionToken = tokenLine.split('=', 2)[1].trim().replace(/^['\"]|['\"]$/g, '')
+  } catch {
+    // A missing .env.local is fine for deployments that provide the variable elsewhere.
+  }
+  env.VITE_VISION_TOKEN = localVisionToken
   // .figma/make/deploy-preview passes `--mode development` for cached-preview builds.
   const emitSourcemaps = mode === 'development'
 
   return {
+    define: {
+      __VISION_STREAM_TOKEN__: JSON.stringify(env.VITE_VISION_TOKEN ?? ''),
+    },
     base: process.env.FIGMA_PUBLIC_URL ? `${process.env.FIGMA_PUBLIC_URL}/` : '/',
     build: {
       sourcemap: emitSourcemaps ? 'inline' : false,
@@ -45,6 +64,18 @@ react(),
         '/api': {
           target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',
           changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq, req) => {
+              // Keep the camera token on the dev server, not in the browser URL.
+              if (/vision\/(?:stream|frame)/.test(req.url || '')) {
+                const token = env.VITE_VISION_TOKEN
+                if (token) {
+                  const separator = proxyReq.path.includes('?') ? '&' : '?'
+                  proxyReq.path = `${proxyReq.path}${separator}token=${encodeURIComponent(token)}`
+                }
+              }
+            })
+          },
         },
       },
       watch: {
@@ -60,6 +91,18 @@ react(),
         '/api': {
           target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',
           changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq, req) => {
+              // Keep the camera token on the dev server, not in the browser URL.
+              if (/vision\/(?:stream|frame)/.test(req.url || '')) {
+                const token = env.VITE_VISION_TOKEN
+                if (token) {
+                  const separator = proxyReq.path.includes('?') ? '&' : '?'
+                  proxyReq.path = `${proxyReq.path}${separator}token=${encodeURIComponent(token)}`
+                }
+              }
+            })
+          },
         },
       },
     },

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { apiFetch, readJson } from '../services/api'
+import { apiFetch, readJson, setSession } from '../services/api'
 
 function Toggle({
   value,
@@ -150,7 +150,7 @@ function SettingRow({
   )
 }
 
-export default function Settings() {
+export default function Settings({ onSignOut }: { onSignOut?: () => void }) {
   // =========================
   // AI
   // =========================
@@ -202,9 +202,6 @@ export default function Settings() {
   const [wifiSSID] = useState('SG-Network-5G')
   const [autoConnect, setAutoConnect] = useState(true)
   const [cloudSync, setCloudSync] = useState(true)
-  const [apiEndpoint, setApiEndpoint] = useState(
-    'http://192.168.1.100:8000'
-  )
 
   // =========================
   // APPEARANCE
@@ -605,7 +602,7 @@ export default function Settings() {
           NETWORK & BACKEND
       ========================= */}
 
-      <Section title="Network & Backend API">
+      <Section title="Network">
 
         <SettingRow
           label="Network"
@@ -633,46 +630,6 @@ export default function Settings() {
           />
         </SettingRow>
 
-        <div className="flex flex-col gap-2">
-
-          <span className="font-mono text-xs text-white/60">
-            FastAPI Backend Endpoint
-          </span>
-
-          <input
-            value={apiEndpoint}
-            onChange={e => setApiEndpoint(e.target.value)}
-            className="w-full px-3 py-2 rounded-xl font-mono text-xs outline-none transition-all duration-200"
-            style={{
-              background: 'rgba(0,229,255,0.05)',
-              border: '1px solid rgba(0,229,255,0.2)',
-              color: '#00e5ff',
-            }}
-            onFocus={e => {
-              e.target.style.boxShadow =
-                '0 0 12px rgba(0,229,255,0.15)'
-            }}
-            onBlur={e => {
-              e.target.style.boxShadow = 'none'
-            }}
-          />
-
-          <span className="font-mono text-[10px] text-white/25">
-            Python FastAPI backend for ESP32-CAM integration
-          </span>
-
-        </div>
-
-        <button
-          className="w-full py-2.5 rounded-xl font-display text-[11px] tracking-widest transition-all duration-300 hover:scale-[1.01]"
-          style={{
-            background: 'rgba(0,229,255,0.08)',
-            border: '1px solid rgba(0,229,255,0.3)',
-            color: '#00e5ff',
-          }}
-        >
-          TEST CONNECTION
-        </button>
 
       </Section>
 
@@ -739,6 +696,21 @@ export default function Settings() {
           />
         </SettingRow>
 
+      </Section>
+
+      <Section title="Account">
+        <SettingRow label="Current session" description="Your Visionary Nexus account is signed in.">
+          <button
+            type="button"
+            onClick={() => {
+              setSession(null, null)
+              onSignOut?.()
+            }}
+            className="rounded-lg border border-red-400/30 bg-red-400/10 px-4 py-2 font-mono text-xs tracking-wider text-red-300 hover:bg-red-400/20"
+          >
+            SIGN OUT
+          </button>
+        </SettingRow>
       </Section>
 
       {/* =========================

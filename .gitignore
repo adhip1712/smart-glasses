@@ -12,14 +12,26 @@ __pycache__/
 *.db
 backend/.device_token_key
 backend/.device_token_pepper
+backend/.auth_secret_key
 .device_sim_state.json
 
 # Downloaded model weights (fetched on first run, never committed)
 *.pt
 *.onnx
 *.engine
+backend/models/*.bin
 ml/config/*.local.json
 
 # Ultralytics run artifacts
 runs/
 Ultralytics/
+
+# Local development dependencies and generated diagnostics
+node_modules/
+**/node_modules/
+*.log
+build/
+logs/
+
+# Device credentials must remain local
+firmware/device/secrets.h

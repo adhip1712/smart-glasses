@@ -466,8 +466,8 @@ export default function Device() {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-widest text-white">DEVICE STATUS</h1>
-          <div className="font-mono text-xs text-white/30 tracking-widest mt-0.5 uppercase">
-            Hardware Interface Layer · {devices.length} device{devices.length === 1 ? '' : 's'} known
+          <div className="text-sm text-white/45 mt-1">
+            Connect and manage your smart glasses.
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -506,19 +506,13 @@ export default function Device() {
         >
           REFRESH
         </button>
-        <span className="font-mono text-[10px] text-white/30">
-          refresh &amp; polling are read-only — they never create a device
-        </span>
       </div>
 
       {/* Registered devices */}
       <div className="glass rounded-2xl p-5">
         <div className="flex items-center justify-between mb-4">
           <span className="font-display text-xs tracking-widest text-white/50 uppercase">
-            Registered Devices
-          </span>
-          <span className="font-mono text-[10px] text-white/30">
-            {devices.length} record{devices.length === 1 ? '' : 's'} · one per physical unit
+            Your Glasses
           </span>
         </div>
 
@@ -536,25 +530,10 @@ export default function Device() {
                     <span className="font-display text-sm font-bold text-white tracking-wider">{device.name}</span>
                     <StatusPill status={device.status} />
                   </div>
-                  <div className="font-mono text-[10px] text-white/40 flex flex-wrap gap-x-4 gap-y-1">
-                    <span>ID <span style={{ color: '#00e5ff' }}>{device.device_id}</span></span>
-                    <span>HW {device.hardware_uid ?? 'not reported yet'}</span>
-                    <span>TOKEN ••••{device.device_token_last4 ?? '----'}</span>
-                  </div>
-                  <div className="font-mono text-[10px] text-white/30">
-                    {device.status_detail ?? '—'}
-                  </div>
+
                 </div>
 
-                <div className="font-mono text-[10px] text-white/40 grid grid-cols-2 gap-x-4 gap-y-1">
-                  <span>Wi-Fi</span><span className="text-white/70">{device.wifi_ssid ?? '—'}</span>
-                  <span>IP</span><span className="text-white/70">{device.ip_address ?? '—'}</span>
-                  <span>Heartbeat</span><span className="text-white/70">{humanAge(device.heartbeat_age_seconds)}</span>
-                  <span>Counts</span>
-                  <span className="text-white/70">
-                    reg {device.registration_count} · hb {device.heartbeat_count} · setup {device.setup_attempts}
-                  </span>
-                </div>
+
 
                 <div className="flex lg:flex-col gap-2">
                   {device.awaiting_approval && (
@@ -614,9 +593,6 @@ export default function Device() {
             <div>
               <div className="font-display text-xs tracking-widest text-white/60 uppercase">
                 Setup · {sessionDevice.device_id}
-              </div>
-              <div className="font-mono text-[10px] text-white/30 mt-1">
-                Device token ••••{sessionDevice.device_token_last4 ?? '----'} · reusing this identity on every retry
               </div>
             </div>
             <button onClick={closeWizard} className="font-mono text-[11px] text-white/40 hover:text-white/80">
@@ -718,9 +694,7 @@ export default function Device() {
 
               <div className="rounded-xl p-3 font-mono text-[10px] text-white/50 space-y-1"
                 style={{ border: '1px solid rgba(0,229,255,0.25)', background: 'rgba(0,229,255,0.05)' }}>
-                <div>hardware id <span style={{ color: '#00e5ff' }}>{sessionDevice.hardware_uid ?? 'not reported'}</span></div>
-                <div>device record <span className="text-white/80">{sessionDevice.device_id}</span></div>
-                <div>status <span className="text-white/80">{STATUS_LABELS[sessionDevice.status]}</span></div>
+                <div>Connection status <span className="text-white/80">{STATUS_LABELS[sessionDevice.status]}</span></div>
               </div>
 
               {formError && <div className="font-mono text-[10px] text-red-300">{formError}</div>}
@@ -773,16 +747,10 @@ export default function Device() {
                 </div>
               )}
 
-              <div className="font-mono text-[10px] text-white/30 space-y-1">
-                <div>wifi_configured: {sessionDevice.wifi_configured_at ?? 'pending'}</div>
-                <div>credentials_collected: {sessionDevice.credentials_collected_at ?? 'pending'}</div>
-                <div>registered: {sessionDevice.registered_at ?? 'pending'}</div>
-                <div>last_heartbeat: {sessionDevice.last_heartbeat_at ?? 'pending'}</div>
-              </div>
 
               {wizardStep === 'done' && (
                 <div className="font-mono text-xs" style={{ color: '#4ade80' }}>
-                  Device is ONLINE. Heartbeats are updating this same record.
+                  Your glasses are connected and ready.
                 </div>
               )}
 
@@ -802,18 +770,15 @@ export default function Device() {
                 >
                   RESTART SETUP
                 </button>
-                <span className="font-mono text-[10px] text-white/30">
-                  both keep device {sessionDevice.device_id}
-                </span>
               </div>
             </div>
           )}
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {/* Hardware components */}
-        <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="contents">
           {components.map((comp) => (
             <div
               key={comp.name}
@@ -831,56 +796,9 @@ export default function Device() {
               <div className="font-display text-sm font-bold text-white tracking-wider mb-0.5">{comp.name}</div>
               <div className="font-mono text-[10px] text-white/30 mb-4">{comp.model}</div>
 
-              <div className="space-y-2">
-                {comp.details.map(({ label, value }) => (
-                  <div key={label} className="flex justify-between items-center gap-2">
-                    <span className="font-mono text-[10px] text-white/30">{label}</span>
-                    <span className="font-mono text-[10px] text-white/70 truncate">{value}</span>
-                  </div>
-                ))}
-              </div>
             </div>
           ))}
 
-          {/* Live telemetry straight from the backend */}
-          <div className="md:col-span-3 glass rounded-2xl p-5">
-            <div className="font-display text-xs tracking-widest text-white/50 uppercase mb-4">
-              Live Device Telemetry
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[
-                { label: 'Heartbeats', value: String(primary?.heartbeat_count ?? 0), color: '#00e5ff' },
-                { label: 'Registrations', value: String(primary?.registration_count ?? 0), color: '#a855f7' },
-                { label: 'Setup attempts', value: String(primary?.setup_attempts ?? 0), color: '#4d9eff' },
-                { label: 'RSSI', value: rssi === null ? '—' : `${rssi} dBm`, color: '#4ade80' },
-              ].map(({ label, value, color }) => (
-                <div key={label} className="flex flex-col gap-1">
-                  <span className="font-mono text-[9px] text-white/30 uppercase tracking-widest">{label}</span>
-                  <span className="font-mono text-sm font-medium" style={{ color }}>{value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Lifecycle log */}
-        <div className="glass rounded-2xl p-5 flex flex-col">
-          <div className="flex items-center justify-between mb-4">
-            <span className="font-display text-xs tracking-widest text-white/50 uppercase">Lifecycle Log</span>
-            <div className="w-2 h-2 rounded-full animate-status-blink"
-              style={{ color: online ? '#4ade80' : '#f59e0b', background: online ? '#4ade80' : '#f59e0b' }} />
-          </div>
-          <div className="flex-1 space-y-1.5 overflow-auto font-mono text-[10px]" style={{ maxHeight: 380 }}>
-            {log.length === 0 && (
-              <div className="text-white/25 py-2">No events yet.</div>
-            )}
-            {log.map((entry, i) => (
-              <div key={i} className="flex gap-2 py-1 border-b border-white/5 last:border-0">
-                <span className="text-white/20 flex-shrink-0">{entry.time}</span>
-                <span style={{ color: logColors[entry.type] }}>{entry.message}</span>
-              </div>
-            ))}
-          </div>
         </div>
       </div>
     </div>

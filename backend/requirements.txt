@@ -7,3 +7,6 @@ PyJWT
 sqlalchemy
 cryptography
 groq
+httpx
+kokoro-onnx
+soundfile

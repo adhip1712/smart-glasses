@@ -3,6 +3,8 @@ import React, {
   useRef,
   useState,
 } from "react"
+import { speakText as speakReliableText } from "../services/speech"
+import { apiFetch } from "../services/api"
 
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -88,7 +90,7 @@ const API_URL =
 // COMPONENT
 // =========================================================
 
-const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({ onNavigate }) => {
+const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusic?: () => void }> = ({ onNavigate, onMusic }) => {
   // =======================================================
   // CHAT STATE
   // =======================================================
@@ -126,6 +128,24 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
   // =======================================================
 
   const inputRef = useRef<HTMLInputElement>(null)
+  const [speechStatus, setSpeechStatus] = useState("Voice not tested")
+
+  // Use short sequential utterances to prevent long answers being cut off by Chromium.
+  const speakResponse = (value: string) => {
+    setSpeechStatus("Starting voice...")
+    const started = speakReliableText(value, {
+      onStart: () => setSpeechStatus("Speaking"),
+      onEnd: () => setSpeechStatus("Voice ready"),
+      onError: (error) => {
+        setSpeechStatus(`Speech error: ${error}`)
+        console.error("Browser speech synthesis failed:", error)
+      },
+    })
+    if (!started) {
+      setSpeechStatus("Speech unavailable in this browser")
+      console.error("Speech output is unavailable in this browser.")
+    }
+  }
 
   const audioRef =
     useRef<HTMLAudioElement | null>(null)
@@ -134,6 +154,11 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
     useRef<any>(null)
 
   const youtubeApiReadyRef =
+    useRef<Promise<void> | null>(null)
+
+  // Resolve only when the IFrame API fires onReady. Callers must never try
+  // loadVideoById/playVideo against a player that is still initializing.
+  const youtubePlayerReadyPromiseRef =
     useRef<Promise<void> | null>(null)
 
   const youtubePlayerContainerId =
@@ -810,6 +835,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
         content,
       },
     ])
+    speakResponse(content)
   }
 
   // =======================================================
@@ -913,6 +939,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
     await loadYouTubeIframeApi()
 
     if (youtubePlayerRef.current) {
+      // Another call may have created the player but it may not be ready yet.
+      await youtubePlayerReadyPromiseRef.current
       return youtubePlayerRef.current
     }
 
@@ -921,9 +949,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
     if (!playerHost) {
       playerHost = document.createElement("div")
       playerHost.id = youtubePlayerContainerId
-      // YouTube's IFrame player requires a viewport of at least 200x200.
-      // A display:none / 0x0 player can stop playback shortly after starting.
-      // Keep it off-screen but valid-sized so audio can continue normally.
+      // Keep a valid 200x200 viewport; YouTube can reject hidden/zero-sized players.
       playerHost.style.position = "fixed"
       playerHost.style.left = "-10000px"
       playerHost.style.top = "0"
@@ -934,47 +960,86 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
       document.body.appendChild(playerHost)
     }
 
-    youtubePlayerRef.current = new (window as any).YT.Player(playerHost.id, {
-      height: "200",
-      width: "200",
-      playerVars: {
-        playsinline: 1,
-        rel: 0,
-      },
-      events: {
-        onReady: () => {
-          setYoutubeConfigured(true)
-          setYoutubeStatus("READY")
-          setYoutubePlayerReady(true)
-        },
-        onStateChange: (event: any) => {
-          const state = event.data
-          const YT = (window as any).YT
-
-          if (state === YT.PlayerState.PLAYING) {
-            setMusicPlaying(true)
-          } else if (
-            state === YT.PlayerState.PAUSED ||
-            state === YT.PlayerState.ENDED ||
-            state === YT.PlayerState.UNSTARTED
-          ) {
-            setMusicPlaying(false)
-          }
-        },
-        onError: () => {
-          setMusicPlaying(false)
-          setYoutubeStatus("ERROR")
-          setYoutubeError("The selected YouTube video cannot be played in the embedded player.")
-        },
-      },
+    let resolveReady!: () => void
+    let rejectReady!: (reason?: unknown) => void
+    let readyResolved = false
+    const readyPromise = new Promise<void>((resolve, reject) => {
+      resolveReady = resolve
+      rejectReady = reject
     })
+    youtubePlayerReadyPromiseRef.current = readyPromise
 
+    try {
+      youtubePlayerRef.current = new (window as any).YT.Player(playerHost.id, {
+        height: "200",
+        width: "200",
+        playerVars: {
+          playsinline: 1,
+          rel: 0,
+          origin: window.location.origin,
+          widget_referrer: window.location.href,
+        },
+        events: {
+          onReady: () => {
+            readyResolved = true
+            setYoutubeConfigured(true)
+            setYoutubeStatus("READY")
+            setYoutubePlayerReady(true)
+            resolveReady()
+          },
+          onStateChange: (event: any) => {
+            const state = event.data
+            const YT = (window as any).YT
+
+            if (state === YT.PlayerState.PLAYING) {
+              setMusicPlaying(true)
+            } else if (
+              state === YT.PlayerState.PAUSED ||
+              state === YT.PlayerState.ENDED ||
+              state === YT.PlayerState.UNSTARTED
+            ) {
+              setMusicPlaying(false)
+            }
+          },
+          onError: (event: any) => {
+            setMusicPlaying(false)
+            const code = Number(event?.data || 0)
+            const message =
+              code === 101 || code === 150
+                ? "This upload does not allow playback inside Visionary Nexus. Choose another version of the track."
+                : code === 100
+                  ? "This YouTube video is private, removed, or unavailable. Choose another result."
+                  : code === 153
+                    ? "YouTube requires a valid playback referrer. Open Visionary Nexus from its normal app address and try again."
+                    : code === 5
+                      ? "YouTube could not play this video in the embedded player. Try another result."
+                      : "This YouTube result could not be played. Choose another version."
+            setYoutubeStatus("READY")
+            setYoutubeError(message)
+            addLocalMessage(message)
+            console.warn("YouTube embedded playback rejected video:", code)
+            if (!readyResolved) {
+              rejectReady(new Error("YouTube player failed before becoming ready."))
+            }
+          },
+        },
+      })
+    } catch (error) {
+      rejectReady(error)
+      youtubePlayerRef.current = null
+      youtubePlayerReadyPromiseRef.current = null
+      throw error
+    }
+
+    await readyPromise
     return youtubePlayerRef.current
   }
 
   const checkYoutubeConfig = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/music/config`)
+      // This endpoint is protected by JWT auth. Use the shared API client so
+      // the current signed-in session is attached instead of an anonymous fetch.
+      const response = await apiFetch("/api/music/config")
       const data = await response.json()
 
       if (!response.ok || !data.success || !data.configured) {
@@ -1161,6 +1226,28 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
   }
 
   // =======================================================
+  // MUSIC HANDOFF
+  // =======================================================
+
+  // The dedicated Music component owns the visible YouTube player, saved
+  // playlists, queue, and alternate-upload recovery. Keep one playback engine.
+  const dispatchMusicCommand = (
+    action: "play" | "pause" | "resume" | "next" | "previous",
+    query = ""
+  ) => {
+    onMusic?.()
+    window.dispatchEvent(new CustomEvent("visionary:voice-command", {
+      detail: {
+        activeTab: "music",
+        intent: "music",
+        action,
+        query,
+        text: query ? `play ${query}` : action,
+      },
+    }))
+  }
+
+  // =======================================================
   // PLAY MUSIC SONG
   // =======================================================
 
@@ -1177,6 +1264,10 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
 
       return
     }
+
+    dispatchMusicCommand("play", cleanQuery)
+    addLocalMessage(`Opening Music and handing **${cleanQuery}** to the existing playlist-aware player.`)
+    return
 
     setIsThinking(true)
 
@@ -1289,6 +1380,9 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
   // =======================================================
 
   const pauseMusic = () => {
+    dispatchMusicCommand("pause")
+    addLocalMessage("Sent pause to the Music player.")
+    return
     const youtubePlayer = youtubePlayerRef.current
 
     if (youtubePlayer && typeof youtubePlayer.pauseVideo === "function") {
@@ -1331,6 +1425,9 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
   // =======================================================
 
   const resumeMusic = async () => {
+    dispatchMusicCommand("resume")
+    addLocalMessage("Sent resume to the Music player.")
+    return
     const youtubePlayer = youtubePlayerRef.current
 
     if (youtubePlayer && typeof youtubePlayer.playVideo === "function") {
@@ -1385,6 +1482,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
   // =======================================================
 
   const playNextTrack = async () => {
+    dispatchMusicCommand("next")
+    return
     const tracks =
       musicTracksRef.current
 
@@ -1455,6 +1554,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
   // =======================================================
 
   const playPreviousTrack = async () => {
+    dispatchMusicCommand("previous")
+    return
     const tracks =
       musicTracksRef.current
 
@@ -1697,6 +1798,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
         )
 
       if (playMatch) {
+        speakResponse(`Searching for ${playMatch[1].trim()} and starting playback.`)
         await playMusicSong(
           playMatch[1].trim()
         )
@@ -1710,6 +1812,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
         )
 
       if (musicSearchMatch) {
+        speakResponse(`Searching for ${musicSearchMatch[1].trim()}.`)
         await playMusicSong(
           musicSearchMatch[1].trim()
         )
@@ -1726,6 +1829,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
         normalized === "pause music" ||
         normalized === "stop music"
       ) {
+        speakResponse("Pausing music.")
         pauseMusic()
 
         return true
@@ -1740,6 +1844,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
         normalized === "resume music" ||
         normalized === "continue music"
       ) {
+        speakResponse("Resuming music.")
         await resumeMusic()
 
         return true
@@ -1756,6 +1861,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
         normalized === "skip" ||
         normalized === "skip song"
       ) {
+        speakResponse("Skipping to the next track.")
         await playNextTrack()
 
         return true
@@ -1771,6 +1877,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
         normalized === "previous track" ||
         normalized === "last song"
       ) {
+        speakResponse("Playing the previous track.")
         await playPreviousTrack()
 
         return true
@@ -2020,6 +2127,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
         ...previous,
         assistantMessage,
       ])
+      speakResponse(assistantMessage.content)
 
       if (
         data.conversation_title
@@ -2054,6 +2162,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
             "Sorry, I couldn't connect to the AI backend.",
         },
       ])
+      speakResponse("Sorry, I couldn't connect to the AI backend.")
     } finally {
       setIsThinking(false)
 
@@ -2187,6 +2296,20 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
         </div>
 
         <div className="flex items-center gap-3">
+
+          <div className="flex flex-col items-end gap-1">
+            <button
+              type="button"
+              onClick={() => speakResponse("Visionary Nexus voice responses are working. You should hear this through your laptop speakers.")}
+              className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-xs font-medium text-white hover:bg-cyan-400/20 transition-all"
+              aria-label="Test spoken responses"
+            >
+              Test Voice
+            </button>
+            <span className="max-w-40 text-[10px] opacity-60" aria-live="polite">
+              {speechStatus}
+            </span>
+          </div>
 
           {/* MUSIC STATUS */}
 
