@@ -1,0 +1,13 @@
+﻿{
+  "manifest_version": 3,
+  "name": "Visionary Nexus – YouTube Skip Helper",
+  "version": "1.0.0",
+  "description": "Clicks YouTube's own visible Skip Ads button when it becomes available.",
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*", "https://youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
