@@ -160,6 +160,12 @@ export default function App() {
     setPendingVoiceCommand('')
   }, [activeTab, pendingVoiceCommand])
 
+  // Spotify redirects back to this SPA route; mount the Music tab so
+  // SpotifyMusic can validate the OAuth state and exchange the PKCE code.
+  useEffect(() => {
+    if (window.location.pathname === '/spotify/callback') setActiveTab('music')
+  }, [])
+
   if (!authReady) {
     return <div className="min-h-screen bg-[#030b20]" aria-label="Restoring session" />
   }
@@ -328,11 +334,31 @@ export default function App() {
               .replace(/^\s*(?:please\s+)?(?:i want to listen to|i would like to listen to|let me listen to|can you play|could you play|please play|play|put on|listen to|start playing|find me|search for|resume|continue)\s*/i, '')
               .replace(/\b(?:please|for me|right now|on my music|music|song|track|playlist)\b/gi, ' ')
               .replace(/\s+/g, ' ').trim();
-            if (genericListen || pronounPlayback || /^(?:it|that|this|again|something|anything)$/i.test(query)) query = '';
+            if (genericListen || pronounPlayback || /^(?:it|that|this|again|something|anything)$/i.test(query)) query = ''
+            let resolvedQuery = query
+            let resolvedAction = action
+            // Let the AI intent model normalize the request and extract the song title.
+            // The local parse remains a fallback if the classifier is unavailable.
+            try {
+              const intentResponse = await apiFetch('/api/intent/classify', {
+                method: 'POST',
+                body: JSON.stringify({ message: raw, context: { active_tab: activeTab } }),
+              })
+              const musicIntent = await readJson<{ intent?: string; action?: string; query?: string }>(intentResponse)
+              if (intentResponse.ok && String(musicIntent?.intent || '').toLowerCase() === 'music') {
+                resolvedQuery = musicIntent.query?.trim() || resolvedQuery
+                const classifiedAction = String(musicIntent.action || '').toLowerCase()
+                if (['pause', 'resume', 'next', 'previous'].includes(classifiedAction)) {
+                  resolvedAction = classifiedAction as typeof action
+                }
+              }
+            } catch (error) {
+              console.warn('AI music intent classification unavailable; using the recognised command.', error)
+            };
             setActiveTab('music');
-            window.dispatchEvent(new CustomEvent('visionary:voice-command', {
-              detail: { activeTab: 'music', intent: 'music', action, query, text: raw },
-            }));
+            window.setTimeout(() => window.dispatchEvent(new CustomEvent('visionary:voice-command', {
+              detail: { activeTab: 'music', intent: 'music', action: resolvedAction, query: resolvedQuery, text: raw },
+            })), 250);
             return;
           }
           try {
@@ -354,7 +380,7 @@ export default function App() {
             const polished = intent?.polished_text?.trim() || spoken
             if (routedIntent === 'music') {
               setActiveTab('music')
-              window.dispatchEvent(new CustomEvent('visionary:voice-command', {
+              window.setTimeout(() => window.dispatchEvent(new CustomEvent('visionary:voice-command', {
                 detail: {
                   activeTab: 'music',
                   intent: 'music',
@@ -362,7 +388,7 @@ export default function App() {
                   query: intent?.query || '',
                   text: polished,
                 },
-              }))
+              })), 250)
               return
             }
             if (routedIntent === 'navigation' && intent?.destination) {
@@ -423,3 +449,4 @@ export default function App() {
     </div>
   )
 }
+

@@ -79,13 +79,6 @@ type NavigationResult = {
 // API
 // =========================================================
 
-// Relative by default: the Vite dev/preview server proxies /api to the
-// backend (see vite.config.ts), which also keeps the app usable when the
-// browser is not running inside the sandbox.
-const API_URL =
-  (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_API_URL ??
-  ""
-
 // =========================================================
 // COMPONENT
 // =========================================================
@@ -267,8 +260,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
     try {
       setTabsLoading(true)
 
-      const response = await fetch(
-        `${API_URL}/api/conversations`
+      const response = await apiFetch(
+        `/api/conversations`
       )
 
       if (!response.ok) {
@@ -336,8 +329,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
 
   const createNewTab = async () => {
     try {
-      const response = await fetch(
-        `${API_URL}/api/conversations`,
+      const response = await apiFetch(
+        `/api/conversations`,
         {
           method: "POST",
           headers: {
@@ -406,8 +399,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
     conversationId: number
   ) => {
     try {
-      const response = await fetch(
-        `${API_URL}/api/conversations/${conversationId}/messages`
+      const response = await apiFetch(
+        `/api/conversations/${conversationId}/messages`
       )
 
       if (!response.ok) {
@@ -479,8 +472,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
     conversationId: number
   ) => {
     try {
-      const response = await fetch(
-        `${API_URL}/api/conversations/${conversationId}`,
+      const response = await apiFetch(
+        `/api/conversations/${conversationId}`,
         {
           method: "DELETE",
         }
@@ -860,15 +853,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
     }
 
     audio.onended = () => {
-      const endedTrack = musicTracksRef.current[musicCurrentIndexRef.current]
       setMusicPlaying(false)
-
-      // iTunes only supplies a preview clip. Do not silently skip to another
-      // song when that preview ends, because it looks like playback was cut off.
-      if (endedTrack?.provider === "apple-itunes") {
-        addLocalMessage("The Apple catalogue preview has ended. Full-length playback is not available from this preview source.")
-        return
-      }
 
       void playNextTrack()
     }
@@ -894,9 +879,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
     if (youtubeStatus === "ERROR") {
       return youtubeError || "Music provider unavailable."
     }
-    if (musicProvider === "audius") return "Audius · free full-track streaming"
-    if (musicProvider === "apple-itunes") return "Apple catalogue · preview clips"
-    if (musicProvider === "navidrome") return "Navidrome · full-track library"
+    if (musicProvider === "spotify") return "Spotify · playback runs on your account"
     if (musicProvider === "mock") return "Demo music mode"
     if (musicProvider === "youtube" && youtubeStatus === "READY") return "YouTube playback ready"
     return "Music provider not configured"
@@ -1069,38 +1052,18 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
     tracks: MusicTrack[]
   ) => {
     if (!track.videoId) {
-      throw new Error("This YouTube result is not playable in the embedded player.")
-    }
-
-    const player = await ensureYoutubePlayer()
-
-    if (!player || !player.loadVideoById) {
-      throw new Error("YouTube playback is not available in this browser.")
+      throw new Error("This YouTube result does not have a video link.")
     }
 
     updateMusicQueue(tracks, index)
     setCurrentTrack(track)
     setMusicPlaying(false)
-
-    try {
-      player.loadVideoById(track.videoId)
-      addLocalMessage(
-        `Loading **${track.name || "Unknown track"}** by **${track.artist || "Unknown artist"}** on YouTube.`
-      )
-
-      window.setTimeout(() => {
-        try {
-          player.playVideo()
-        } catch {
-          // Let the browser handle gesture-based playback rules.
-        }
-      }, 200)
-    } catch (error) {
-      console.error("YOUTUBE PLAY FAILED:", error)
-      throw new Error("YouTube playback requires a user gesture. Click the page and try again.")
-    }
+    addLocalMessage(
+      `Opening **${track.name || "Unknown track"}** by **${track.artist || "Unknown artist"}** on YouTube.`
+    )
+    // Typed AI-tab music requests use the same direct YouTube navigation.
+    window.location.assign(`https://www.youtube.com/watch?v=${encodeURIComponent(track.videoId)}`)
   }
-
   // =======================================================
   // SEARCH MUSIC
   // =======================================================
@@ -1108,8 +1071,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
   const searchMusic = async (
     query: string
   ): Promise<MusicSearchResult> => {
-    const response = await fetch(
-      `${API_URL}/api/music/search`,
+    const response = await apiFetch(
+      `/api/music/search`,
       {
         method: "POST",
         headers: {
@@ -1233,18 +1196,23 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
   // playlists, queue, and alternate-upload recovery. Keep one playback engine.
   const dispatchMusicCommand = (
     action: "play" | "pause" | "resume" | "next" | "previous",
-    query = ""
+    query = "",
+    displayText = ""
   ) => {
+    // Route typed AI-tab commands into the already-mounted Music component.
+    // Do not reserve or open a blank browser tab during command handling.
     onMusic?.()
-    window.dispatchEvent(new CustomEvent("visionary:voice-command", {
-      detail: {
-        activeTab: "music",
-        intent: "music",
-        action,
-        query,
-        text: query ? `play ${query}` : action,
-      },
-    }))
+    window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("visionary:voice-command", {
+        detail: {
+          activeTab: "music",
+          intent: "music",
+          action,
+          query,
+          text: displayText || (query ? "play " + query : action),
+        },
+      }))
+    }, 250)
   }
 
   // =======================================================
@@ -1351,12 +1319,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
       }
 
       if (track.audio) {
-        const isPreview = track.provider === "apple-itunes"
-        await playTrack(track, 0, selectedTracks, isPreview ? "Playing preview:" : "Playing:")
-        if (isPreview) {
-          const fullTrackLink = track.url ? ` [Open the full track in Apple Music](${track.url})` : ""
-          addLocalMessage(`Apple's iTunes catalogue only provides a short preview here, so it may stop after about 20–30 seconds. Full-length playback requires a streaming source or subscription.${fullTrackLink}`)
-        }
+        await playTrack(track, 0, selectedTracks, "Playing:")
         return
       }
     } catch (error) {
@@ -1637,8 +1600,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
     setIsThinking(true)
 
     try {
-      const response = await fetch(
-        `${API_URL}/api/navigation/route`,
+      const response = await apiFetch(
+        `/api/navigation/route`,
         {
           method: "POST",
           headers: {
@@ -1695,8 +1658,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
     setIsThinking(true)
 
     try {
-      const response = await fetch(
-        `${API_URL}/api/weather/${encodeURIComponent(
+      const response = await apiFetch(
+        `/api/weather/${encodeURIComponent(
           city
         )}`
       )
@@ -1794,7 +1757,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
 
       const playMatch =
         normalized.match(
-          /^(?:play|play song|play the song|play music|listen to)\s+(.+)$/
+          /^(?:(?:please\s+)?(?:play|play song|play the song|play music|listen to|put on|start playing)|i want to listen to|can you play)\s+(.+)$/
         )
 
       if (playMatch) {
@@ -1973,7 +1936,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
 
     // Start intent detection/polishing while conversation routing runs. These
     // requests are independent, so awaiting them sequentially added avoidable latency.
-    const intentPromise = fetch(`${API_URL}/api/intent/classify`, {
+    const intentPromise = apiFetch(`/api/intent/classify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message }),
@@ -1996,7 +1959,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
 
     if (conversationId !== null) {
       try {
-        const routeResponse = await fetch(`${API_URL}/api/conversations/route`, {
+        const routeResponse = await apiFetch(`/api/conversations/route`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -2055,6 +2018,16 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
           return
         }
 
+        if (String(featureIntent?.intent || "").toLowerCase() === "music") {
+          const requested = String(featureIntent?.query || "").trim()
+          const fallbackQuery = message.replace(/^(?:(?:hey\s+)?(?:visionary|nexus)[,:-]?\s*)?(?:(?:please\s+)?(?:can you|could you|would you|will you|i want to|i would like to|let me)\s+)?(?:play|listen to|put on|start playing|find|search for)\s+/i, "").trim()
+          const query = requested || fallbackQuery
+          const classifiedAction = String(featureIntent?.action || "play").toLowerCase()
+          const action = (["pause", "resume", "next", "previous"].includes(classifiedAction) ? classifiedAction : "play") as "play" | "pause" | "resume" | "next" | "previous"
+          dispatchMusicCommand(action, query, message)
+          addLocalMessage(query ? "Opening Music and automatically searching for **" + query + "**." : "Opening Music.")
+          return
+        }
         // Reuse the intent-classification call to polish typed paragraphs and
         // voice transcripts without adding another slow AI request. Never
         // replace a long original with a suspiciously short result.
@@ -2085,8 +2058,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
     setIsThinking(true)
 
     try {
-      const response = await fetch(
-        `${API_URL}/api/ask`,
+      const response = await apiFetch(
+        `/api/ask`,
         {
           method: "POST",
           headers: {
@@ -2225,7 +2198,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
     // Route the assistant's microphone through the shared Dictation Studio so
     // both voice buttons use the same selected language, live interim preview,
     // silence handling, and multilingual proofreading path.
-    window.dispatchEvent(new CustomEvent("visionary:start-dictation"))
+    window.dispatchEvent(new CustomEvent("visionary:start-dictation", { detail: { submitToAI: true } }))
   }
 
   useEffect(() => {

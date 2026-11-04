@@ -101,11 +101,13 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
   const audioChunksRef = useRef<Blob[]>([])
   const wakeRecognitionRef = useRef<any>(null)
   const wakeListeningRef = useRef(false)
+  const wakeArmedRef = useRef(false)
   const wakeRestartRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wakeWordRef = useRef('Vision')
   const wakeSensitivityRef = useRef('high')
   const toggleRef = useRef<(() => void) | null>(null)
   const targetRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null)
+  const submitToAIRef = useRef(false)
   const lastTextTargetRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null)
   const transcriptRef = useRef('')
   const interimRef = useRef('')
@@ -156,9 +158,12 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
   }, [])
 
   useEffect(() => {
-    const startDictationFromAssistant = () => {
+    const startDictationFromAssistant = (event: Event) => {
+      const submitToAI = Boolean((event as CustomEvent<{ submitToAI?: boolean }>).detail?.submitToAI)
+      submitToAIRef.current = submitToAI
       const remembered = lastTextTargetRef.current
-      if (remembered?.isConnected) targetRef.current = remembered
+      if (submitToAI) targetRef.current = null
+      else if (remembered?.isConnected) targetRef.current = remembered
       toggleRef.current?.()
     }
     window.addEventListener('visionary:start-dictation', startDictationFromAssistant)
@@ -188,7 +193,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
     }
     const target = targetRef.current
     if (target && target.isConnected) {
-      setStatus('Polishing dictation with AI…')
+      setStatus('Polishing dictation with AI...')
       let transcript = selectedLanguage.startsWith('en-') ? correctDictation(raw) : raw
       try {
         const response = await apiFetch('/api/dictation/polish', {
@@ -211,7 +216,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
       setStatus('Dictation inserted. Review it before submitting.')
     } else {
       onCommand(raw)
-      setStatus('Understanding your request…')
+      setStatus('Understanding your request...')
     }
   }
 
@@ -231,33 +236,56 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
       setStatus('Wake-word listening needs a supported browser such as Chrome.')
       return
     }
+    // Do not open a tab while idle wake-word listening starts or restarts.
     if (listening) {
       try { recognitionRef.current?.stop() } catch { /* already stopped */ }
       setListening(false)
     }
     wakeListeningRef.current = true
     setWakeListening(true)
-    setStatus(`Listening for “${wakeWordRef.current}”. Keep Visionary Nexus open.`)
+    setStatus(`Listening for "${wakeWordRef.current}". Keep Visionary Nexus open.`)
     const recognition = new SpeechRecognition()
     recognition.lang = languageRef.current
     recognition.continuous = true
     recognition.interimResults = true
     wakeRecognitionRef.current = recognition
     recognition.onresult = (event: any) => {
+      const last = event.results[event.results.length - 1]
       const transcript = Array.from(event.results as any[]).map(result => String(result?.[0]?.transcript || '')).join(' ')
+      const normalized = normalizeWakeText(transcript)
+      if (wakeArmedRef.current && last?.isFinal) {
+        const command = normalizeWakeText(String(last?.[0]?.transcript || '')).trim()
+        if (command.length > 1) {
+          wakeArmedRef.current = false
+          setStatus(`Wake word detected. Running: ${command}`)
+          try { recognition.stop() } catch { /* auto-restart after onend */ }
+          onCommand(command)
+          return
+        }
+      }
       const at = findWakePhrase(transcript, wakeWordRef.current, wakeSensitivityRef.current)
       if (at < 0) return
-      const normalized = normalizeWakeText(transcript)
       const phrase = normalizeWakeText(wakeWordRef.current)
-      const exactAt = normalized.indexOf(phrase, at)
-      const command = exactAt >= 0 ? normalized.slice(exactAt + phrase.length).trim() : normalized.slice(at).split(' ').slice(phrase.split(' ').length).join(' ').trim()
-      const last = event.results[event.results.length - 1]
+      const words = normalized.split(' ')
+      const phraseWords = phrase.split(' ')
+      let phraseIndex = -1
+      for (let index = 0; index <= words.length - phraseWords.length; index += 1) {
+        if (phraseWords.every((part, offset) => words[index + offset] === part || (wakeSensitivityRef.current === 'high' && editDistanceOne(words[index + offset] || '', part)))) {
+          phraseIndex = index
+          break
+        }
+      }
+      const command = phraseIndex >= 0 ? words.slice(phraseIndex + phraseWords.length).join(' ').trim() : ''
       if (command.length > 1 && last?.isFinal) {
+        wakeArmedRef.current = false
         setStatus(`Wake word detected. Running: ${command}`)
         try { recognition.stop() } catch { /* auto-restart after onend */ }
         onCommand(command)
+      } else if (last?.isFinal) {
+        wakeArmedRef.current = true
+        setStatus('Wake word detected. Now say your command.')
       } else {
-        setStatus(`Wake word detected. Say your command…`)
+        setStatus('Wake word detected. Say your command…')
       }
     }
     recognition.onerror = (event: any) => {
@@ -280,9 +308,18 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
   }
 
   const toggleWakeListening = () => {
-    if (wakeListeningRef.current) stopWakeListening()
-    else startWakeListening()
+    const shouldEnable = !wakeListeningRef.current
+    try { localStorage.setItem('visionary-wake-enabled', shouldEnable ? 'true' : 'false') } catch { /* storage may be unavailable */ }
+    if (shouldEnable) startWakeListening()
+    else stopWakeListening()
   }
+
+  // Restore the user's wake-word preference after a page refresh.
+  useEffect(() => {
+    let enabled = false
+    try { enabled = localStorage.getItem('visionary-wake-enabled') === 'true' } catch { /* storage may be unavailable */ }
+    if (enabled) startWakeListening()
+  }, [])
 
   const toggle = () => {
     stopSpeaking()
@@ -291,24 +328,30 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
       const recorder = mediaRecorderRef.current
       if (recorder && recorder.state !== 'inactive') {
-        setStatus('Transcribing your recording…')
+        setStatus('Transcribing your recording...')
         recorder.stop()
       } else {
         try { recognitionRef.current?.stop() } catch { /* recognition may already have stopped */ }
         setListening(false)
-        setStatus('Finishing your dictation…')
+        setStatus('Finishing your dictation...')
       }
       return
     }
 
     const active = document.activeElement
     const activeTextTarget = (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && isTextEntry(active)
-    targetRef.current = activeTextTarget
-      ? active as HTMLInputElement | HTMLTextAreaElement
-      : lastTextTargetRef.current?.isConnected
-        ? lastTextTargetRef.current
-        : null
+    if (submitToAIRef.current) {
+      targetRef.current = null
+      submitToAIRef.current = false
+    } else {
+      targetRef.current = activeTextTarget
+        ? active as HTMLInputElement | HTMLTextAreaElement
+        : lastTextTargetRef.current?.isConnected
+          ? lastTextTargetRef.current
+          : null
+    }
 
+    
     // Prefer server-side Whisper for text-field dictation. Commands and wake-word
     // listening still use browser recognition to avoid changing their behavior.
     if (targetRef.current && navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined') {
@@ -331,7 +374,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
             mediaRecorderRef.current = null
             setListening(false)
             if (!blob.size) { setStatus('No audio was captured. Try again.'); return }
-            setStatus('Transcribing with Whisper…')
+            setStatus('Transcribing with Whisper...')
             const form = new FormData()
             form.append('audio', blob, blob.type.includes('mp4') ? 'dictation.m4a' : 'dictation.webm')
             form.append('language', selectedLanguage)
@@ -339,12 +382,12 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
               const response = await apiFetch('/api/voice/transcribe', { method: 'POST', body: form })
               const result = await readJson<{ success?: boolean; text?: string; engine?: string; message?: string }>(response)
               if (response.ok && result?.success && result.text?.trim()) {
-                setStatus(`Transcribed with ${result.engine || 'cloud speech recognition'}; polishing…`)
+                setStatus(`Transcribed with ${result.engine || 'cloud speech recognition'}; polishing...`)
                 await processTranscript(result.text, selectedLanguage)
               } else {
                 const BrowserRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
                 if (BrowserRecognition) {
-                  setStatus('Whisper unavailable; falling back to browser recognition…')
+                  setStatus('Whisper unavailable; falling back to browser recognition...')
                   const fallback = new BrowserRecognition()
                   fallback.lang = selectedLanguage
                   fallback.continuous = false
@@ -363,7 +406,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
               console.warn('Cloud transcription request failed.', error)
               const BrowserRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
               if (BrowserRecognition) {
-                setStatus('Cloud transcription failed; falling back to browser recognition…')
+                setStatus('Cloud transcription failed; falling back to browser recognition...')
                 const fallback = new BrowserRecognition()
                 fallback.lang = selectedLanguage
                 fallback.continuous = false
@@ -381,7 +424,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
           }
           recorder.start(250)
           setListening(true)
-          setStatus('Recording dictation for Whisper… tap Stop when finished.')
+          setStatus('Recording dictation for Whisper... tap Stop when finished.')
         } catch (error) {
           console.warn('Microphone recording unavailable.', error)
           setStatus('Microphone access failed. Allow microphone access and try again.')
@@ -408,7 +451,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
 
     recognition.onstart = () => {
       setListening(true)
-      setStatus(targetRef.current ? 'Listening — speak naturally; pauses are okay.' : 'Listening for your request…')
+      setStatus(targetRef.current ? 'Listening - speak naturally; pauses are okay.' : 'Listening for your request...')
     }
 
     recognition.onresult = (event: any) => {
@@ -428,7 +471,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
       silenceTimerRef.current = setTimeout(() => {
         try { recognition.stop() } catch { /* recognition may already have stopped */ }
       }, 2600)
-      setStatus(targetRef.current ? 'Capturing dictation…' : 'Listening for your request…')
+      setStatus(targetRef.current ? 'Capturing dictation...' : 'Listening for your request...')
     }
 
     recognition.onerror = (event: any) => {
@@ -483,10 +526,11 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
           {wakeListening ? 'Wake On' : 'Wake'}
         </button>
         <button type="button" onClick={toggle} aria-label={listening ? 'Stop voice input' : 'Start voice command or dictation'} title="Voice command / dictation" className={listening ? 'flex items-center gap-2 rounded-full border border-red-400/50 bg-red-500/20 px-4 py-3 text-sm font-medium text-red-100' : 'flex items-center gap-2 rounded-full border border-cyan-400/40 bg-slate-950 px-4 py-3 text-sm font-medium text-cyan-100 hover:bg-cyan-400/10'}>
-          <span aria-hidden="true">{listening ? '■' : '🎙'}</span>
+          <span aria-hidden="true">{listening ? 'Stop' : 'Mic'}</span>
           {listening ? 'Stop' : 'Voice'}
         </button>
       </div>
     </div>
   )
 }
+
