@@ -148,7 +148,7 @@ export function youtubeSearchUrl(query: string) {
 export function youtubePlaybackUrl(query: string, tracks: YouTubeCandidate[]) {
   const track = tracks.find(candidate => isValidYouTubeVideoId(candidate.id))
   return track
-    ? `https://www.youtube.com/watch?v=${track.id}`
+    ? `https://www.youtube.com/watch?v=${track.id}&autoplay=1`
     : youtubeSearchUrl(query)
 }
 
@@ -186,6 +186,7 @@ export interface MusicCommandEventDetail {
   commandId?: number
   activeTab?: string
   provider?: string
+  source?: 'voice' | 'assistant'
   intent?: string
   action?: MusicCommandAction
   query?: string
@@ -199,7 +200,7 @@ let pendingMusicCommand: MusicCommandEventDetail | null = null
 export function publishMusicCommand(detail: Omit<MusicCommandEventDetail, 'commandId'>) {
   const command: MusicCommandEventDetail = { ...detail, commandId: ++musicCommandSequence }
   pendingMusicCommand = command
-  window.dispatchEvent(new CustomEvent('visionary:voice-command', { detail: command }))
+  window.dispatchEvent(new CustomEvent('visionary:youtube-command', { detail: command }))
   return command
 }
 
@@ -211,4 +212,64 @@ export function consumePendingMusicCommand() {
 
 export function clearPendingMusicCommand(commandId: number) {
   if (pendingMusicCommand?.commandId === commandId) pendingMusicCommand = null
+}
+
+export const YOUTUBE_WINDOW_NAME = 'visionary-nexus-youtube'
+
+let youtubeWindowRef: Window | null = null
+let lastYoutubeWindowUrl = ''
+let lastYoutubeSearchKey = ''
+
+function isYouTubeWindowOpen() {
+  try {
+    return Boolean(youtubeWindowRef && !youtubeWindowRef.closed)
+  } catch {
+    youtubeWindowRef = null
+    return false
+  }
+}
+
+export function openNamedYouTubeWindow(url: string) {
+  if (isYouTubeWindowOpen()) {
+    if (url !== lastYoutubeWindowUrl) {
+      try {
+        youtubeWindowRef!.location.href = url
+        lastYoutubeWindowUrl = url
+      } catch {
+        youtubeWindowRef = null
+        return false
+      }
+    }
+    return true
+  }
+
+  try {
+    youtubeWindowRef = window.open(url, YOUTUBE_WINDOW_NAME)
+    if (!youtubeWindowRef) return false
+    lastYoutubeWindowUrl = url
+    return true
+  } catch {
+    youtubeWindowRef = null
+    return false
+  }
+}
+
+export function beginNamedYouTubeSearch(query: string) {
+  const searchKey = query.toLocaleLowerCase().trim()
+  if (searchKey && searchKey === lastYoutubeSearchKey && isYouTubeWindowOpen()) return true
+  lastYoutubeSearchKey = searchKey
+  return openNamedYouTubeWindow(youtubeSearchUrl(query))
+}
+
+export function navigateNamedYouTubeWindow(url: string) {
+  if (!isYouTubeWindowOpen()) return false
+  if (url === lastYoutubeWindowUrl) return true
+  try {
+    youtubeWindowRef!.location.href = url
+    lastYoutubeWindowUrl = url
+    return true
+  } catch {
+    youtubeWindowRef = null
+    return false
+  }
 }

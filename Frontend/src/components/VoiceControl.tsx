@@ -368,6 +368,22 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
     }
   }, [])
 
+  useEffect(() => {
+    const resumeAfterTabSwitch = () => {
+      if (
+        document.visibilityState === 'visible' &&
+        wakeListeningRef.current &&
+        !wakeRecognitionRef.current &&
+        !wakeStartingRef.current &&
+        !wakeRestartRef.current
+      ) {
+        startWakeListeningRef.current?.()
+      }
+    }
+    document.addEventListener('visibilitychange', resumeAfterTabSwitch)
+    return () => document.removeEventListener('visibilitychange', resumeAfterTabSwitch)
+  }, [])
+
   const toggle = () => {
     stopSpeaking()
     if (wakeListeningRef.current) stopWakeListening()

@@ -11,7 +11,7 @@ import Settings from './components/Settings'
 import { apiFetch, readJson } from './services/api'
 import VoiceControl from './components/VoiceControl'
 import { speakText } from './services/speech'
-import { parseMusicCommand, publishMusicCommand } from './services/voiceMusic'
+import { parseMusicCommand, publishMusicCommand, type MusicCommandAction } from './services/voiceMusic'
 import IntroSplash from './components/IntroSplash'
 import AuthScreen from './components/AuthScreen'
 import { getToken, getStoredUser, setSession } from './services/api'
@@ -316,6 +316,7 @@ export default function App() {
             publishMusicCommand({
               activeTab: 'music',
               provider: 'youtube',
+              source: 'voice',
               intent: 'music',
               action: musicCommand.action,
               query: musicCommand.query,
@@ -343,8 +344,10 @@ export default function App() {
             if (routedIntent === 'music') {
               setActiveTab('music')
               publishMusicCommand({
-                activeTab: 'music', provider: 'youtube', intent: 'music',
-                action: (intent?.action as any) || 'play',
+                activeTab: 'music', provider: 'youtube', source: 'voice', intent: 'music',
+                action: (['play', 'search', 'open', 'pause', 'stop', 'resume', 'next', 'previous'].includes(String(intent?.action))
+                  ? intent?.action as MusicCommandAction
+                  : 'play'),
                 query: intent?.query || '', text: polished,
               })
               return

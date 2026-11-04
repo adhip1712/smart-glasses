@@ -1198,12 +1198,14 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
   const dispatchMusicCommand = (
     action: MusicCommandAction,
     query = "",
-    displayText = ""
+    displayText = "",
+    source: "voice" | "assistant" = "assistant"
   ) => {
     onMusic?.()
     publishMusicCommand({
       activeTab: "music",
       provider: "youtube",
+      source,
       intent: "music",
       action,
       query,
@@ -1828,7 +1830,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
   // =======================================================
 
   const sendMessage = async (
-    customMessage?: string
+    customMessage?: string,
+    source: "voice" | "assistant" = "assistant"
   ) => {
     let message = (
       customMessage !== undefined
@@ -1845,10 +1848,24 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
     if (isTabCommand) return
 
     const localMusicCommand = parseMusicCommand(message)
+    if (localMusicCommand) {
+      const userMessage: Message = {
+        id: Date.now() + Math.random(),
+        role: "user",
+        content: message,
+      }
+      setMessages(previous => [...previous, userMessage])
+      setInput("")
+      dispatchMusicCommand(localMusicCommand.action, localMusicCommand.query, message, source)
+      addLocalMessage(localMusicCommand.query
+        ? `Searching YouTube for **${localMusicCommand.query}**.`
+        : "YouTube Music is ready.")
+      return
+    }
 
     // Start intent detection/polishing while conversation routing runs. These
     // requests are independent, so awaiting them sequentially added avoidable latency.
-    const intentPromise = localMusicCommand ? Promise.resolve(null) : apiFetch(`/api/intent/classify`, {
+    const intentPromise = apiFetch(`/api/intent/classify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message }),
@@ -1918,14 +1935,6 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
 
     setMessages(previous => [...previous, userMessage])
     setInput("")
-
-    if (localMusicCommand) {
-      dispatchMusicCommand(localMusicCommand.action, localMusicCommand.query, message)
-      addLocalMessage(localMusicCommand.query
-        ? `Opening Music and automatically searching YouTube for **${localMusicCommand.query}**.`
-        : "Opening Music.")
-      return
-    }
 
     // Ask the AI to decide whether this message is a navigation action or
     // ordinary conversation. Place mentions alone must not switch screens.
@@ -2069,7 +2078,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
       return
     }
 
-    await sendMessage(message)
+    await sendMessage(message, "voice")
   }
 
   const handleVoiceCommand = async (

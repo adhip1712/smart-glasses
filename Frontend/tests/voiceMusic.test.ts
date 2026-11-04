@@ -5,6 +5,7 @@ import {
   findSavedPlaylist,
   parseMusicCommand,
   resolveYouTubePlayback,
+  openNamedYouTubeWindow,
   youtubeSearchUrl,
   publishMusicCommand,
   consumePendingMusicCommand,
@@ -73,7 +74,7 @@ test('YouTube search success resolves to a valid watch page', async () => {
     async () => [],
   )
   assert.equal(resolution.source, 'youtube-api')
-  assert.equal(resolution.url, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+  assert.equal(resolution.url, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&autoplay=1')
 })
 
 test('quota exhaustion uses alternative YouTube results before navigating', async () => {
@@ -89,7 +90,7 @@ test('quota exhaustion uses alternative YouTube results before navigating', asyn
   )
   assert.equal(fallbackCalls, 1)
   assert.equal(resolution.source, 'alternative')
-  assert.equal(resolution.url, 'https://www.youtube.com/watch?v=M7lc1UVf-VE')
+  assert.equal(resolution.url, 'https://www.youtube.com/watch?v=M7lc1UVf-VE&autoplay=1')
 })
 
 test('invalid or missing video IDs never become watch URLs', async () => {
@@ -126,13 +127,57 @@ test('music command handoff stays queued until the music listener consumes it', 
       activeTab: 'music', provider: 'youtube', intent: 'music',
       action: 'play', query: 'phonk', text: 'play phonk',
     })
-    assert.equal(dispatched.type, 'visionary:voice-command')
+    assert.equal(dispatched.type, 'visionary:youtube-command')
     assert.equal(dispatched.detail.commandId, command.commandId)
     assert.deepEqual(consumePendingMusicCommand(), command)
     assert.equal(consumePendingMusicCommand(), null)
   } finally {
     if (originalWindow === undefined) delete (globalThis as any).window
     else Object.defineProperty(globalThis, 'window', { configurable: true, value: originalWindow })
+  }
+})
+
+test('named YouTube window is reused and its URL is updated in place', () => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const openedUrls: string[] = []
+  const openedTargets: string[] = []
+  const tab = { closed: false, location: { href: '' } }
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      open: (url: string, target: string) => {
+        openedUrls.push(url)
+        openedTargets.push(target)
+        return tab
+      },
+    },
+  })
+
+  try {
+    assert.equal(openNamedYouTubeWindow(youtubeSearchUrl('Montagem Elder')), true)
+    assert.equal(openNamedYouTubeWindow('https://www.youtube.com/watch?v=dQw4w9WgXcQ'), true)
+    assert.equal(openNamedYouTubeWindow('https://www.youtube.com/watch?v=dQw4w9WgXcQ'), true)
+    assert.equal(openedUrls.length, 1)
+    assert.equal(openedTargets[0], 'visionary-nexus-youtube')
+    assert.equal(tab.location.href, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+  } finally {
+    tab.closed = true
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
+})
+
+test('a blocked YouTube popup reports failure for the UI fallback', () => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: { open: () => null },
+  })
+  try {
+    assert.equal(openNamedYouTubeWindow(youtubeSearchUrl('phonk')), false)
+  } finally {
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
   }
 })
 

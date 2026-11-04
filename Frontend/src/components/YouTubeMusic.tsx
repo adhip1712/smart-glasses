@@ -1,22 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { apiFetch, readJson } from '../services/api'
+import { speakText } from '../services/speech'
 import {
+  beginNamedYouTubeSearch,
   findSavedPlaylist,
   isValidYouTubeVideoId,
+  navigateNamedYouTubeWindow,
+  openNamedYouTubeWindow,
   resolveYouTubePlayback,
+  YOUTUBE_WINDOW_NAME,
   youtubePlaybackUrl,
   youtubeSearchUrl,
   clearPendingMusicCommand,
   consumePendingMusicCommand,
   type MusicCommandEventDetail,
 } from '../services/voiceMusic'
-
-declare global {
-  interface Window {
-    YT?: any
-    onYouTubeIframeAPIReady?: () => void
-  }
-}
 
 type YouTubeTrack = {
   id: string
@@ -61,6 +59,7 @@ export default function YouTubeMusic({ onSpotify }: Props) {
   const [results, setResults] = useState<YouTubeTrack[]>([])
   const [current, setCurrent] = useState<YouTubeTrack | null>(null)
   const [message, setMessage] = useState('Search, build queues and manage playlists in Visionary Nexus.')
+  const [blockedYoutubeUrl, setBlockedYoutubeUrl] = useState('')
   const [busy, setBusy] = useState(false)
   const [playlists, setPlaylists] = useState<SavedPlaylist[]>([])
   const [allSavedPlaylists, setAllSavedPlaylists] = useState<StoredPlaylist[]>([])
@@ -73,10 +72,24 @@ export default function YouTubeMusic({ onSpotify }: Props) {
   const [repeatPlaylist, setRepeatPlaylist] = useState(false)
   const [shuffleQueue, setShuffleQueue] = useState(false)
   const [youtubeAccount, setYoutubeAccount] = useState<{ configured: boolean; connected: boolean; channel?: string }>({ configured: false, connected: false })
-  const playerHostRef = useRef<HTMLDivElement | null>(null)
-  const playerRef = useRef<any>(null)
   const queueRef = useRef<YouTubeTrack[]>([])
   const historyRef = useRef<YouTubeTrack[]>([])
+  const handledCommandIdsRef = useRef(new Set<number>())
+
+  const navigateResult = (url: string) => {
+    const navigated = navigateNamedYouTubeWindow(url)
+    if (navigated) {
+      setBlockedYoutubeUrl('')
+      return true
+    }
+    setBlockedYoutubeUrl(url)
+    setMessage('Your browser blocked the YouTube tab. Select Open YouTube to continue.')
+    return false
+  }
+
+  const announceVoicePlayback = (source: MusicCommandEventDetail['source'], title: string) => {
+    if (source === 'voice') speakText(`Playing ${title}.`)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -122,7 +135,7 @@ export default function YouTubeMusic({ onSpotify }: Props) {
   }
 
   // Keep the request on YouTube if its primary API quota is unavailable.
-  const searchYouTubeAlternatives = async (term: string, autoplay = false) => {
+  const searchYouTubeAlternatives = async (term: string, autoplay = false, voiceCommand = false) => {
     setMessage('YouTube API quota exhausted. Trying Piped, then Invidious...')
     try {
       const response = await apiFetch('/api/music/youtube-alternative-search?q=' + encodeURIComponent(term) + '&limit=18')
@@ -135,8 +148,11 @@ export default function YouTubeMusic({ onSpotify }: Props) {
           const preferred = bestFullSongMatch(term, found)
           const ordered = preferred ? [preferred, ...found.filter(track => track.id !== preferred.id)] : found
           const resolved = await resolveYouTubePlayback(term, ordered, false, async () => [])
-          if (resolved.selected) playTrack(resolved.selected, found)
-          else window.location.assign(resolved.url)
+          if (resolved.selected) {
+            if (playTrack(resolved.selected, found) && voiceCommand) {
+              announceVoicePlayback('voice', term)
+            }
+          } else navigateResult(resolved.url)
         }
         return
       }
@@ -146,11 +162,12 @@ export default function YouTubeMusic({ onSpotify }: Props) {
     setResults([])
     setMessage('YouTube catalogue search is unavailable. Opening YouTube search directly...')
     const resolved = await resolveYouTubePlayback(term, [], true, async () => [])
-    window.location.assign(resolved.url)
+    navigateResult(resolved.url)
   }
 
   const playTrack = (track: YouTubeTrack, sequence?: YouTubeTrack[]) => {
     if (!track) return
+    setCurrent(track)
     setFallbackMessage('')
     if (sequence) setActivePlaylistName('')
     if (current?.id && current.id !== track.id) historyRef.current.push(current)
@@ -161,16 +178,32 @@ export default function YouTubeMusic({ onSpotify }: Props) {
     }
 
     const query = [track.name, track.artist].filter(Boolean).join(' - ') || track.name
-    // Never construct a watch URL from malformed or missing video IDs.
-    window.location.assign(youtubePlaybackUrl(query, [track]))
+    const url = youtubePlaybackUrl(query, [track])
+    const opened = openNamedYouTubeWindow(url)
+    if (opened) {
+      setBlockedYoutubeUrl('')
+      setMessage("YouTube opened. If playback does not start, use YouTube's Play control; ads are handled by YouTube.")
+    }
+    else {
+      setBlockedYoutubeUrl(url)
+      setMessage('Your browser blocked the YouTube tab. Select Open YouTube to continue.')
+    }
+    return opened
   }
 
-  const search = async (term: string, autoplay = false, displayText = "") => {
+  const search = async (term: string, autoplay = false, displayText = "", voiceCommand = false) => {
     const clean = term.trim()
     if (!clean) return
+    const tabOpened = !autoplay || beginNamedYouTubeSearch(clean)
+    if (!tabOpened) {
+      setBlockedYoutubeUrl(youtubeSearchUrl(clean))
+      setMessage('Your browser blocked the YouTube tab. Select Open YouTube to continue.')
+    } else if (autoplay) {
+      setBlockedYoutubeUrl('')
+    }
     setQuery(displayText.trim() || clean)
     setBusy(true)
-    setMessage('Searching YouTube...')
+    if (tabOpened) setMessage('Searching YouTube...')
     try {
       const response = await apiFetch(`/api/music/youtube-search?q=${encodeURIComponent(clean)}&limit=20`)
       const data = await readJson<{ success?: boolean; tracks?: YouTubeTrack[]; message?: string; detail?: string; corrected_query?: string }>(response)
@@ -186,10 +219,11 @@ export default function YouTubeMusic({ onSpotify }: Props) {
         setMessage('YouTube quota exhausted. Trying Piped, then Invidious...')
         setFallbackUrl('')
         setFallbackMessage('')
-        void searchYouTubeAlternatives(clean, autoplay)
+        void searchYouTubeAlternatives(clean, autoplay, voiceCommand)
       } else if (!found.length) {
         if (autoplay) {
-          window.location.assign(youtubeSearchUrl(clean))
+          setMessage(data?.message || 'No YouTube videos matched. Opening YouTube search results.')
+          navigateResult(youtubeSearchUrl(clean))
         } else {
           setMessage(data?.message || 'No YouTube results found. Try another title or artist.')
         }
@@ -202,8 +236,11 @@ export default function YouTubeMusic({ onSpotify }: Props) {
           const preferred = bestFullSongMatch(clean, found)
           const ordered = preferred ? [preferred, ...found.filter(track => track.id !== preferred.id)] : found
           const resolved = await resolveYouTubePlayback(clean, ordered, false, async () => [])
-          if (resolved.selected) playTrack(resolved.selected, found)
-          else window.location.assign(resolved.url)
+          if (resolved.selected) {
+            if (playTrack(resolved.selected, found) && voiceCommand) {
+              announceVoicePlayback('voice', clean)
+            }
+          } else navigateResult(resolved.url)
         }
       }
     } catch (error) {
@@ -213,10 +250,10 @@ export default function YouTubeMusic({ onSpotify }: Props) {
         setMessage('YouTube quota exhausted. Trying Piped, then Invidious...')
         setFallbackUrl('')
         setFallbackMessage('')
-        void searchYouTubeAlternatives(clean, autoplay)
+        void searchYouTubeAlternatives(clean, autoplay, voiceCommand)
       } else {
         setMessage(reason)
-        if (autoplay) window.location.assign(youtubeSearchUrl(clean))
+        if (autoplay) navigateResult(youtubeSearchUrl(clean))
       }
     } finally {
       setBusy(false)
@@ -451,7 +488,15 @@ export default function YouTubeMusic({ onSpotify }: Props) {
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<MusicCommandEventDetail>).detail || {}
-      if (typeof detail.commandId === 'number') clearPendingMusicCommand(detail.commandId)
+      if (typeof detail.commandId === 'number') {
+        if (handledCommandIdsRef.current.has(detail.commandId)) return
+        handledCommandIdsRef.current.add(detail.commandId)
+        if (handledCommandIdsRef.current.size > 100) {
+          const oldest = handledCommandIdsRef.current.values().next().value
+          if (typeof oldest === 'number') handledCommandIdsRef.current.delete(oldest)
+        }
+        clearPendingMusicCommand(detail.commandId)
+      }
       if (detail.activeTab && detail.activeTab !== 'music') return
       const action = String(detail.action || '').toLowerCase()
       const spoken = String(detail.text || '').trim()
@@ -461,30 +506,15 @@ export default function YouTubeMusic({ onSpotify }: Props) {
       }
       if (spoken && !['pause', 'stop', 'resume', 'next', 'previous'].includes(action)) setQuery(detail.query || spoken)
       if (action === 'pause' || (action !== 'stop' && /^pause( music)?$/i.test(spoken))) {
-        if (playerRef.current) {
-          playerRef.current.pauseVideo?.()
-          setMessage('Playback paused.')
-        } else {
-          setMessage('Use the playback controls on the YouTube page.')
-        }
+        setMessage("Use YouTube's playback controls; this page cannot control cross-origin playback.")
         return
       }
       if (action === 'stop' || /^stop( music)?$/i.test(spoken)) {
-        if (playerRef.current) {
-          playerRef.current.stopVideo?.()
-          setMessage('Playback stopped.')
-        } else {
-          setMessage('Use the playback controls on the YouTube page.')
-        }
+        setMessage("Use YouTube's playback controls; this page cannot control cross-origin playback.")
         return
       }
       if (action === 'resume' || /^(resume|continue)( music)?$/i.test(spoken)) {
-        if (playerRef.current) {
-          playerRef.current.playVideo?.()
-          setMessage('Playback resumed.')
-        } else {
-          setMessage('Use the playback controls on the YouTube page.')
-        }
+        setMessage("Use YouTube's playback controls; this page cannot control cross-origin playback.")
         return
       }
       if (action === 'next' || /^(next|skip)( song| track)?$/i.test(spoken)) { playNext(); return }
@@ -502,16 +532,26 @@ export default function YouTubeMusic({ onSpotify }: Props) {
         historyRef.current = []
         queueRef.current = ordered.slice(1)
         const first = ordered[0]
-        if (isValidYouTubeVideoId(first.id)) playTrack(first)
-        else void search([first.name, first.artist].filter(Boolean).join(' - ') || first.name || playlist.name, true)
+        if (isValidYouTubeVideoId(first.id)) {
+          if (playTrack(first) && detail.source === 'voice') {
+            announceVoicePlayback('voice', playlist.name)
+          }
+        } else {
+          void search(
+            [first.name, first.artist].filter(Boolean).join(' - ') || first.name || playlist.name,
+            true,
+            spoken,
+            detail.source === 'voice',
+          )
+        }
         return
       }
-      void search(targetRaw, true, spoken)
+      void search(targetRaw, true, spoken, detail.source === 'voice')
     }
-    window.addEventListener('visionary:voice-command', handler)
+    window.addEventListener('visionary:youtube-command', handler)
     const pending = consumePendingMusicCommand()
-    if (pending) handler(new CustomEvent('visionary:voice-command', { detail: pending }))
-    return () => window.removeEventListener('visionary:voice-command', handler)
+    if (pending) handler(new CustomEvent('visionary:youtube-command', { detail: pending }))
+    return () => window.removeEventListener('visionary:youtube-command', handler)
   }, [allSavedPlaylists, activePlaylistName, repeatPlaylist])
 
 
@@ -537,6 +577,17 @@ export default function YouTubeMusic({ onSpotify }: Props) {
       </form>
 
       {message && <p className="text-sm text-white/65">{message}</p>}
+      {blockedYoutubeUrl && <a
+        href={blockedYoutubeUrl}
+        target={YOUTUBE_WINDOW_NAME}
+        rel="noopener"
+        onClick={event => {
+          event.preventDefault()
+          if (openNamedYouTubeWindow(blockedYoutubeUrl)) setBlockedYoutubeUrl('')
+          else setMessage('Your browser blocked the YouTube tab again. Allow this site to open tabs, then retry.')
+        }}
+        className="inline-flex rounded-lg border border-red-300/30 px-3 py-2 text-sm text-red-100 underline"
+      >Open YouTube</a>}
       {fallbackMessage && <div role="status" className="flex flex-wrap items-center gap-3 text-sm text-amber-200">
         <span>{fallbackMessage}</span>
         {fallbackUrl && <a href={fallbackUrl} className="underline">Open YouTube playlist</a>}
