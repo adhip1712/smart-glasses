@@ -11,6 +11,7 @@ import Settings from './components/Settings'
 import { apiFetch, readJson } from './services/api'
 import VoiceControl from './components/VoiceControl'
 import { speakText } from './services/speech'
+import { parseMusicCommand, publishMusicCommand } from './services/voiceMusic'
 import IntroSplash from './components/IntroSplash'
 import AuthScreen from './components/AuthScreen'
 import { getToken, getStoredUser, setSession } from './services/api'
@@ -309,56 +310,17 @@ export default function App() {
           </div>
         </header>
         <VoiceControl onCommand={async (spoken) => {
-          // Route obvious playback commands locally first. Voice playback must
-          // never wait for a remote LLM round-trip; the backend AI remains the
-          // fallback for ambiguous, multi-feature requests.
-          const raw = spoken.trim();
-          const normalized = raw.toLowerCase().replace(/[.!?,]+/g, ' ').replace(/\s+/g, ' ').trim();
-          const genericListen = /\b(?:i want to|i would like to|let me|can i|could i)?\s*(?:listen to|hear)\s+(?:something|anything|some music|music|a song|some songs)\b/.test(normalized);
-          const pronounPlayback = /\b(?:listen to|hear)\s+(?:it|that|this)\b|\bplay\s+(?:it|that|this)\s+again\b|\bput\s+(?:it|that|this)\s+on\b|\bresume\s+(?:the )?(?:music|song|track)?\s*$/.test(normalized);
-          // Only explicit music-control phrasing may trigger playback. A verb such as
-          // "play" inside ordinary speech ("I play forward in football") must
-          // not hijack the current screen and open Music.
-          const explicitMusicCommand = /^(?:(?:hey\s+)?(?:visionary|nexus)[,:-]?\s*)?(?:(?:please|can you|could you|would you|will you|i want to|i'd like to|i would like to|let me)\s+)*(?:play|listen to|put on|start playing|resume|pause|skip|next song|previous song|find me|search for)\b/.test(normalized);
-          const contextualMusicAction = /\b(?:listen to|put on|start playing|resume|pause|skip|next song|previous song|find me|search for)\b/.test(normalized);
-          const musicVerb = explicitMusicCommand || contextualMusicAction;
-          if (genericListen || pronounPlayback || musicVerb) {
-            const action = /\b(?:pause|stop)\b/.test(normalized) ? 'pause'
-              : /\b(?:skip|next song)\b/.test(normalized) ? 'next'
-              : /\bprevious song\b/.test(normalized) ? 'previous'
-              : pronounPlayback || /\b(?:resume|continue)\b/.test(normalized) ? 'resume'
-              : genericListen ? 'open'
-              : /\b(?:find me|search for)\b/.test(normalized) ? 'search' : 'play';
-            let query = raw
-              .replace(/^\s*(?:hey\s+)?(?:visionary|nexus)?[,:-]?\s*/i, '')
-              .replace(/^\s*(?:please\s+)?(?:i want to listen to|i would like to listen to|let me listen to|can you play|could you play|please play|play|put on|listen to|start playing|find me|search for|resume|continue)\s*/i, '')
-              .replace(/\b(?:please|for me|right now|on my music|music|song|track|playlist)\b/gi, ' ')
-              .replace(/\s+/g, ' ').trim();
-            if (genericListen || pronounPlayback || /^(?:it|that|this|again|something|anything)$/i.test(query)) query = ''
-            let resolvedQuery = query
-            let resolvedAction = action
-            // Let the AI intent model normalize the request and extract the song title.
-            // The local parse remains a fallback if the classifier is unavailable.
-            try {
-              const intentResponse = await apiFetch('/api/intent/classify', {
-                method: 'POST',
-                body: JSON.stringify({ message: raw, context: { active_tab: activeTab } }),
-              })
-              const musicIntent = await readJson<{ intent?: string; action?: string; query?: string }>(intentResponse)
-              if (intentResponse.ok && String(musicIntent?.intent || '').toLowerCase() === 'music') {
-                resolvedQuery = musicIntent.query?.trim() || resolvedQuery
-                const classifiedAction = String(musicIntent.action || '').toLowerCase()
-                if (['pause', 'resume', 'next', 'previous'].includes(classifiedAction)) {
-                  resolvedAction = classifiedAction as typeof action
-                }
-              }
-            } catch (error) {
-              console.warn('AI music intent classification unavailable; using the recognised command.', error)
-            };
-            setActiveTab('music');
-            window.setTimeout(() => window.dispatchEvent(new CustomEvent('visionary:voice-command', {
-              detail: { activeTab: 'music', intent: 'music', action: resolvedAction, query: resolvedQuery, text: raw },
-            })), 250);
+          const musicCommand = parseMusicCommand(spoken)
+          if (musicCommand) {
+            setActiveTab('music')
+            publishMusicCommand({
+              activeTab: 'music',
+              provider: 'youtube',
+              intent: 'music',
+              action: musicCommand.action,
+              query: musicCommand.query,
+              text: spoken,
+            })
             return;
           }
           try {
@@ -380,15 +342,11 @@ export default function App() {
             const polished = intent?.polished_text?.trim() || spoken
             if (routedIntent === 'music') {
               setActiveTab('music')
-              window.setTimeout(() => window.dispatchEvent(new CustomEvent('visionary:voice-command', {
-                detail: {
-                  activeTab: 'music',
-                  intent: 'music',
-                  action: intent?.action || 'play',
-                  query: intent?.query || '',
-                  text: polished,
-                },
-              })), 250)
+              publishMusicCommand({
+                activeTab: 'music', provider: 'youtube', intent: 'music',
+                action: (intent?.action as any) || 'play',
+                query: intent?.query || '', text: polished,
+              })
               return
             }
             if (routedIntent === 'navigation' && intent?.destination) {
@@ -449,4 +407,3 @@ export default function App() {
     </div>
   )
 }
-

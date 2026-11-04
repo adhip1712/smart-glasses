@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { API_URL, apiFetch, readJson } from '../services/api'
-import { speakText } from '../services/speech'
+import { apiFetch, readJson } from '../services/api'
+import {
+  findSavedPlaylist,
+  isValidYouTubeVideoId,
+  resolveYouTubePlayback,
+  youtubePlaybackUrl,
+  youtubeSearchUrl,
+  clearPendingMusicCommand,
+  consumePendingMusicCommand,
+  type MusicCommandEventDetail,
+} from '../services/voiceMusic'
 
 declare global {
   interface Window {
@@ -43,10 +52,6 @@ const bestFullSongMatch = (query: string, candidates: YouTubeTrack[]) => {
   return matching.sort((a, b) => (b.durationSeconds || 0) - (a.durationSeconds || 0))[0] || null
 }
 
-type AudiusFallbackTrack = {
-  id: string; name: string; artist: string; image?: string; url?: string;
-  stream_url: string; duration?: number; provider: 'audius'; matched?: boolean
-}
 type SavedPlaylist = { name: string; tracks: YouTubeTrack[]; youtubePlaylistId?: string; youtubePlaylistUrl?: string }
 type StoredPlaylist = { name: string; tracks: any[]; youtubePlaylistId?: string; youtubePlaylistUrl?: string }
 type Props = { onSpotify?: () => void }
@@ -63,9 +68,6 @@ export default function YouTubeMusic({ onSpotify }: Props) {
   const [playerKey, setPlayerKey] = useState(0)
   const [fallbackMessage, setFallbackMessage] = useState('')
   const [fallbackUrl, setFallbackUrl] = useState('')
-  const [audiusFallbackTracks, setAudiusFallbackTracks] = useState<AudiusFallbackTrack[]>([])
-  const [audiusFallbackCurrent, setAudiusFallbackCurrent] = useState<AudiusFallbackTrack | null>(null)
-  const [audiusFallbackMessage, setAudiusFallbackMessage] = useState('')
   const [activePlaylistName, setActivePlaylistName] = useState('')
   const [selectedTracks, setSelectedTracks] = useState<string[]>([])
   const [repeatPlaylist, setRepeatPlaylist] = useState(false)
@@ -119,19 +121,22 @@ export default function YouTubeMusic({ onSpotify }: Props) {
     }
   }
 
-  // Try other YouTube-catalogue search sources before switching to Audius.
+  // Keep the request on YouTube if its primary API quota is unavailable.
   const searchYouTubeAlternatives = async (term: string, autoplay = false) => {
     setMessage('YouTube API quota exhausted. Trying Piped, then Invidious...')
     try {
       const response = await apiFetch('/api/music/youtube-alternative-search?q=' + encodeURIComponent(term) + '&limit=18')
       const data = await readJson<{ success?: boolean; tracks?: YouTubeTrack[]; source?: string; message?: string }>(response)
-      const found = (data?.tracks || []).filter(track => track?.provider?.toLowerCase() === 'youtube' && track.id)
+      const found = (data?.tracks || []).filter(track => track?.provider?.toLowerCase() === 'youtube' && isValidYouTubeVideoId(track.id))
       if (response.ok && data?.success && found.length) {
         setResults(found)
         setMessage(data.message || 'Found YouTube results through an alternative search source.')
         if (autoplay) {
-          // Start the first result returned by the Piped/Invidious fallback.
-          playTrack(found[0], found)
+          const preferred = bestFullSongMatch(term, found)
+          const ordered = preferred ? [preferred, ...found.filter(track => track.id !== preferred.id)] : found
+          const resolved = await resolveYouTubePlayback(term, ordered, false, async () => [])
+          if (resolved.selected) playTrack(resolved.selected, found)
+          else window.location.assign(resolved.url)
         }
         return
       }
@@ -140,35 +145,12 @@ export default function YouTubeMusic({ onSpotify }: Props) {
     }
     setResults([])
     setMessage('YouTube catalogue search is unavailable. Opening YouTube search directly...')
-    window.location.assign('https://www.youtube.com/results?search_query=' + encodeURIComponent(term))
-  }
-
-  // Audius is the in-app automatic fallback when YouTube search quota is exhausted.
-  const searchAudiusFallback = async (term: string) => {
-    setAudiusFallbackMessage('YouTube search quota is exhausted. Searching Audius and starting the best available match...')
-    setAudiusFallbackTracks([])
-    setAudiusFallbackCurrent(null)
-    try {
-      const response = await apiFetch('/api/music/audius-search?q=' + encodeURIComponent(term) + '&limit=18')
-      const data = await readJson<{ success?: boolean; tracks?: AudiusFallbackTrack[]; message?: string }>(response)
-      if (!response.ok || !data?.success) throw new Error(data?.message || 'Audius search failed (HTTP ' + response.status + ').')
-      const found = (data.tracks || []).filter(track => track?.provider === 'audius' && track.id && track.stream_url)
-      const matched = found.filter(track => track.matched)
-      const choices = matched.length ? matched : found
-      setAudiusFallbackTracks(choices)
-      if (choices.length) {
-        setAudiusFallbackCurrent(choices[0])
-        setAudiusFallbackMessage('Audius found ' + choices.length + ' streamable tracks. Starting ' + choices[0].name + '; use the list to choose another.')
-      } else {
-        setAudiusFallbackMessage('Audius did not return a streamable match for this search.')
-      }
-    } catch (error) {
-      setAudiusFallbackMessage(error instanceof Error ? error.message : 'Audius fallback search failed.')
-    }
+    const resolved = await resolveYouTubePlayback(term, [], true, async () => [])
+    window.location.assign(resolved.url)
   }
 
   const playTrack = (track: YouTubeTrack, sequence?: YouTubeTrack[]) => {
-    if (!track?.id) return
+    if (!track) return
     setFallbackMessage('')
     if (sequence) setActivePlaylistName('')
     if (current?.id && current.id !== track.id) historyRef.current.push(current)
@@ -178,8 +160,9 @@ export default function YouTubeMusic({ onSpotify }: Props) {
       queueRef.current = shuffleQueue ? [...nextQueue].sort(() => Math.random() - 0.5) : nextQueue
     }
 
-    // Open the actual YouTube watch page in this tab; no embedded player or popup.
-    window.location.assign(`https://www.youtube.com/watch?v=${encodeURIComponent(track.id)}`)
+    const query = [track.name, track.artist].filter(Boolean).join(' - ') || track.name
+    // Never construct a watch URL from malformed or missing video IDs.
+    window.location.assign(youtubePlaybackUrl(query, [track]))
   }
 
   const search = async (term: string, autoplay = false, displayText = "") => {
@@ -187,9 +170,6 @@ export default function YouTubeMusic({ onSpotify }: Props) {
     if (!clean) return
     setQuery(displayText.trim() || clean)
     setBusy(true)
-    setAudiusFallbackTracks([])
-    setAudiusFallbackCurrent(null)
-    setAudiusFallbackMessage('')
     setMessage('Searching YouTube...')
     try {
       const response = await apiFetch(`/api/music/youtube-search?q=${encodeURIComponent(clean)}&limit=20`)
@@ -199,17 +179,17 @@ export default function YouTubeMusic({ onSpotify }: Props) {
         throw new Error(data?.detail || data?.message || `YouTube search failed (HTTP ${response.status}).`)
       }
       if (!data) throw new Error('The music server returned an unreadable response. Check that the backend is online.')
-      const found = (data.tracks || []).filter(track => track?.provider?.toLowerCase() === 'youtube' && Boolean(track.id))
+      const found = (data.tracks || []).filter(track => track?.provider?.toLowerCase() === 'youtube' && isValidYouTubeVideoId(track.id))
       setResults(found)
       const quotaExceeded = /quota|daily.*limit|per.day.*limit/i.test(String(data?.message || data?.detail || ''))
       if (quotaExceeded) {
-        setMessage('YouTube quota exhausted. Automatically switching to Audius...')
+        setMessage('YouTube quota exhausted. Trying Piped, then Invidious...')
         setFallbackUrl('')
         setFallbackMessage('')
         void searchYouTubeAlternatives(clean, autoplay)
       } else if (!found.length) {
         if (autoplay) {
-          window.location.assign('https://www.youtube.com/results?search_query=' + encodeURIComponent(clean))
+          window.location.assign(youtubeSearchUrl(clean))
         } else {
           setMessage(data?.message || 'No YouTube results found. Try another title or artist.')
         }
@@ -219,20 +199,24 @@ export default function YouTubeMusic({ onSpotify }: Props) {
           : ''
         setMessage(`Found ${found.length} YouTube results.${corrected}`)
         if (autoplay) {
-          const selected = bestFullSongMatch(clean, found) || found[0]
-          playTrack(selected, found)
+          const preferred = bestFullSongMatch(clean, found)
+          const ordered = preferred ? [preferred, ...found.filter(track => track.id !== preferred.id)] : found
+          const resolved = await resolveYouTubePlayback(clean, ordered, false, async () => [])
+          if (resolved.selected) playTrack(resolved.selected, found)
+          else window.location.assign(resolved.url)
         }
       }
     } catch (error) {
       setResults([])
       const reason = error instanceof Error ? error.message : 'YouTube search failed.'
       if (/quota|daily.*limit|per.day.*limit/i.test(reason)) {
-        setMessage('YouTube quota exhausted. Automatically switching to Audius...')
+        setMessage('YouTube quota exhausted. Trying Piped, then Invidious...')
         setFallbackUrl('')
         setFallbackMessage('')
         void searchYouTubeAlternatives(clean, autoplay)
       } else {
         setMessage(reason)
+        if (autoplay) window.location.assign(youtubeSearchUrl(clean))
       }
     } finally {
       setBusy(false)
@@ -420,7 +404,7 @@ export default function YouTubeMusic({ onSpotify }: Props) {
     try {
       await persistPlaylists(allSavedPlaylists.map(item => item.name === oldName ? { ...item, name: nextName } : item))
       if (activePlaylistName === oldName) setActivePlaylistName(nextName)
-      setMessage(`Renamed playlist to ?${nextName}?.`)
+      setMessage(`Renamed playlist to "${nextName}".`)
     } catch { setMessage('Could not rename that playlist.') }
   }
 
@@ -444,7 +428,6 @@ export default function YouTubeMusic({ onSpotify }: Props) {
     const ordered = shuffleQueue ? [...playlist.tracks].sort(() => Math.random() - 0.5) : playlist.tracks
     queueRef.current = ordered.slice(1)
     playTrack(ordered[0])
-    speakText(`Playing your playlist ${playlist.name}.`)
   }
 
   const playNext = () => {
@@ -467,40 +450,69 @@ export default function YouTubeMusic({ onSpotify }: Props) {
 
   useEffect(() => {
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ text?: string; activeTab?: string; action?: string; query?: string }>).detail || {}
+      const detail = (event as CustomEvent<MusicCommandEventDetail>).detail || {}
+      if (typeof detail.commandId === 'number') clearPendingMusicCommand(detail.commandId)
       if (detail.activeTab && detail.activeTab !== 'music') return
       const action = String(detail.action || '').toLowerCase()
       const spoken = String(detail.text || '').trim()
-      if (spoken && !['pause', 'resume', 'next', 'previous'].includes(action)) setQuery(spoken)
-      if (action === 'pause' || /^(pause|stop)( music)?$/i.test(spoken)) {
-        playerRef.current?.pauseVideo?.()
-        setMessage('Playback paused.')
+      if (action === 'open') {
+        setMessage('YouTube Music is ready. Say or type a song to search YouTube.')
+        return
+      }
+      if (spoken && !['pause', 'stop', 'resume', 'next', 'previous'].includes(action)) setQuery(detail.query || spoken)
+      if (action === 'pause' || (action !== 'stop' && /^pause( music)?$/i.test(spoken))) {
+        if (playerRef.current) {
+          playerRef.current.pauseVideo?.()
+          setMessage('Playback paused.')
+        } else {
+          setMessage('Use the playback controls on the YouTube page.')
+        }
+        return
+      }
+      if (action === 'stop' || /^stop( music)?$/i.test(spoken)) {
+        if (playerRef.current) {
+          playerRef.current.stopVideo?.()
+          setMessage('Playback stopped.')
+        } else {
+          setMessage('Use the playback controls on the YouTube page.')
+        }
         return
       }
       if (action === 'resume' || /^(resume|continue)( music)?$/i.test(spoken)) {
-        playerRef.current?.playVideo?.()
-        setMessage('Playback resumed.')
+        if (playerRef.current) {
+          playerRef.current.playVideo?.()
+          setMessage('Playback resumed.')
+        } else {
+          setMessage('Use the playback controls on the YouTube page.')
+        }
         return
       }
       if (action === 'next' || /^(next|skip)( song| track)?$/i.test(spoken)) { playNext(); return }
       if (action === 'previous' || /^(previous|back)( song| track)?$/i.test(spoken)) { playPrevious(); return }
       const targetRaw = (detail.query || spoken.replace(/^(?:(?:please\s+)?(?:play|listen to|put on|start playing)|i want to listen to|can you play)\s+/i, '')).trim()
-      const target = targetRaw.replace(/^(my|the)\s+/i, '').replace(/\s+playlist$/i, '').trim()
-      if (!target || /^(music|something|youtube)$/i.test(target)) return
-      const playlist = playlists.find(item => item.name.toLowerCase() === target.toLowerCase())
-        || playlists.find(item => item.name.toLowerCase().includes(target.toLowerCase()))
+      if (!targetRaw) return
+      const playlist = findSavedPlaylist(targetRaw, allSavedPlaylists)
       if (playlist) {
+        const ordered = (playlist.tracks || []).filter(track => track && (track.name || track.id)) as YouTubeTrack[]
+        if (!ordered.length) {
+          setMessage(`The saved playlist "${playlist.name}" has no tracks.`)
+          return
+        }
         setActivePlaylistName(playlist.name)
-        queueRef.current = playlist.tracks.slice(1)
-        playTrack(playlist.tracks[0])
-        speakText(`Playing your playlist ${playlist.name}.`)
+        historyRef.current = []
+        queueRef.current = ordered.slice(1)
+        const first = ordered[0]
+        if (isValidYouTubeVideoId(first.id)) playTrack(first)
+        else void search([first.name, first.artist].filter(Boolean).join(' - ') || first.name || playlist.name, true)
         return
       }
-      void search(target, action !== 'open', spoken)
+      void search(targetRaw, true, spoken)
     }
     window.addEventListener('visionary:voice-command', handler)
+    const pending = consumePendingMusicCommand()
+    if (pending) handler(new CustomEvent('visionary:voice-command', { detail: pending }))
     return () => window.removeEventListener('visionary:voice-command', handler)
-  }, [playlists, activePlaylistName, repeatPlaylist])
+  }, [allSavedPlaylists, activePlaylistName, repeatPlaylist])
 
 
 
@@ -510,7 +522,7 @@ export default function YouTubeMusic({ onSpotify }: Props) {
         <div>
           <div className="text-xs font-bold tracking-[0.25em] text-red-300">VISIONARY NEXUS | MUSIC</div>
           <h1 className="mt-2 text-3xl font-bold">YouTube Music</h1>
-          <p className="mt-1 text-sm text-white/55">YouTube is primary; Piped and Invidious search its catalogue if the API quota runs out, then Audius is tried automatically.</p>
+          <p className="mt-1 text-sm text-white/55">YouTube is primary. Piped and Invidious are used when the YouTube API quota runs out; requests stay on YouTube.</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => void connectYouTube()} className="rounded-full border border-white/20 px-4 py-2 text-xs text-white/75">{youtubeAccount.connected ? "YouTube connected" : "Connect YouTube"}</button>
@@ -527,53 +539,8 @@ export default function YouTubeMusic({ onSpotify }: Props) {
       {message && <p className="text-sm text-white/65">{message}</p>}
       {fallbackMessage && <div role="status" className="flex flex-wrap items-center gap-3 text-sm text-amber-200">
         <span>{fallbackMessage}</span>
-        {fallbackUrl && <a href={fallbackUrl} target="_blank" rel="noopener noreferrer" className="underline">Open YouTube in new tab</a>}
+        {fallbackUrl && <a href={fallbackUrl} className="underline">Open YouTube playlist</a>}
       </div>}
-      {audiusFallbackMessage && (
-        <section className="space-y-3 rounded-2xl border border-cyan-300/20 bg-cyan-300/[0.04] p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold text-cyan-100">Automatic fallback: Audius</p>
-              <p className="text-xs text-white/55">Visionary Nexus automatically reaches Audius after Piped and Invidious cannot find a YouTube match.</p>
-            </div>
-          </div>
-          {audiusFallbackMessage && <p className="text-xs text-white/65" role="status">{audiusFallbackMessage}</p>}
-          {audiusFallbackCurrent && (
-            <div className="flex items-center gap-3 rounded-xl bg-black/25 p-3">
-              {audiusFallbackCurrent.image && <img src={audiusFallbackCurrent.image} alt="" className="h-12 w-12 rounded-lg object-cover" />}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold">{audiusFallbackCurrent.name}</p>
-                <p className="truncate text-xs text-white/50">{audiusFallbackCurrent.artist}</p>
-              </div>
-              {audiusFallbackCurrent.url && <a href={audiusFallbackCurrent.url} target="_blank" rel="noopener noreferrer" className="text-xs text-cyan-200 underline">Audius page</a>}
-            </div>
-          )}
-          {audiusFallbackCurrent && <audio
-            key={audiusFallbackCurrent.id}
-            src={API_URL + audiusFallbackCurrent.stream_url}
-            controls
-            autoPlay
-            onError={() => {
-              const currentIndex = audiusFallbackTracks.findIndex(track => track.id === audiusFallbackCurrent.id)
-              const nextTrack = currentIndex >= 0 ? audiusFallbackTracks[currentIndex + 1] : undefined
-              if (nextTrack) {
-                setAudiusFallbackMessage('That Audius stream failed. Automatically trying ' + nextTrack.name + '...')
-                setAudiusFallbackCurrent(nextTrack)
-              } else {
-                setAudiusFallbackMessage('Audius could not play the available results. Try another search or open the Audius track page.')
-              }
-            }}
-            className="w-full"
-          />}
-          {audiusFallbackTracks.length > 1 && <div className="space-y-2">
-            {audiusFallbackTracks.map(track => <button key={track.id} onClick={() => setAudiusFallbackCurrent(track)} className="flex w-full items-center gap-3 rounded-lg bg-black/20 p-2 text-left hover:bg-white/10">
-              {track.image && <img src={track.image} alt="" className="h-9 w-9 rounded object-cover" />}
-              <span className="min-w-0 flex-1 truncate text-xs">{track.name} <span className="text-white/45">- {track.artist}</span></span>
-              <span className="text-xs text-cyan-200">Play</span>
-            </button>)}
-          </div>}
-        </section>
-      )}
 
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -640,5 +607,3 @@ export default function YouTubeMusic({ onSpotify }: Props) {
     </div>
   )
 }
-
-

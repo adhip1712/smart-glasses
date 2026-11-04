@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { apiFetch, readJson } from '../services/api'
 import { correctDictation, isTextEntry } from '../services/dictation'
 import { stopSpeaking } from '../services/speech'
+import { consumeWakeUtterance } from '../services/voiceMusic'
 
 interface VoiceControlProps {
   onCommand: (text: string) => void
@@ -30,46 +31,6 @@ const SPEECH_LANGUAGES = [
   { code: 'zh-CN', label: 'Chinese (Simplified)' },
 ]
 
-function normalizeWakeText(value: string) {
-  return value.toLowerCase().replace(/[.,!?;:]/g, ' ').split(' ').filter(Boolean).join(' ')
-}
-
-function editDistanceOne(a: string, b: string) {
-  if (a === b) return true
-  if (Math.abs(a.length - b.length) > 1) return false
-  let i = 0, j = 0, edits = 0
-  while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) { i++; j++; continue }
-    if (++edits > 1) return false
-    if (a.length > b.length) i++
-    else if (b.length > a.length) j++
-    else { i++; j++ }
-  }
-  if (i < a.length || j < b.length) edits++
-  return edits <= 1
-}
-
-function findWakePhrase(transcript: string, wakeWord: string, sensitivity: string) {
-  const text = normalizeWakeText(transcript)
-  const phrase = normalizeWakeText(wakeWord || 'Vision')
-  // Match the configured phrase as whole words, never as a substring (e.g. "vision" in "television").
-  if (!phrase) return -1
-  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = new RegExp(`(?:^|\\s)${escaped}(?=$|\\s)`).exec(text)
-  if (match) return match.index + (match[0].startsWith(' ') ? 1 : 0)
-  if (sensitivity !== 'high') return -1
-  const words = text.split(' ')
-  const target = phrase.split(' ')
-  for (let index = 0; index <= words.length - target.length; index += 1) {
-    const candidate = words.slice(index, index + target.length)
-    const matches = candidate.every((word, offset) =>
-      word === target[offset] || (target[offset].length >= 5 && editDistanceOne(word, target[offset])),
-    )
-    if (matches) return words.slice(0, index).join(' ').length + (index ? 1 : 0)
-  }
-  return -1
-}
-
 function insertIntoField(target: HTMLInputElement | HTMLTextAreaElement, text: string) {
   const start = target.selectionStart ?? target.value.length
   const end = target.selectionEnd ?? target.value.length
@@ -96,6 +57,8 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
   const [language, setLanguage] = useState('en-IN')
   const [liveTranscript, setLiveTranscript] = useState('')
   const recognitionRef = useRef<any>(null)
+  const onCommandRef = useRef(onCommand)
+  const listeningRef = useRef(false)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
@@ -103,6 +66,10 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
   const wakeListeningRef = useRef(false)
   const wakeArmedRef = useRef(false)
   const wakeRestartRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const wakeStableRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const wakeRetryCountRef = useRef(0)
+  const wakeStartingRef = useRef(false)
+  const startWakeListeningRef = useRef<(() => void) | null>(null)
   const wakeWordRef = useRef('Vision')
   const wakeSensitivityRef = useRef('high')
   const toggleRef = useRef<(() => void) | null>(null)
@@ -111,12 +78,26 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
   const lastTextTargetRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null)
   const transcriptRef = useRef('')
   const interimRef = useRef('')
+  const lastWakeResultIndexRef = useRef(-1)
   const languageRef = useRef(language)
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
+    onCommandRef.current = onCommand
+  }, [onCommand])
+
+  useEffect(() => {
     languageRef.current = language
   }, [language])
+
+  useEffect(() => {
+    listeningRef.current = listening
+  }, [listening])
+
+  const updateListening = (value: boolean) => {
+    listeningRef.current = value
+    setListening(value)
+  }
 
   useEffect(() => {
     wakeWordRef.current = wakeWord
@@ -177,6 +158,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
   useEffect(() => () => {
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
     if (wakeRestartRef.current) clearTimeout(wakeRestartRef.current)
+    if (wakeStableRef.current) clearTimeout(wakeStableRef.current)
     wakeListeningRef.current = false
     try { recognitionRef.current?.abort() } catch { /* browser may already have closed it */ }
     try { mediaRecorderRef.current?.stop() } catch { /* recorder may already have stopped */ }
@@ -215,102 +197,164 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
       insertIntoField(target, transcript)
       setStatus('Dictation inserted. Review it before submitting.')
     } else {
-      onCommand(raw)
+      onCommandRef.current(raw)
       setStatus('Understanding your request...')
     }
   }
 
-  const stopWakeListening = () => {
+  const stopWakeListening = (showStatus = true) => {
     wakeListeningRef.current = false
     setWakeListening(false)
     if (wakeRestartRef.current) clearTimeout(wakeRestartRef.current)
+    if (wakeStableRef.current) clearTimeout(wakeStableRef.current)
     wakeRestartRef.current = null
+    wakeStableRef.current = null
+    wakeStartingRef.current = false
     try { wakeRecognitionRef.current?.abort() } catch { /* browser may already have closed it */ }
-    setStatus('Wake-word listening stopped.')
+    wakeRecognitionRef.current = null
+    if (showStatus) setStatus('Wake-word listening stopped.')
   }
 
   const startWakeListening = () => {
+    if (!wakeListeningRef.current || wakeStartingRef.current || wakeRecognitionRef.current) return
     stopSpeaking()
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SpeechRecognition) {
+      wakeListeningRef.current = false
+      setWakeListening(false)
       setStatus('Wake-word listening needs a supported browser such as Chrome.')
       return
     }
-    // Do not open a tab while idle wake-word listening starts or restarts.
-    if (listening) {
-      try { recognitionRef.current?.stop() } catch { /* already stopped */ }
-      setListening(false)
+    if (listeningRef.current || mediaRecorderRef.current?.state === 'recording') {
+      wakeListeningRef.current = false
+      setWakeListening(false)
+      setStatus('Stop voice input before starting wake-word listening.')
+      return
     }
-    wakeListeningRef.current = true
-    setWakeListening(true)
+    if (recognitionRef.current) {
+      try { recognitionRef.current?.stop() } catch { /* already stopped */ }
+      updateListening(false)
+    }
+    wakeStartingRef.current = true
     setStatus(`Listening for "${wakeWordRef.current}". Keep Visionary Nexus open.`)
     const recognition = new SpeechRecognition()
     recognition.lang = languageRef.current
     recognition.continuous = true
     recognition.interimResults = true
     wakeRecognitionRef.current = recognition
+    lastWakeResultIndexRef.current = -1
+    recognition.onstart = () => {
+      wakeStartingRef.current = false
+      setWakeListening(true)
+      if (wakeStableRef.current) clearTimeout(wakeStableRef.current)
+      wakeStableRef.current = setTimeout(() => {
+        wakeRetryCountRef.current = 0
+        wakeStableRef.current = null
+      }, 15000)
+      setStatus(`Listening for "${wakeWordRef.current}". Keep Visionary Nexus open.`)
+    }
     recognition.onresult = (event: any) => {
-      const last = event.results[event.results.length - 1]
-      const transcript = Array.from(event.results as any[]).map(result => String(result?.[0]?.transcript || '')).join(' ')
-      const normalized = normalizeWakeText(transcript)
-      if (wakeArmedRef.current && last?.isFinal) {
-        const command = normalizeWakeText(String(last?.[0]?.transcript || '')).trim()
-        if (command.length > 1) {
+      let lastFinalIndex = -1
+      for (let index = 0; index < event.results.length; index += 1) {
+        if (event.results[index]?.isFinal) lastFinalIndex = index
+      }
+      if (lastFinalIndex < 0 || lastFinalIndex <= lastWakeResultIndexRef.current) return
+
+      const lastFinal = event.results[lastFinalIndex]
+      if (wakeArmedRef.current) {
+        const command = consumeWakeUtterance(
+          String(lastFinal?.[0]?.transcript || ''),
+          wakeWordRef.current,
+          wakeSensitivityRef.current,
+          true,
+        ).command
+        lastWakeResultIndexRef.current = lastFinalIndex
+        if (command) {
           wakeArmedRef.current = false
           setStatus(`Wake word detected. Running: ${command}`)
           try { recognition.stop() } catch { /* auto-restart after onend */ }
-          onCommand(command)
-          return
+          onCommandRef.current(command)
         }
+        return
       }
-      const at = findWakePhrase(transcript, wakeWordRef.current, wakeSensitivityRef.current)
-      if (at < 0) return
-      const phrase = normalizeWakeText(wakeWordRef.current)
-      const words = normalized.split(' ')
-      const phraseWords = phrase.split(' ')
-      let phraseIndex = -1
-      for (let index = 0; index <= words.length - phraseWords.length; index += 1) {
-        if (phraseWords.every((part, offset) => words[index + offset] === part || (wakeSensitivityRef.current === 'high' && editDistanceOne(words[index + offset] || '', part)))) {
-          phraseIndex = index
-          break
-        }
-      }
-      const command = phraseIndex >= 0 ? words.slice(phraseIndex + phraseWords.length).join(' ').trim() : ''
-      if (command.length > 1 && last?.isFinal) {
+
+      const transcript = Array.from(event.results as any[])
+        .map(result => String(result?.[0]?.transcript || ''))
+        .join(' ')
+      const wake = consumeWakeUtterance(
+        transcript,
+        wakeWordRef.current,
+        wakeSensitivityRef.current,
+      )
+      lastWakeResultIndexRef.current = lastFinalIndex
+      if (!wake.matched) return
+      if (wake.command) {
         wakeArmedRef.current = false
-        setStatus(`Wake word detected. Running: ${command}`)
+        setStatus(`Wake word detected. Running: ${wake.command}`)
         try { recognition.stop() } catch { /* auto-restart after onend */ }
-        onCommand(command)
-      } else if (last?.isFinal) {
-        wakeArmedRef.current = true
-        setStatus('Wake word detected. Now say your command.')
+        onCommandRef.current(wake.command)
       } else {
-        setStatus('Wake word detected. Say your command…')
+        wakeArmedRef.current = wake.armed
+        setStatus('Wake word detected. Now say your command.')
       }
     }
     recognition.onerror = (event: any) => {
-      if (event.error === 'not-allowed') {
+      const error = String(event?.error || '')
+      if (error === 'not-allowed' || error === 'service-not-allowed') {
         wakeListeningRef.current = false
         setWakeListening(false)
         setStatus('Microphone permission is blocked. Allow microphone access in your browser.')
+      } else if (error === 'audio-capture') {
+        wakeListeningRef.current = false
+        setWakeListening(false)
+        setStatus('No microphone is available. Connect a microphone and try again.')
+      } else if (error !== 'aborted' && wakeListeningRef.current) {
+        setStatus(`Wake-word recognition interrupted (${error || 'unknown error'}). Reconnecting...`)
       }
     }
     recognition.onend = () => {
+      if (wakeRecognitionRef.current === recognition) wakeRecognitionRef.current = null
+      wakeStartingRef.current = false
+      if (wakeStableRef.current) clearTimeout(wakeStableRef.current)
+      wakeStableRef.current = null
+      setWakeListening(false)
       if (wakeListeningRef.current) {
-        wakeRestartRef.current = setTimeout(() => startWakeListening(), 450)
+        if (wakeRestartRef.current) clearTimeout(wakeRestartRef.current)
+        if (wakeRetryCountRef.current >= 5) {
+          wakeListeningRef.current = false
+          setStatus('Wake-word listening paused after repeated browser interruptions. Tap Wake to retry.')
+          return
+        }
+        wakeRetryCountRef.current += 1
+        const delay = Math.min(400 * (2 ** (wakeRetryCountRef.current - 1)), 8000)
+        wakeRestartRef.current = setTimeout(() => {
+          wakeRestartRef.current = null
+          startWakeListeningRef.current?.()
+        }, delay)
       }
     }
-    try { recognition.start() } catch {
+    try {
+      recognition.start()
+    } catch (error) {
+      console.warn('Could not start wake-word recognition.', error)
+      if (wakeRecognitionRef.current === recognition) wakeRecognitionRef.current = null
+      wakeStartingRef.current = false
       wakeListeningRef.current = false
       setWakeListening(false)
       setStatus('Microphone is busy. Try again in a moment.')
     }
   }
 
+  startWakeListeningRef.current = startWakeListening
+
   const toggleWakeListening = () => {
     const shouldEnable = !wakeListeningRef.current
     try { localStorage.setItem('visionary-wake-enabled', shouldEnable ? 'true' : 'false') } catch { /* storage may be unavailable */ }
-    if (shouldEnable) startWakeListening()
+    if (shouldEnable) {
+      wakeListeningRef.current = true
+      wakeRetryCountRef.current = 0
+      startWakeListening()
+    }
     else stopWakeListening()
   }
 
@@ -318,7 +362,10 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
   useEffect(() => {
     let enabled = false
     try { enabled = localStorage.getItem('visionary-wake-enabled') === 'true' } catch { /* storage may be unavailable */ }
-    if (enabled) startWakeListening()
+    if (enabled) {
+      wakeListeningRef.current = true
+      startWakeListening()
+    }
   }, [])
 
   const toggle = () => {
@@ -332,7 +379,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
         recorder.stop()
       } else {
         try { recognitionRef.current?.stop() } catch { /* recognition may already have stopped */ }
-        setListening(false)
+        updateListening(false)
         setStatus('Finishing your dictation...')
       }
       return
@@ -372,7 +419,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
             stream.getTracks().forEach(track => track.stop())
             mediaStreamRef.current = null
             mediaRecorderRef.current = null
-            setListening(false)
+            updateListening(false)
             if (!blob.size) { setStatus('No audio was captured. Try again.'); return }
             setStatus('Transcribing with Whisper...')
             const form = new FormData()
@@ -423,12 +470,12 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
             }
           }
           recorder.start(250)
-          setListening(true)
+          updateListening(true)
           setStatus('Recording dictation for Whisper... tap Stop when finished.')
         } catch (error) {
           console.warn('Microphone recording unavailable.', error)
           setStatus('Microphone access failed. Allow microphone access and try again.')
-          setListening(false)
+          updateListening(false)
         }
       })()
       return
@@ -450,7 +497,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
     recognition.interimResults = true
 
     recognition.onstart = () => {
-      setListening(true)
+      updateListening(true)
       setStatus(targetRef.current ? 'Listening - speak naturally; pauses are okay.' : 'Listening for your request...')
     }
 
@@ -477,13 +524,13 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
     recognition.onerror = (event: any) => {
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
       setStatus(event.error === 'not-allowed' ? 'Microphone permission is blocked.' : 'Voice recognition stopped. Try again.')
-      setListening(false)
+      updateListening(false)
     }
 
     recognition.onend = () => {
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
       silenceTimerRef.current = null
-      setListening(false)
+      updateListening(false)
       const transcript = [transcriptRef.current, interimRef.current].filter(Boolean).join(' ').replace(/\\s+/g, ' ').trim()
       transcriptRef.current = ''
       interimRef.current = ''
@@ -494,7 +541,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
     try {
       recognition.start()
     } catch {
-      setListening(false)
+      updateListening(false)
       setStatus('Microphone is busy. Try again in a moment.')
     }
   }
@@ -533,4 +580,3 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
     </div>
   )
 }
-

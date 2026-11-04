@@ -5,6 +5,7 @@ import React, {
 } from "react"
 import { speakText as speakReliableText } from "../services/speech"
 import { apiFetch } from "../services/api"
+import { parseMusicCommand, publishMusicCommand, type MusicCommandAction } from "../services/voiceMusic"
 
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -1195,24 +1196,19 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
   // The dedicated Music component owns the visible YouTube player, saved
   // playlists, queue, and alternate-upload recovery. Keep one playback engine.
   const dispatchMusicCommand = (
-    action: "play" | "pause" | "resume" | "next" | "previous",
+    action: MusicCommandAction,
     query = "",
     displayText = ""
   ) => {
-    // Route typed AI-tab commands into the already-mounted Music component.
-    // Do not reserve or open a blank browser tab during command handling.
     onMusic?.()
-    window.setTimeout(() => {
-      window.dispatchEvent(new CustomEvent("visionary:voice-command", {
-        detail: {
-          activeTab: "music",
-          intent: "music",
-          action,
-          query,
-          text: displayText || (query ? "play " + query : action),
-        },
-      }))
-    }, 250)
+    publishMusicCommand({
+      activeTab: "music",
+      provider: "youtube",
+      intent: "music",
+      action,
+      query,
+      text: displayText || (query ? "play " + query : action),
+    })
   }
 
   // =======================================================
@@ -1283,10 +1279,12 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
       // when supplied, artist must be represented in the result metadata.
       const ignoredWords = new Set(["play", "please", "song", "music", "track", "the", "a", "an", "by", "on", "for", "me"])
       const artistMatch = cleanQuery.match(/\bby\s+(.+)$/i)
-      const titleQuery = artistMatch ? cleanQuery.slice(0, artistMatch.index).trim() : cleanQuery
+      const artistName = artistMatch?.[1] || ''
+      const artistIndex = artistMatch?.index
+      const titleQuery = artistIndex !== undefined ? cleanQuery.slice(0, artistIndex).trim() : cleanQuery
       const requestedTitleTokens = titleQuery.toLowerCase().match(/[a-z0-9]+/g)?.filter(token => !ignoredWords.has(token)) || []
-      const requestedArtistTokens = artistMatch
-        ? (artistMatch[1].toLowerCase().match(/[a-z0-9]+/g)?.filter(token => !ignoredWords.has(token)) || [])
+      const requestedArtistTokens = artistName
+        ? (artistName.toLowerCase().match(/[a-z0-9]+/g)?.filter(token => !ignoredWords.has(token)) || [])
         : []
       const requestedTokens = [...requestedTitleTokens, ...requestedArtistTokens]
       const matchingTracks = playableTracks.filter(candidate => {
@@ -1328,11 +1326,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
         error
       )
 
-      addLocalMessage(
-        error instanceof Error
-          ? error.message
-          : "Music playback failed."
-      )
+      addLocalMessage(String(error || "Music playback failed."))
     } finally {
       setIsThinking(false)
     }
@@ -1345,42 +1339,6 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
   const pauseMusic = () => {
     dispatchMusicCommand("pause")
     addLocalMessage("Sent pause to the Music player.")
-    return
-    const youtubePlayer = youtubePlayerRef.current
-
-    if (youtubePlayer && typeof youtubePlayer.pauseVideo === "function") {
-      youtubePlayer.pauseVideo()
-      addLocalMessage("Music paused.")
-      return
-    }
-
-    const audio =
-      audioRef.current
-
-    if (
-      !audio ||
-      !currentTrack
-    ) {
-      addLocalMessage(
-        "No music is currently loaded."
-      )
-
-      return
-    }
-
-    if (audio.paused) {
-      addLocalMessage(
-        "Music is already paused."
-      )
-
-      return
-    }
-
-    audio.pause()
-
-    addLocalMessage(
-      "Music paused."
-    )
   }
 
   // =======================================================
@@ -1390,54 +1348,6 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
   const resumeMusic = async () => {
     dispatchMusicCommand("resume")
     addLocalMessage("Sent resume to the Music player.")
-    return
-    const youtubePlayer = youtubePlayerRef.current
-
-    if (youtubePlayer && typeof youtubePlayer.playVideo === "function") {
-      try {
-        youtubePlayer.playVideo()
-        addLocalMessage(
-          `Resumed **${currentTrack?.name || "music"}**.`
-        )
-        return
-      } catch (error) {
-        console.error(
-          "YOUTUBE RESUME FAILED:",
-          error
-        )
-      }
-    }
-
-    const audio =
-      audioRef.current
-
-    if (
-      !audio ||
-      !currentTrack
-    ) {
-      addLocalMessage(
-        "There is no music to resume."
-      )
-
-      return
-    }
-
-    try {
-      await audio.play()
-
-      addLocalMessage(
-        `Resumed **${currentTrack.name || "music"}**.`
-      )
-    } catch (error) {
-      console.error(
-        "RESUME FAILED:",
-        error
-      )
-
-      addLocalMessage(
-        "I couldn't resume the music."
-      )
-    }
   }
 
   // =======================================================
@@ -1934,9 +1844,11 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
     const isTabCommand = handleTabCommand(message)
     if (isTabCommand) return
 
+    const localMusicCommand = parseMusicCommand(message)
+
     // Start intent detection/polishing while conversation routing runs. These
     // requests are independent, so awaiting them sequentially added avoidable latency.
-    const intentPromise = apiFetch(`/api/intent/classify`, {
+    const intentPromise = localMusicCommand ? Promise.resolve(null) : apiFetch(`/api/intent/classify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message }),
@@ -2007,6 +1919,14 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
     setMessages(previous => [...previous, userMessage])
     setInput("")
 
+    if (localMusicCommand) {
+      dispatchMusicCommand(localMusicCommand.action, localMusicCommand.query, message)
+      addLocalMessage(localMusicCommand.query
+        ? `Opening Music and automatically searching YouTube for **${localMusicCommand.query}**.`
+        : "Opening Music.")
+      return
+    }
+
     // Ask the AI to decide whether this message is a navigation action or
     // ordinary conversation. Place mentions alone must not switch screens.
     try {
@@ -2018,16 +1938,6 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
           return
         }
 
-        if (String(featureIntent?.intent || "").toLowerCase() === "music") {
-          const requested = String(featureIntent?.query || "").trim()
-          const fallbackQuery = message.replace(/^(?:(?:hey\s+)?(?:visionary|nexus)[,:-]?\s*)?(?:(?:please\s+)?(?:can you|could you|would you|will you|i want to|i would like to|let me)\s+)?(?:play|listen to|put on|start playing|find|search for)\s+/i, "").trim()
-          const query = requested || fallbackQuery
-          const classifiedAction = String(featureIntent?.action || "play").toLowerCase()
-          const action = (["pause", "resume", "next", "previous"].includes(classifiedAction) ? classifiedAction : "play") as "play" | "pause" | "resume" | "next" | "previous"
-          dispatchMusicCommand(action, query, message)
-          addLocalMessage(query ? "Opening Music and automatically searching for **" + query + "**." : "Opening Music.")
-          return
-        }
         // Reuse the intent-classification call to polish typed paragraphs and
         // voice transcripts without adding another slow AI request. Never
         // replace a long original with a suspiciously short result.
