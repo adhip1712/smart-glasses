@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Dashboard from './components/Dashboard'
 import AIAssistant from './components/AIAssistant'
 import Vision from './components/Vision'
@@ -8,6 +8,8 @@ import Navigation from './components/Navigation'
 import Notifications from './components/Notifications'
 import Device from './components/Device'
 import Settings from './components/Settings'
+import WhatsApp from './components/WhatsApp'
+import Calling from './components/Calling'
 import { apiFetch, readJson } from './services/api'
 import VoiceControl from './components/VoiceControl'
 import { speakText } from './services/speech'
@@ -16,7 +18,7 @@ import IntroSplash from './components/IntroSplash'
 import AuthScreen from './components/AuthScreen'
 import { getToken, getStoredUser, setSession } from './services/api'
 
-export type Tab = 'dashboard' | 'ai' | 'vision' | 'music' | 'weather' | 'nav' | 'notifications' | 'device' | 'settings'
+export type Tab = 'dashboard' | 'ai' | 'vision' | 'music' | 'weather' | 'nav' | 'notifications' | 'whatsapp' | 'calling' | 'device' | 'settings'
 
 const DashIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
@@ -63,6 +65,17 @@ const BellIcon = () => (
     <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" />
   </svg>
 )
+const WhatsAppIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
+    <path d="M20.5 11.5a8.5 8.5 0 0 1-12.6 7.4L3 20l1.2-4.7A8.5 8.5 0 1 1 20.5 11.5Z" />
+    <path d="M8.5 8.5c.5 2.8 2.2 4.5 5 5l1.2-1.2 2 1c-.2 1.3-1.1 2-2.4 2-3.8-.5-6.6-3.3-7.1-7.1 0-1.3.7-2.2 2-2.4l1 2-1.7 1.7Z" />
+  </svg>
+)
+const PhoneIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
+    <path d="M5 3h4l2 5-3 2a15 15 0 0 0 6 6l2-3 5 2v4a2 2 0 0 1-2 2C10 21 3 14 3 5a2 2 0 0 1 2-2Z" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
 const GearIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
     <circle cx="12" cy="12" r="3" />
@@ -78,6 +91,8 @@ const tabs = [
   { id: 'weather' as Tab, label: 'Weather', Icon: WeatherIcon },
   { id: 'nav' as Tab, label: 'Navigation', Icon: NavIcon },
   { id: 'notifications' as Tab, label: 'Notifications', Icon: BellIcon },
+  { id: 'whatsapp' as Tab, label: 'WhatsApp', Icon: WhatsAppIcon },
+  { id: 'calling' as Tab, label: 'Calling', Icon: PhoneIcon },
   { id: 'device' as Tab, label: 'Device', Icon: ChipIcon },
   { id: 'settings' as Tab, label: 'Settings', Icon: GearIcon },
 ]
@@ -93,15 +108,42 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard')
   const [navigationDestination, setNavigationDestination] = useState('')
   const [pendingVoiceCommand, setPendingVoiceCommand] = useState('')
+  const [pendingWhatsAppDraft, setPendingWhatsAppDraft] = useState<{ recipient: string; message: string } | null>(null)
+  const consumeWhatsAppDraft = useCallback(() => setPendingWhatsAppDraft(null), [])
+  const [pendingCallRequest, setPendingCallRequest] = useState<{ recipient: string; channel: 'phone' | 'whatsapp' } | null>(null)
+  const consumeCallRequest = useCallback(() => setPendingCallRequest(null), [])
   const [status, setStatus] = useState<SystemStatus>({ backend: false, aiProvider: '—', glassesOnline: 0, wifiLabel: 'UNKNOWN' })
   const [authReady, setAuthReady] = useState(false)
   const [authenticated, setAuthenticated] = useState(false)
-  const [showIntro, setShowIntro] = useState(true)
+  // OAuth returns through a full-page redirect. Do not replay the intro splash
+  // during that redirect, otherwise it looks like sign-in merely restarted.
+  const [showIntro, setShowIntro] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    return !params.has('oauth_ticket') && !params.has('oauth_error')
+  })
   const [introKey, setIntroKey] = useState(0)
 
   useEffect(() => {
     let mounted = true
     const restoreSession = async () => {
+      const oauthTicket = new URLSearchParams(window.location.search).get('oauth_ticket')
+      if (oauthTicket) {
+        try {
+          const exchange = await apiFetch('/api/auth/oauth/exchange', { method: 'POST', body: JSON.stringify({ ticket: oauthTicket }) })
+          const data = await readJson<{ access_token?: string; user?: { id:number; email:string; display_name:string|null } }>(exchange)
+          if (!exchange.ok || !data?.access_token || !data.user) throw new Error('Social sign-in could not be completed.')
+          setSession(data.access_token, data.user)
+          window.history.replaceState({}, document.title, '/')
+          if (mounted) setAuthenticated(true)
+        } catch {
+          setSession(null, null)
+          window.history.replaceState({}, document.title, '/?oauth_error=failed')
+          if (mounted) setAuthenticated(false)
+        } finally {
+          if (mounted) setAuthReady(true)
+        }
+        return
+      }
       const token = getToken()
       if (!token) {
         if (mounted) setAuthReady(true)
@@ -310,6 +352,14 @@ export default function App() {
           </div>
         </header>
         <VoiceControl onCommand={async (spoken) => {
+          const callMatch = spoken.trim().match(/^(?:hey\s+)?(?:vision[, ]*)?(whatsapp\s+call|call)(?:\s+(?:on\s+)?whatsapp)?\s+(.+)$/i)
+          if (callMatch) {
+            const channel = /whatsapp/i.test(callMatch[1]) || /whatsapp/i.test(spoken.split(/\s+/).slice(0, 3).join(' ')) ? 'whatsapp' : 'phone'
+            setPendingCallRequest({ recipient: callMatch[2].trim(), channel })
+            setActiveTab('calling')
+            speakText(`${channel === 'whatsapp' ? 'WhatsApp' : 'Phone'} call prepared for ${callMatch[2].trim()}.`)
+            return
+          }
           const musicCommand = parseMusicCommand(spoken)
           if (musicCommand) {
             setActiveTab('music')
@@ -338,6 +388,8 @@ export default function App() {
               destination?: string
               query?: string
               polished_text?: string
+              recipient?: string
+              message_text?: string
             }>(response)
             const routedIntent = (intent?.intent || 'general').toLowerCase()
             const polished = intent?.polished_text?.trim() || spoken
@@ -350,6 +402,14 @@ export default function App() {
                   : 'play'),
                 query: intent?.query || '', text: polished,
               })
+              return
+            }
+            if (routedIntent === 'whatsapp') {
+              setPendingWhatsAppDraft({ recipient: intent?.recipient || '', message: intent?.message_text || '' })
+              setActiveTab('whatsapp')
+              speakText(intent?.recipient && intent?.message_text
+                ? `Preparing a WhatsApp message to ${intent.recipient}. Review it and open WhatsApp to send.`
+                : 'Open WhatsApp to choose the recipient and complete the message.')
               return
             }
             if (routedIntent === 'navigation' && intent?.destination) {
@@ -389,7 +449,12 @@ export default function App() {
         }} />
         <div className="animate-slide-in vn-content">
           {activeTab === 'dashboard' && <Dashboard setActiveTab={setActiveTab} />}
-          {activeTab === 'ai' && <AIAssistant onNavigate={(destination) => { setNavigationDestination(destination); setActiveTab('nav') }} onMusic={() => setActiveTab('music')} />}
+          {activeTab === 'ai' && <AIAssistant
+            onNavigate={(destination) => { setNavigationDestination(destination); setActiveTab('nav') }}
+            onMusic={() => setActiveTab('music')}
+            onWhatsAppDraft={(draft) => { setPendingWhatsAppDraft(draft); setActiveTab('whatsapp') }}
+            onCallRequest={(request) => { setPendingCallRequest(request); setActiveTab('calling') }}
+          />}
           {activeTab === 'vision' && <Vision />}
           {/* Keep Music mounted while other tabs are open so playback and playlist editing continue. */}
           <div style={{ display: activeTab === 'music' ? 'block' : 'none' }} aria-hidden={activeTab !== 'music'}>
@@ -398,6 +463,8 @@ export default function App() {
           {activeTab === 'weather' && <Weather />}
           {activeTab === 'nav' && <Navigation initialDestination={navigationDestination} />}
           {activeTab === 'notifications' && <Notifications />}
+          {activeTab === 'whatsapp' && <WhatsApp initialDraft={pendingWhatsAppDraft} onDraftConsumed={consumeWhatsAppDraft} />}
+          {activeTab === 'calling' && <Calling initialRequest={pendingCallRequest} onRequestConsumed={consumeCallRequest} />}
           {activeTab === 'device' && <Device />}
           {activeTab === 'settings' && <Settings onSignOut={() => {
             setAuthenticated(false)

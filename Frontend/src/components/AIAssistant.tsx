@@ -84,7 +84,12 @@ type NavigationResult = {
 // COMPONENT
 // =========================================================
 
-const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusic?: () => void }> = ({ onNavigate, onMusic }) => {
+const AIAssistant: React.FC<{
+  onNavigate?: (destination: string) => void
+  onMusic?: () => void
+  onWhatsAppDraft?: (draft: { recipient: string; message: string }) => void
+  onCallRequest?: (request: { recipient: string; channel: 'phone' | 'whatsapp' }) => void
+}> = ({ onNavigate, onMusic, onWhatsAppDraft, onCallRequest }) => {
   // =======================================================
   // CHAT STATE
   // =======================================================
@@ -1826,6 +1831,84 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
     }
 
   // =======================================================
+  // WHATSAPP HANDOFF
+  // =======================================================
+
+  const resolveWhatsAppPhone = (recipient: string): string => {
+    const key = "visionary_whatsapp_contacts"
+    let contacts: Record<string, string> = {}
+    try {
+      contacts = JSON.parse(window.localStorage.getItem(key) || "{}")
+    } catch {
+      contacts = {}
+    }
+    const normalized = recipient.toLocaleLowerCase().trim()
+    const existing = Object.entries(contacts).find(([name]) => name.toLocaleLowerCase().trim() === normalized)
+    if (existing?.[1]) return existing[1]
+
+    const entered = window.prompt(`Enter ${recipient}'s WhatsApp number with country code (for example, 919876543210):`)
+    if (!entered) return ""
+    const phone = entered.replace(/[^0-9]/g, "")
+    if (phone.length < 8 || phone.length > 15) {
+      window.alert("Enter a valid international phone number, including the country code.")
+      return ""
+    }
+    contacts[recipient] = phone
+    try {
+      window.localStorage.setItem(key, JSON.stringify(contacts))
+    } catch {
+      // Contact can still be used for this send if browser storage is unavailable.
+    }
+    return phone
+  }
+
+  const handleWhatsAppIntent = async (intent: {
+    recipient?: string
+    message_text?: string
+    channel?: string
+  }): Promise<void> => {
+    const recipient = String(intent.recipient || "").trim()
+    const messageText = String(intent.message_text || "").trim()
+    if (!recipient || !messageText) {
+      speakResponse(!recipient
+        ? "Who should I send the WhatsApp message to?"
+        : "What message should I send?")
+      return
+    }
+
+    const phone = resolveWhatsAppPhone(recipient)
+    if (!phone) return
+    const channel = intent.channel === "business" ? "business" : "personal"
+
+    if (channel === "personal") {
+      const url = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(messageText)}`
+      speakResponse(`Opening WhatsApp Desktop with a prepared message for ${recipient}. Review it and click Send in WhatsApp.`)
+      window.open(url, '_blank', 'noopener,noreferrer')
+      return
+    }
+
+    const accepted = window.confirm(
+      `Send this through WhatsApp Business to ${recipient}?\n\n${messageText}\n\nConfirm only if ${recipient} has agreed to receive messages from your business.`
+    )
+    if (!accepted) return
+
+    try {
+      const response = await apiFetch("/api/whatsapp/business/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: phone, message: messageText, opt_in_confirmed: true }),
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.detail || "WhatsApp Business could not send the message.")
+      speakResponse(`WhatsApp accepted the message for ${recipient}.`)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "WhatsApp Business sending failed."
+      window.alert(detail)
+      speakResponse(detail)
+    }
+  }
+
+  // =======================================================
   // SEND MESSAGE
   // =======================================================
 
@@ -1841,6 +1924,21 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
 
     if (!message) {
       return
+    }
+
+    // Call commands are routed locally so they work even without an AI provider.
+    const callMatch = message.match(/^(?:hey\s+)?(?:vision[, ]*)?(whatsapp\s+call|call)(?:\s+(?:on\s+)?whatsapp)?\s+(.+)$/i)
+      || message.match(/^(?:hey\s+)?(?:vision[, ]*)?call\s+(.+?)\s+on\s+whatsapp$/i)
+    if (callMatch && onCallRequest) {
+      const whatsappCall = /whatsapp/i.test(callMatch[1] || '') || /whatsapp\s*$/i.test(message)
+      const recipient = (callMatch[2] || callMatch[1] || '').trim()
+      if (recipient) {
+        setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: 'user', content: message }])
+        setInput('')
+        onCallRequest({ recipient, channel: whatsappCall ? 'whatsapp' : 'phone' })
+        addLocalMessage(`${whatsappCall ? 'WhatsApp' : 'Phone'} call prepared for ${recipient}. Review the contact in Calling before continuing.`)
+        return
+      }
     }
 
     // Chat-control commands should not become conversation messages.
@@ -1873,6 +1971,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
       console.warn("AI feature intent routing unavailable; using normal command handling.", error)
       return null
     })
+
+    let featureIntentCache: any = null
 
     // Ask the backend AI to compare this prompt with the actual conversation
     // history. If semantic routing is unavailable, use conservative local topic
@@ -1941,7 +2041,18 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void; onMusi
     try {
       const intentResponse = await intentPromise
       if (intentResponse?.ok) {
-        const featureIntent = await intentResponse.json()
+        const featureIntent = featureIntentCache || await intentResponse.json()
+        if (featureIntent?.intent === "whatsapp" && featureIntent?.action === "send") {
+          if (onWhatsAppDraft) {
+            onWhatsAppDraft({
+              recipient: String(featureIntent.recipient || ""),
+              message: String(featureIntent.message_text || ""),
+            })
+          } else {
+            await handleWhatsAppIntent(featureIntent)
+          }
+          return
+        }
         if (featureIntent?.intent === "navigation" && featureIntent.destination) {
           onNavigate?.(String(featureIntent.destination))
           return
