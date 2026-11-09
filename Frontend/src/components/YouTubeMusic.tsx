@@ -238,7 +238,7 @@ export default function YouTubeMusic({ onSpotify }: Props) {
       pendingVideoIdRef.current = null
     }
     setBlockedYoutubeUrl('')
-    setMessage(`Playing ${track.name} â€” ${track.artist} in Visionary Nexus.`)
+    setMessage(`Playing ${track.name} — ${track.artist} in Visionary Nexus.`)
     return true
   }
 
@@ -902,11 +902,11 @@ export default function YouTubeMusic({ onSpotify }: Props) {
           className="mx-auto aspect-video w-full max-w-5xl overflow-hidden rounded-xl bg-black"
           style={{ minHeight: '280px', maxHeight: '70vh' }}
         />
-        {current && <p className="mx-auto mt-3 max-w-5xl truncate text-center text-sm text-white/65">Now playing: {current.name} â€” {current.artist}</p>}
+        {current && <p className="mx-auto mt-3 max-w-5xl truncate text-center text-sm text-white/65">Now playing: {current.name} — {current.artist}</p>}
         <div className="mt-4 flex items-center justify-center gap-3" aria-label="Music playback controls">
-          <button type="button" onClick={playPrevious} disabled={!current} aria-label="Previous track" title="Previous" className="grid h-11 w-11 place-items-center rounded-full border border-white/20 text-lg text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35">â®</button>
-          <button type="button" onClick={togglePlayback} disabled={!current} aria-label={isPlaying ? 'Pause' : 'Play'} title={isPlaying ? 'Pause' : 'Play'} className="grid h-12 w-12 place-items-center rounded-full bg-red-500 text-xl font-bold text-white transition hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-35">{isPlaying ? 'â…¡' : 'â–¶'}</button>
-          <button type="button" onClick={playNext} disabled={!current} aria-label="Next track" title="Next" className="grid h-11 w-11 place-items-center rounded-full border border-white/20 text-lg text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35">â­</button>
+          <button type="button" onClick={playPrevious} disabled={!current} aria-label="Previous track" title="Previous" className="grid h-11 w-11 place-items-center rounded-full border border-white/20 text-lg text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35">⏮</button>
+          <button type="button" onClick={togglePlayback} disabled={!current} aria-label={isPlaying ? 'Pause' : 'Play'} title={isPlaying ? 'Pause' : 'Play'} className="grid h-12 w-12 place-items-center rounded-full bg-red-500 text-xl font-bold text-white transition hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-35">{isPlaying ? 'Ⅱ' : '▶'}</button>
+          <button type="button" onClick={playNext} disabled={!current} aria-label="Next track" title="Next" className="grid h-11 w-11 place-items-center rounded-full border border-white/20 text-lg text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35">⏭</button>
         </div>
       </section>
       {blockedYoutubeUrl && <a
@@ -929,7 +929,7 @@ export default function YouTubeMusic({ onSpotify }: Props) {
       <section className="vn-music-results grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {results.map(track => (
           <div key={track.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3">
-            {track.image ? <img src={track.image} alt="" className="h-14 w-14 rounded-xl object-cover" /> : <div className="grid h-14 w-14 place-items-center rounded-xl bg-white/10">â™ª</div>}
+            {track.image ? <img src={track.image} alt="" className="h-14 w-14 rounded-xl object-cover" /> : <div className="grid h-14 w-14 place-items-center rounded-xl bg-white/10">♪</div>}
             <div className="min-w-0 flex-1">
               <button onClick={() => playTrack(track, results)} className="block w-full text-left">
                 <span className="block truncate text-sm font-semibold">{track.name}</span>
@@ -975,7 +975,7 @@ export default function YouTubeMusic({ onSpotify }: Props) {
           <div className="space-y-1">
             {queueItems.map((track, index) => <div key={track.id} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-white/[0.055]">
               <span className="w-6 text-xs tabular-nums text-white/35">{String(index + 1).padStart(2, '0')}</span>
-              {track.image ? <img src={track.image} alt="" className="h-10 w-10 rounded-lg object-cover" /> : <span className="grid h-10 w-10 place-items-center rounded-lg bg-white/10">â ¿</span>}
+              {track.image ? <img src={track.image} alt="" className="h-10 w-10 rounded-lg object-cover" /> : <span className="grid h-10 w-10 place-items-center rounded-lg bg-white/10">⠿</span>}
               <button className="min-w-0 flex-1 text-left" onClick={() => { replaceQueue(queueItems.slice(index + 1)); playTrack(track) }}>
                 <span className="block truncate text-xs font-medium text-white/85">{track.name}</span>
                 <span className="block truncate text-[11px] text-white/40">{track.artist}</span>
