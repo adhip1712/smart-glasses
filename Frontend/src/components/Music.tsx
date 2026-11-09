@@ -19,7 +19,7 @@ export default function Music() {
       <div style={{ display: showSpotify ? 'none' : 'block' }} aria-hidden={showSpotify}>
         <YouTubeMusic onSpotify={() => setShowSpotify(true)} />
       </div>
-      {showSpotify && <SpotifyMusic initialShowSoundCloud={false} />}
+      {showSpotify && <SpotifyMusic initialShowSoundCloud={false} onYouTube={() => setShowSpotify(false)} />}
     </>
   )
 }
