@@ -1,0 +1,54 @@
+services:
+  - type: web
+    name: visionary-nexus-api
+    runtime: python
+    region: singapore
+    plan: starter
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: DATABASE_URL
+        fromDatabase:
+          name: visionary-nexus-db
+          property: connectionString
+      - key: AUTH_SECRET_KEY
+        generateValue: true
+      - key: DEVICE_TOKEN_KEY
+        generateValue: true
+      - key: DEVICE_TOKEN_PEPPER
+        generateValue: true
+      - key: OAUTH_BACKEND_URL
+        value: https://visionary-nexus-api.onrender.com
+      - key: OAUTH_FRONTEND_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: WEATHER_PROVIDER
+        value: real
+      - key: WEATHER_API_KEY
+        sync: false
+      - key: NAVIGATION_PROVIDER
+        value: real
+      - key: YOUTUBE_API_KEY
+        sync: false
+
+databases:
+  - name: visionary-nexus-db
+    databaseName: visionary_nexus
+    user: visionary_nexus_user
+    region: singapore
+    plan: basic-256mb
+    postgresMajorVersion: "16"

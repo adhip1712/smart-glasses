@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+﻿import { useEffect, useRef, useState } from 'react'
 import { apiFetch, readJson } from '../services/api'
 import { correctDictation, isTextEntry } from '../services/dictation'
 import { stopSpeaking } from '../services/speech'
@@ -414,7 +414,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
           : null
     }
 
-    
+
     // Prefer server-side Whisper for text-field dictation. Commands and wake-word
     // listening still use browser recognition to avoid changing their behavior.
     if (targetRef.current && navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined') {
@@ -565,7 +565,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
   toggleRef.current = toggle
 
   return (
-    <div className="fixed bottom-5 right-5 z-50 flex max-w-[min(92vw,28rem)] flex-col items-end gap-2">
+    <div className="vn-voice-dock fixed bottom-5 right-5 z-50 flex max-w-[min(92vw,28rem)] flex-col items-end gap-2">
       {liveTranscript && (
         <div role="status" aria-live="polite" className="w-full max-h-32 overflow-y-auto rounded-xl border border-cyan-400/20 bg-slate-950/95 px-3 py-2 text-sm text-white/90 shadow-xl">
           <span className="mb-1 block text-[10px] uppercase tracking-wider text-cyan-300/70">Live transcript</span>
@@ -573,22 +573,22 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
         </div>
       )}
       {status && <div role="status" className="rounded-xl border border-cyan-400/20 bg-slate-950/95 px-3 py-2 text-xs text-white/80 shadow-xl">{status}</div>}
-      <div className="flex items-center gap-2 rounded-full border border-cyan-400/20 bg-slate-950/95 p-1.5 shadow-xl">
+      <div className="vn-voice-toolbar flex items-center gap-2 rounded-full border border-cyan-400/20 bg-slate-950/95 p-1.5 shadow-xl">
         <label className="sr-only" htmlFor="visionary-speech-language">Dictation language</label>
         <select
           id="visionary-speech-language"
           value={language}
           disabled={listening}
           onChange={event => setLanguage(event.target.value)}
-          className="max-w-40 bg-transparent px-2 py-2 text-xs text-white outline-none disabled:opacity-50"
+          className="vn-voice-select max-w-40 bg-transparent px-2 py-2 text-xs text-white outline-none disabled:opacity-50"
           title="Speech and proofreading language"
         >
           {SPEECH_LANGUAGES.map(item => <option key={item.code} value={item.code} className="bg-slate-900 text-white">{item.label}</option>)}
         </select>
-        <button type="button" onClick={toggleWakeListening} aria-pressed={wakeListening} aria-label={wakeListening ? 'Stop wake word listening' : 'Start wake word listening'} title={`Wake word: ${wakeWord}`} className={wakeListening ? 'flex items-center gap-2 rounded-full border border-purple-400/50 bg-purple-500/20 px-3 py-3 text-xs font-medium text-purple-100' : 'flex items-center gap-2 rounded-full border border-purple-400/30 bg-slate-950 px-3 py-3 text-xs font-medium text-purple-100 hover:bg-purple-400/10'}>
+        <button type="button" onClick={toggleWakeListening} aria-pressed={wakeListening} aria-label={wakeListening ? 'Stop wake word listening' : 'Start wake word listening'} title={`Wake word: ${wakeWord}`} className={wakeListening ? 'vn-voice-btn is-active flex items-center gap-2 rounded-full border border-purple-400/50 bg-purple-500/20 px-3 py-3 text-xs font-medium text-purple-100' : 'vn-voice-btn flex items-center gap-2 rounded-full border border-purple-400/30 bg-slate-950 px-3 py-3 text-xs font-medium text-purple-100 hover:bg-purple-400/10'}>
           {wakeListening ? 'Wake On' : 'Wake'}
         </button>
-        <button type="button" onClick={toggle} aria-label={listening ? 'Stop voice input' : 'Start voice command or dictation'} title="Voice command / dictation" className={listening ? 'flex items-center gap-2 rounded-full border border-red-400/50 bg-red-500/20 px-4 py-3 text-sm font-medium text-red-100' : 'flex items-center gap-2 rounded-full border border-cyan-400/40 bg-slate-950 px-4 py-3 text-sm font-medium text-cyan-100 hover:bg-cyan-400/10'}>
+        <button type="button" onClick={toggle} aria-label={listening ? 'Stop voice input' : 'Start voice command or dictation'} title="Voice command / dictation" className={listening ? 'vn-voice-btn is-active flex items-center gap-2 rounded-full border border-red-400/50 bg-red-500/20 px-4 py-3 text-sm font-medium text-red-100' : 'vn-voice-btn flex items-center gap-2 rounded-full border border-cyan-400/40 bg-slate-950 px-4 py-3 text-sm font-medium text-cyan-100 hover:bg-cyan-400/10'}>
           <span aria-hidden="true">{listening ? 'Stop' : 'Mic'}</span>
           {listening ? 'Stop' : 'Voice'}
         </button>

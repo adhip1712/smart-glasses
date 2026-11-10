@@ -35,3 +35,34 @@ logs/
 
 # Device credentials must remain local
 firmware/device/secrets.h
+
+# Generated dependencies, caches, databases and build output
+**/node_modules/
+**/__pycache__/
+**/*.py[cod]
+**/*.db
+**/.pytest_cache/
+Frontend/dist/
+Frontend/android/**/build/
+Frontend/android/.gradle/
+Frontend/android/local.properties
+Frontend/android/hs_err_pid*.log
+Frontend/android/replay_pid*.log
+Frontend/android/app/src/main/assets/public/
+Frontend/ios/App/App/public/
+Frontend/ios/App/Pods/
+Frontend/ios/build/
+*.bak
+*.backup
+*.backup2
+*.log
+.venv/
+.venv-1/
+.qodo/
+.freebuff/
+build/
+logs/
+
+firmware/secrets.h
+*.sqlite
+*.sqlite3

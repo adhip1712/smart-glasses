@@ -32,12 +32,14 @@ import { API_BASE } from './camera'
  * import.meta.env through a type-cast/dynamic object can survive Vite's build
  * transform and be undefined in the browser, silently disabling video.
  */
-declare const __VISION_STREAM_TOKEN__: string
-const viteVisionToken: string =
-  typeof __VISION_STREAM_TOKEN__ === 'string' ? __VISION_STREAM_TOKEN__ : ''
+declare const __VISION_STREAM_TOKEN__: string | undefined
 
-/** Optional: set VITE_VISION_TOKEN to enable the annotated video preview. */
-export const VISION_TOKEN = viteVisionToken
+const viteVisionToken = (import.meta.env.VITE_VISION_TOKEN ?? '').trim()
+const injectedVisionToken =
+  typeof __VISION_STREAM_TOKEN__ !== 'undefined' ? __VISION_STREAM_TOKEN__.trim() : ''
+
+/** Use the normal Vite env first, then its explicitly injected local fallback. */
+export const VISION_TOKEN = viteVisionToken || injectedVisionToken
 
 export interface VisionBox {
   x1: number

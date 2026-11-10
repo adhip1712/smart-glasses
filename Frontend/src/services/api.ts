@@ -3,11 +3,20 @@
 // any laptop LAN address; VITE_API_URL can override it for special setups.
 
 const configured = (import.meta.env.VITE_API_URL as string | undefined) || ''
+const MOBILE_API_KEY = 'visionary.backend_url'
 
-// Use same-origin /api requests by default. Vite proxies these to FastAPI on
-// port 8000, avoiding a second hard-coded backend port and working on any LAN IP.
-// Set VITE_API_URL only when the frontend is hosted separately from the API.
-export const API_URL = configured ? configured.replace(/\/+$/, '') : ''
+// Browser/desktop uses same-origin Vite proxy by default. Capacitor builds can
+// store the PC/server LAN URL in Settings so phones reach the same FastAPI API.
+function resolveApiUrl(): string {
+  if (configured) return configured.replace(/\/+$/, '')
+  try {
+    return (window.localStorage.getItem(MOBILE_API_KEY) || '').trim().replace(/\/+$/, '')
+  } catch {
+    return ''
+  }
+}
+
+export const API_URL = resolveApiUrl()
 
 const TOKEN_KEY = 'visionary_token'
 const USER_KEY = 'visionary_user'
@@ -16,6 +25,7 @@ export interface AuthUser {
   id: number
   email: string
   display_name: string | null
+  avatar_url?: string | null
 }
 
 export function getToken(): string | null {

@@ -122,19 +122,16 @@ export function parseMusicCommand(input: string): MusicCommand | null {
   return { action: 'play', query }
 }
 
+// Ignore whitespace and punctuation when comparing playlist names, but keep
+// every letter and number. A playlist is selected only when the complete
+// normalized query equals its name; extra words must remain a YouTube search.
 const playlistKey = (value: string) =>
-  value.toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ')
+  value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
 
 export function findSavedPlaylist<T extends { name: string }>(query: string, playlists: T[]): T | null {
   const key = playlistKey(query.replace(/^(?:my|the)\s+/i, '').replace(/\s+playlist$/i, ''))
   if (!key) return null
-  const exact = playlists.find(playlist => playlistKey(playlist.name) === key)
-  if (exact) return exact
-  const matches = playlists.filter(playlist => {
-    const name = playlistKey(playlist.name)
-    return name.includes(key) || key.includes(name)
-  })
-  return matches.length === 1 ? matches[0] : null
+  return playlists.find(playlist => playlistKey(playlist.name) === key) || null
 }
 
 export function isValidYouTubeVideoId(id: string | undefined | null): id is string {

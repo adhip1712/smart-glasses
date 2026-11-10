@@ -1,0 +1,652 @@
+/* VISIONARY NEXUS — unified spatial interface
+   This stylesheet intentionally replaces the earlier overlapping overrides. */
+
+.vn-spatial-shell {
+  --vn-ice:#a9eaff;
+  --vn-cyan:#56cfff;
+  --vn-violet:#9c8cff;
+  --vn-panel:rgba(13,22,43,.88);
+  --vn-line:rgba(153,198,255,.2);
+  position:relative !important;
+  display:flex !important;
+  min-height:100vh !important;
+  width:100%;
+  overflow:hidden !important;
+  color:#eef6ff !important;
+  background:radial-gradient(ellipse at 52% 45%,#14264a 0%,#080f20 48%,#030711 100%) !important;
+  perspective:1800px;
+  perspective-origin:50% 38%;
+}
+
+/* One clean navigation rail: remove inherited slab, stripe and leftover pseudo-elements. */
+.vn-spatial-shell > aside.vn-sidebar {
+  box-sizing:border-box !important;
+  display:flex !important;
+  flex:0 0 214px !important;
+  width:214px !important;
+  min-width:214px !important;
+  max-width:214px !important;
+  min-height:calc(100vh - 24px) !important;
+  height:calc(100vh - 24px) !important;
+  margin:12px 0 12px 12px !important;
+  padding:0 !important;
+  overflow:hidden !important;
+  border:1px solid rgba(151,199,255,.2) !important;
+  border-radius:25px !important;
+  border-right:1px solid rgba(151,199,255,.2) !important;
+  background:linear-gradient(155deg,rgba(20,34,63,.97),rgba(6,13,29,.97)) !important;
+  box-shadow:14px 22px 48px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.11) !important;
+  backdrop-filter:blur(28px) saturate(145%) !important;
+  transform:translateZ(18px);
+  transform-style:preserve-3d;
+}
+.vn-spatial-shell > aside.vn-sidebar::before,
+.vn-spatial-shell > aside.vn-sidebar::after { content:none !important; display:none !important; }
+.vn-spatial-shell > aside.vn-sidebar .vn-sidebar-identity {
+  flex:0 0 auto;
+  min-height:98px;
+  padding:20px 17px 16px !important;
+  border-bottom:1px solid rgba(173,207,255,.13) !important;
+  background:linear-gradient(145deg,rgba(255,255,255,.055),transparent 72%) !important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
+}
+.vn-spatial-shell > aside.vn-sidebar .vn-avatar {
+  border:1px solid rgba(167,225,255,.55) !important;
+  border-radius:13px !important;
+  background:linear-gradient(145deg,#d7f5ff,#718ebd) !important;
+  color:#12223e !important;
+  box-shadow:0 7px 0 rgba(34,63,100,.65),0 12px 22px rgba(0,0,0,.28),inset 0 1px 0 white !important;
+  transform:translateZ(18px);
+}
+.vn-spatial-shell > aside.vn-sidebar .vn-display-name { color:#f2f8ff !important; font-size:13px !important; font-weight:750 !important; }
+.vn-spatial-shell > aside.vn-sidebar nav {
+  flex:1 1 auto !important;
+  min-height:0;
+  overflow-y:auto !important;
+  padding:17px 11px !important;
+  display:flex;
+  flex-direction:column;
+  gap:6px !important;
+  scrollbar-width:thin;
+  scrollbar-color:rgba(151,195,255,.25) transparent;
+}
+.vn-spatial-shell > aside.vn-sidebar nav button {
+  position:relative;
+  display:flex !important;
+  align-items:center !important;
+  justify-content:flex-start !important;
+  gap:12px !important;
+  width:100% !important;
+  min-height:44px !important;
+  margin:0 !important;
+  padding:9px 12px !important;
+  border:1px solid transparent !important;
+  border-radius:13px !important;
+  background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.008)) !important;
+  color:#aabbd5 !important;
+  box-shadow:0 4px 0 rgba(1,7,19,.45),0 8px 16px rgba(0,0,0,.14),inset 0 1px 0 rgba(255,255,255,.055) !important;
+  transform:translateZ(8px);
+  transform-style:preserve-3d;
+  animation:vn-rail-hover 7s ease-in-out infinite;
+  transition:transform .25s ease,background .25s ease,border-color .25s ease,box-shadow .25s ease !important;
+}
+.vn-spatial-shell > aside.vn-sidebar nav button:nth-child(2n) { animation-delay:-2.3s; }
+.vn-spatial-shell > aside.vn-sidebar nav button:nth-child(3n) { animation-delay:-4.1s; }
+.vn-spatial-shell > aside.vn-sidebar nav button > span:first-child {
+  display:inline-flex;
+  width:20px;
+  flex:0 0 20px;
+  align-items:center;
+  justify-content:center;
+  color:#91b5dc !important;
+  transform:translateZ(8px);
+}
+.vn-spatial-shell > aside.vn-sidebar nav button > span:last-of-type {
+  color:inherit !important;
+  font-size:10px !important;
+  font-weight:700 !important;
+  letter-spacing:.105em !important;
+}
+.vn-spatial-shell > aside.vn-sidebar nav button:hover {
+  transform:translate3d(0,-5px,20px) rotateX(5deg) !important;
+  border-color:rgba(143,207,255,.32) !important;
+  background:linear-gradient(115deg,rgba(74,174,232,.2),rgba(129,104,220,.16)) !important;
+  box-shadow:0 8px 0 rgba(1,7,19,.35),0 17px 24px rgba(0,0,0,.26),inset 0 1px 0 rgba(255,255,255,.16) !important;
+}
+.vn-spatial-shell > aside.vn-sidebar nav button.nav-item-active {
+  border-color:rgba(133,215,255,.48) !important;
+  background:linear-gradient(115deg,rgba(74,174,232,.3),rgba(129,104,220,.25)) !important;
+  color:#f0fbff !important;
+  box-shadow:0 5px 0 rgba(20,48,83,.85),0 12px 24px rgba(37,133,201,.19),inset 0 1px 0 rgba(255,255,255,.2) !important;
+}
+.vn-spatial-shell > aside.vn-sidebar nav button.nav-item-active > span { color:#c5f1ff !important; }
+.vn-spatial-shell > aside.vn-sidebar > div:last-child {
+  flex:0 0 auto;
+  padding:12px !important;
+  border-top:1px solid rgba(173,207,255,.13) !important;
+  background:rgba(2,8,20,.22);
+}
+.vn-spatial-shell > aside.vn-sidebar .glass {
+  border:1px solid rgba(151,198,255,.14) !important;
+  border-radius:11px !important;
+  background:linear-gradient(145deg,rgba(255,255,255,.07),rgba(255,255,255,.025)) !important;
+  box-shadow:0 4px 0 rgba(0,0,0,.24),0 8px 14px rgba(0,0,0,.13),inset 0 1px 0 rgba(255,255,255,.07) !important;
+}
+.vn-spatial-shell > main {
+  position:relative !important;
+  z-index:1;
+  flex:1 1 0% !important;
+  width:0;
+  min-width:0 !important;
+  height:100vh;
+  min-height:100vh !important;
+  padding:12px 14px 12px 12px !important;
+  overflow:auto !important;
+}
+.vn-spatial-shell .vn-topbar {
+  min-height:64px !important;
+  margin:0 0 12px !important;
+  padding:12px 23px !important;
+  border:1px solid var(--vn-line) !important;
+  border-radius:20px !important;
+  background:linear-gradient(145deg,rgba(19,32,59,.94),rgba(8,16,34,.9)) !important;
+  color:#eef7ff !important;
+  box-shadow:0 7px 0 rgba(2,8,20,.55),0 15px 30px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.11) !important;
+  transform:perspective(1000px) rotateX(1.5deg) translateZ(12px);
+  transform-origin:top center;
+}
+.vn-spatial-shell .vn-topbar-title { color:#ffffff !important; }
+.vn-spatial-shell .vn-topbar-subtitle { color:#94aacb !important; }
+.vn-spatial-shell .vn-status-pill {
+  border:1px solid rgba(111,224,198,.25) !important;
+  background:linear-gradient(145deg,rgba(24,91,85,.6),rgba(11,50,53,.7)) !important;
+  box-shadow:0 4px 0 rgba(3,24,34,.7),0 9px 18px rgba(0,0,0,.2),inset 0 1px 0 rgba(255,255,255,.13) !important;
+  animation:vn-soft-float 5.7s ease-in-out infinite;
+}
+
+/* AI workspace: real WebGL model is centered in the usable conversation area. */
+.vn-ai-spatial {
+  --spatial-cyan:#9beaff;
+  --spatial-violet:#b9a5ff;
+  position:relative !important;
+  display:flex !important;
+  flex-direction:column !important;
+  isolation:isolate;
+  overflow:hidden !important;
+  width:100%;
+  height:calc(100dvh - 104px) !important;
+  min-height:560px !important;
+  border:1px solid rgba(150,198,255,.2) !important;
+  border-radius:27px !important;
+  background:radial-gradient(ellipse at 50% 47%,rgba(30,62,112,.44),transparent 48%),linear-gradient(145deg,rgba(9,17,36,.97),rgba(4,9,21,.98)) !important;
+  box-shadow:0 9px 0 rgba(1,6,17,.75),0 23px 48px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.1) !important;
+  transform:translateZ(4px);
+  transform-style:preserve-3d;
+}
+.vn-ai-spatial > .vn-ai-3d-scene {
+  position:absolute !important;
+  top:47% !important;
+  left:50% !important;
+  right:auto !important;
+  bottom:auto !important;
+  width:min(43vw,440px) !important;
+  height:min(43vh,370px) !important;
+  min-width:300px;
+  min-height:280px;
+  z-index:0 !important;
+  opacity:.96 !important;
+  overflow:visible !important;
+  pointer-events:none !important;
+  transform:translate3d(-50%,-50%,20px) !important;
+  filter:drop-shadow(0 24px 30px rgba(25,128,210,.2));
+}
+.vn-ai-spatial > .vn-ai-3d-scene canvas { display:block; width:100% !important; height:100% !important; }
+.vn-ai-spatial > :not(.vn-ai-3d-scene) { position:relative; z-index:2; }
+.vn-ai-spatial > .vn-ai-header {
+  flex:0 0 auto;
+  min-height:72px;
+  padding:15px 25px 11px !important;
+  background:linear-gradient(90deg,rgba(9,17,35,.88),rgba(12,22,43,.48),rgba(9,17,35,.88)) !important;
+  border-bottom:1px solid rgba(150,198,255,.1);
+  box-shadow:0 5px 20px rgba(0,0,0,.12),inset 0 1px 0 rgba(255,255,255,.04);
+  transform:translateZ(16px);
+}
+.vn-ai-spatial .vn-ai-header h1 { color:#f1f8ff !important; font-size:19px !important; letter-spacing:-.03em; text-shadow:0 2px 12px rgba(95,190,255,.2); }
+.vn-ai-spatial .vn-ai-header p { color:#9bb5d7 !important; }
+.vn-ai-spatial .vn-ai-header > div:last-child > div:nth-child(2) {
+  border:1px solid rgba(154,205,255,.23) !important;
+  border-radius:14px !important;
+  background:linear-gradient(145deg,rgba(38,59,94,.9),rgba(14,25,49,.94)) !important;
+  box-shadow:0 5px 0 rgba(3,10,25,.75),0 10px 20px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.1) !important;
+  animation:vn-soft-float 6.2s ease-in-out infinite;
+}
+.vn-ai-spatial > .vn-ai-tabs {
+  flex:0 0 auto;
+  z-index:3 !important;
+  padding:12px 22px 6px !important;
+  transform:translateZ(24px);
+}
+.vn-ai-spatial > .vn-ai-tabs > div {
+  display:flex;
+  align-items:center;
+  gap:11px !important;
+  overflow-x:auto;
+  padding:4px 3px 13px;
+  perspective:1000px;
+}
+.vn-ai-spatial > .vn-ai-tabs > div > div {
+  flex:0 0 auto;
+  min-height:42px;
+  border:1px solid rgba(148,199,255,.3) !important;
+  border-radius:15px !important;
+  background:linear-gradient(145deg,rgba(36,57,91,.96),rgba(10,21,44,.98)) !important;
+  box-shadow:0 5px 0 rgba(3,10,26,.85),0 11px 18px rgba(0,0,0,.26),inset 0 1px 0 rgba(255,255,255,.13) !important;
+  transform-style:preserve-3d;
+  animation:vn-soft-float 6s ease-in-out infinite;
+  transition:border-color .28s ease,box-shadow .28s ease !important;
+}
+.vn-ai-spatial > .vn-ai-tabs > div > div:nth-child(2n) { animation-delay:-1.7s; }
+.vn-ai-spatial > .vn-ai-tabs > div > div:nth-child(3n) { animation-delay:-3.4s; }
+.vn-ai-spatial > .vn-ai-tabs > div > div:hover {
+  transform:none !important;
+  border-color:#fff !important;
+  box-shadow:0 5px 0 rgba(3,10,26,.85),0 11px 18px rgba(0,0,0,.26),inset 0 1px 0 rgba(255,255,255,.13) !important;
+  filter:none !important;
+}
+.vn-ai-spatial > .vn-ai-tabs button {
+  min-height:39px;
+  padding:8px 14px !important;
+  border:0 !important;
+  border-radius:13px !important;
+  background:transparent !important;
+  color:#e8f4ff !important;
+  box-shadow:none !important;
+  white-space:nowrap;
+  transform:translateZ(10px);
+}
+.vn-ai-spatial > .vn-ai-tabs button:hover { transform:translateZ(10px) !important; }
+.vn-ai-spatial > .vn-ai-messages {
+  position:relative;
+  z-index:1;
+  flex:1 1 0% !important;
+  min-height:0 !important;
+  padding:12px 28px 18px !important;
+  overflow-y:auto !important;
+  scrollbar-width:thin;
+  scrollbar-color:rgba(139,211,255,.3) transparent;
+  transform-style:preserve-3d;
+}
+.vn-ai-spatial > .vn-ai-messages > div.h-full {
+  min-height:100%;
+  justify-content:flex-end !important;
+  padding-top:250px !important;
+  padding-bottom:14px !important;
+  text-shadow:0 2px 18px rgba(0,0,0,.55);
+}
+.vn-ai-spatial > .vn-ai-messages > div.h-full > div:first-child { display:none !important; }
+.vn-ai-spatial > .vn-ai-messages h2 {
+  margin-top:0 !important;
+  color:#edf9ff !important;
+  font-size:23px !important;
+  font-weight:750 !important;
+  letter-spacing:.14em !important;
+  text-shadow:0 0 28px rgba(92,208,255,.42);
+}
+.vn-ai-spatial > .vn-ai-messages p { color:#a9bddb !important; }
+.vn-ai-spatial > .vn-ai-messages .space-y-5 {
+  width:100%;
+  max-width:960px;
+  margin:0 auto;
+  transform-style:preserve-3d;
+}
+.vn-ai-spatial > .vn-ai-messages .space-y-5 > div > div {
+  max-width:min(78%,760px);
+  border:1px solid rgba(155,204,255,.23) !important;
+  border-radius:19px !important;
+  background:linear-gradient(145deg,rgba(28,46,77,.94),rgba(10,20,41,.95)) !important;
+  box-shadow:0 6px 0 rgba(2,8,22,.85),0 16px 27px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.12) !important;
+  backdrop-filter:blur(18px);
+  animation:vn-message-float 7s ease-in-out infinite;
+  transform:translateZ(16px);
+}
+.vn-ai-spatial > .vn-ai-messages .space-y-5 > div:nth-child(2n) > div { animation-delay:-2.5s; }
+.vn-ai-spatial > .vn-ai-messages .space-y-5 > div:nth-child(3n) > div { animation-delay:-4s; }
+.vn-ai-spatial > .vn-ai-messages .space-y-5 > div > div .ai-markdown { color:#edf6ff; }
+.vn-ai-spatial > .vn-ai-messages .space-y-5 > div > div.bg-white\/15 {
+  background:linear-gradient(145deg,rgba(68,119,181,.65),rgba(35,57,103,.88)) !important;
+}
+
+/* Floating voice activity rail and deeply layered composer. */
+.vn-ai-spatial > .px-6:has(.h-8) {
+  flex:0 0 36px;
+  min-height:36px;
+  z-index:2;
+  transform:translateZ(18px);
+}
+.vn-ai-spatial > .px-6:has(.h-8) .h-8 { text-shadow:0 0 14px rgba(118,213,255,.4); }
+.vn-ai-spatial > .vn-ai-composer {
+  position:relative;
+  z-index:4;
+  flex:0 0 auto;
+  padding:10px 24px 18px !important;
+  transform:translateZ(34px);
+  perspective:1000px;
+}
+.vn-ai-spatial > .vn-ai-composer > div:first-child {
+  display:flex;
+  align-items:center;
+  min-height:68px !important;
+  gap:10px !important;
+  padding:8px 10px !important;
+  border:1px solid rgba(255,255,255,.22) !important;
+  border-radius:20px !important;
+  background:linear-gradient(145deg,rgba(32,32,32,.98),rgba(8,8,8,.98)) !important;
+  box-shadow:0 7px 0 rgba(2,8,22,.95),0 18px 34px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.16),inset 0 -2px 5px rgba(0,0,0,.18) !important;
+  backdrop-filter:blur(24px) saturate(150%);
+  transform:rotateX(2deg) translateZ(18px);
+  transform-origin:bottom center;
+  animation:vn-composer-float 5.4s ease-in-out infinite;
+}
+.vn-ai-spatial textarea {
+  min-width:0 !important;
+  min-height:44px !important;
+  max-height:150px !important;
+  padding:11px 13px !important;
+  border:1px solid rgba(255,255,255,.16) !important;
+  border-radius:13px !important;
+  background:linear-gradient(145deg,rgba(5,5,5,.9),rgba(25,25,25,.92)) !important;
+  color:#f2f8ff !important;
+  box-shadow:inset 0 3px 8px rgba(0,0,0,.38),0 3px 0 rgba(2,8,20,.65),inset 0 1px 0 rgba(255,255,255,.05) !important;
+  line-height:1.5 !important;
+  resize:vertical !important;
+}
+.vn-ai-spatial textarea::placeholder { color:#bdbdbd !important; opacity:.85 !important; }
+.vn-ai-spatial > .vn-ai-composer button {
+  min-width:44px;
+  min-height:44px;
+  border:1px solid rgba(255,255,255,.22) !important;
+  border-radius:13px !important;
+  background:linear-gradient(145deg,#343434,#171717) !important;
+  color:#ffffff !important;
+  box-shadow:0 4px 0 #080808,0 9px 14px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.25) !important;
+  transform:translateZ(12px);
+  transition:transform .2s ease,box-shadow .2s ease,filter .2s ease !important;
+}
+.vn-ai-spatial > .vn-ai-composer button:hover {
+  transform:none !important;
+  box-shadow:0 4px 0 #080808,0 9px 14px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.28) !important;
+  filter:none;
+}
+.vn-ai-spatial > .vn-ai-composer button:active {
+  transform:translate3d(0,2px,4px) !important;
+  box-shadow:0 1px 0 #101e39,0 3px 7px rgba(0,0,0,.25) !important;
+}
+.vn-ai-spatial button:focus-visible,.vn-ai-spatial textarea:focus-visible {
+  outline:2px solid #8ce5ff !important;
+  outline-offset:3px;
+}
+.vn-ai-spatial button:not(.vn-ai-tabs button) { transition:transform .24s ease,filter .24s ease,box-shadow .24s ease !important; }
+
+/* Apply real perspective and small continuous vertical motion to every interactive layer. */
+.vn-spatial-shell button,
+.vn-spatial-shell input,
+.vn-spatial-shell select,
+.vn-spatial-shell textarea {
+  transform-style:preserve-3d;
+}
+.vn-spatial-shell > main > .vn-topbar,
+.vn-ai-spatial > .vn-ai-header,
+.vn-ai-spatial > .vn-ai-tabs,
+.vn-ai-spatial > .vn-ai-composer {
+  transform-style:preserve-3d;
+}
+.vn-spatial-shell > main > * { transform-style:preserve-3d; }
+.vn-ai-spatial .vn-ai-header button,
+.vn-ai-spatial .vn-ai-header > div:last-child > div,
+.vn-ai-spatial > .vn-ai-tabs > div > div,
+.vn-ai-spatial > .vn-ai-composer > div:first-child,
+.vn-ai-spatial > .vn-ai-composer textarea {
+  will-change:transform;
+}
+.vn-ai-spatial .vn-ai-header button {
+  box-shadow:0 4px 0 rgba(2,8,20,.75),0 9px 15px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.16) !important;
+}
+.vn-ai-spatial .vn-ai-header button:hover {
+  transform:translate3d(0,-4px,16px) rotateX(5deg) !important;
+}
+.vn-ai-spatial .vn-ai-header button:active {
+  transform:translate3d(0,2px,2px) !important;
+}
+.vn-ai-spatial > .vn-ai-composer > div:first-child > * { transform:translateZ(10px); }
+.vn-ai-spatial > .vn-ai-composer > div:first-child textarea { transform:translateZ(13px); }
+
+@keyframes vn-soft-float {
+  0%,100% { translate:0 0; }
+  50% { translate:0 -5px; }
+}
+@keyframes vn-composer-float {
+  0%,100% { transform:rotateX(2deg) translateY(0) translateZ(18px); }
+  50% { transform:rotateX(2deg) translateY(-5px) translateZ(22px); }
+}
+@keyframes vn-message-float {
+  0%,100% { translate:0 0; }
+  50% { translate:0 -3px; }
+}
+@keyframes vn-rail-hover {
+  0%,100% { translate:0 0; }
+  50% { translate:0 -2px; }
+}
+@media(max-width:1000px) {
+  .vn-spatial-shell > aside.vn-sidebar { flex-basis:190px !important; width:190px !important; min-width:190px !important; max-width:190px !important; }
+  .vn-ai-spatial > .vn-ai-3d-scene { width:370px !important; height:320px !important; }
+}
+@media(max-width:760px) {
+  .vn-spatial-shell > aside.vn-sidebar { flex-basis:68px !important; width:68px !important; min-width:68px !important; max-width:68px !important; margin:8px 0 8px 8px !important; border-radius:19px !important; }
+  .vn-spatial-shell > aside.vn-sidebar .vn-sidebar-identity { padding:14px 8px !important; }
+  .vn-spatial-shell > aside.vn-sidebar nav { padding:12px 6px !important; }
+  .vn-spatial-shell > aside.vn-sidebar nav button { justify-content:center !important; padding:9px 5px !important; }
+  .vn-spatial-shell > aside.vn-sidebar nav button > span:last-of-type { display:none !important; }
+  .vn-spatial-shell > aside.vn-sidebar > div:last-child { display:none !important; }
+  .vn-spatial-shell > main { padding:8px !important; }
+  .vn-ai-spatial { height:calc(100dvh - 88px) !important; min-height:500px !important; border-radius:20px !important; }
+  .vn-ai-spatial > .vn-ai-3d-scene { top:43% !important; width:310px !important; height:280px !important; min-width:0; min-height:0; }
+  .vn-ai-spatial > .vn-ai-header { padding:13px 15px 9px !important; }
+  .vn-ai-spatial > .vn-ai-tabs { padding:8px 10px 2px !important; }
+  .vn-ai-spatial > .vn-ai-messages { padding:8px 13px 12px !important; }
+  .vn-ai-spatial > .vn-ai-messages > div.h-full { padding-top:205px !important; }
+  .vn-ai-spatial > .vn-ai-composer { padding:8px 11px 13px !important; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .vn-spatial-shell *, .vn-ai-spatial * { animation:none !important; transition:none !important; }
+  .vn-ai-spatial > .vn-ai-composer > div:first-child { transform:none !important; }
+}
+
+/* FINAL SIDEBAR OVERRIDE — opaque, sharp, no pale strip and no blur. */
+.vn-spatial-shell > aside.vn-sidebar,
+.vn-spatial-shell aside.vn-sidebar {
+  background:#080f1d !important;
+  background-image:none !important;
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
+  border:0 !important;
+  border-right:1px solid #18263b !important;
+  outline:0 !important;
+  box-shadow:8px 0 24px rgba(0,0,0,.42) !important;
+  filter:none !important;
+  opacity:1 !important;
+  isolation:isolate !important;
+}
+.vn-spatial-shell > aside.vn-sidebar::before,
+.vn-spatial-shell > aside.vn-sidebar::after,
+.vn-spatial-shell > aside.vn-sidebar *::before,
+.vn-spatial-shell > aside.vn-sidebar *::after {
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
+}
+.vn-spatial-shell > aside.vn-sidebar .vn-sidebar-identity {
+  background:#0b1525 !important;
+  border:0 !important;
+  border-bottom:1px solid #1b2a40 !important;
+  box-shadow:none !important;
+}
+.vn-spatial-shell > aside.vn-sidebar nav {
+  background:#080f1d !important;
+  border:0 !important;
+}
+.vn-spatial-shell > aside.vn-sidebar nav button {
+  background:#0c1728 !important;
+  border:1px solid #17263b !important;
+  box-shadow:0 3px 0 #030914,0 6px 12px rgba(0,0,0,.28) !important;
+  color:#b6c6da !important;
+}
+.vn-spatial-shell > aside.vn-sidebar nav button:hover {
+  background:#14243a !important;
+  border-color:#294664 !important;
+}
+.vn-spatial-shell > aside.vn-sidebar nav button.nav-item-active {
+  background:#19324c !important;
+  border-color:#3d7397 !important;
+  box-shadow:inset 3px 0 0 #78d9ff,0 4px 0 #07101e,0 9px 16px rgba(0,0,0,.3) !important;
+  color:#f3f9ff !important;
+}
+.vn-spatial-shell > aside.vn-sidebar > div:last-child {
+  background:#080f1d !important;
+  border:0 !important;
+  border-top:1px solid #1b2a40 !important;
+  box-shadow:none !important;
+}
+.vn-spatial-shell > aside.vn-sidebar .glass {
+  background:#0d192a !important;
+  border:1px solid #1a2b41 !important;
+  box-shadow:0 3px 0 #030914 !important;
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
+}
+.vn-spatial-shell > aside.vn-sidebar .vn-avatar {
+  background:#b9e9fa !important;
+  border:1px solid #d6f4ff !important;
+  box-shadow:0 3px 0 #34506a !important;
+}
+
+/* Hard stop: sidebar must remain opaque and crisp, including inline descendants. */
+.vn-spatial-shell aside.vn-sidebar {
+  background:#080f1d !important;
+  background-color:#080f1d !important;
+  background-image:none !important;
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
+  filter:none !important;
+  opacity:1 !important;
+  border:0 !important;
+  border-right:1px solid #18263b !important;
+  box-shadow:8px 0 24px rgba(0,0,0,.42) !important;
+}
+.vn-spatial-shell aside.vn-sidebar > *,
+.vn-spatial-shell aside.vn-sidebar .vn-sidebar-identity,
+.vn-spatial-shell aside.vn-sidebar nav,
+.vn-spatial-shell aside.vn-sidebar > div:last-child {
+  background-color:#080f1d !important;
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
+  filter:none !important;
+}
+.vn-spatial-shell aside.vn-sidebar .vn-sidebar-identity {
+  background-image:none !important;
+  border-bottom:1px solid #18263b !important;
+  box-shadow:none !important;
+}
+.vn-spatial-shell aside.vn-sidebar nav button {
+  background:#0d192a !important;
+  border-color:#1b2b40 !important;
+}
+.vn-spatial-shell aside.vn-sidebar nav button.nav-item-active {
+  background:#19324c !important;
+  border-color:#3d7397 !important;
+}
+
+/* Sidebar isolation: exact component class, opaque at every nested level. */
+#root > .vn-spatial-shell > aside.vn-sidebar-solid {
+  display:flex !important;
+  flex:0 0 216px !important;
+  width:216px !important;
+  min-width:216px !important;
+  max-width:216px !important;
+  height:100vh !important;
+  min-height:100vh !important;
+  margin:0 !important;
+  padding:0 !important;
+  overflow:hidden !important;
+  background:#080f1d !important;
+  background-color:#080f1d !important;
+  background-image:none !important;
+  border:0 !important;
+  border-right:1px solid #1b2a40 !important;
+  border-radius:0 20px 20px 0 !important;
+  box-shadow:8px 0 22px rgba(0,0,0,.4) !important;
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
+  filter:none !important;
+  opacity:1 !important;
+  isolation:isolate !important;
+}
+#root > .vn-spatial-shell > aside.vn-sidebar-solid::before,
+#root > .vn-spatial-shell > aside.vn-sidebar-solid::after { content:none !important; display:none !important; }
+#root > .vn-spatial-shell > aside.vn-sidebar-solid > .vn-sidebar-identity,
+#root > .vn-spatial-shell > aside.vn-sidebar-solid > nav,
+#root > .vn-spatial-shell > aside.vn-sidebar-solid > div:last-child {
+  background:#080f1d !important;
+  background-color:#080f1d !important;
+  background-image:none !important;
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
+  filter:none !important;
+  border-color:#1b2a40 !important;
+  box-shadow:none !important;
+}
+#root > .vn-spatial-shell > aside.vn-sidebar-solid nav button {
+  background:#0d192a !important;
+  background-color:#0d192a !important;
+  color:#b8c9df !important;
+  border:1px solid #1b2b40 !important;
+  border-radius:12px !important;
+  box-shadow:0 3px 0 #030914,0 6px 12px rgba(0,0,0,.28) !important;
+}
+#root > .vn-spatial-shell > aside.vn-sidebar-solid nav button:hover {
+  background:#172a42 !important;
+  background-color:#172a42 !important;
+  color:#fff !important;
+}
+#root > .vn-spatial-shell > aside.vn-sidebar-solid nav button.nav-item-active {
+  background:#1a3551 !important;
+  background-color:#1a3551 !important;
+  color:#f4faff !important;
+  border-color:#477da2 !important;
+  border-left:3px solid #79dcff !important;
+  box-shadow:0 4px 0 #07101e,0 9px 15px rgba(0,0,0,.3) !important;
+}
+#root > .vn-spatial-shell > aside.vn-sidebar-solid nav button.nav-item-active span,
+#root > .vn-spatial-shell > aside.vn-sidebar-solid nav button.nav-item-active svg { color:#d8f5ff !important; }
+#root > .vn-spatial-shell > aside.vn-sidebar-solid .vn-avatar {
+  background:#b9e9fa !important;
+  background-image:none !important;
+  color:#10243b !important;
+  box-shadow:0 3px 0 #34506a !important;
+}
+#root > .vn-spatial-shell > aside.vn-sidebar-solid .glass {
+  background:#0d192a !important;
+  background-color:#0d192a !important;
+  color:#e5efff !important;
+  border:1px solid #1b2b40 !important;
+  box-shadow:0 3px 0 #030914 !important;
+}
+@media(max-width:767px) {
+  #root > .vn-spatial-shell > aside.vn-sidebar-solid {
+    flex-basis:68px !important;width:68px !important;min-width:68px !important;max-width:68px !important;
+    margin:0 !important;border-radius:0 15px 15px 0 !important;
+  }
+}
+
+/* Direct hover state on the real composer wrapper and controls. */
+.vn-ai-spatial > .vn-ai-composer > div:first-child { border-color:rgba(255,255,255,.22) !important; transition:border-color 220ms ease !important; }
+.vn-ai-spatial > .vn-ai-composer > div:first-child:has(button:hover), .vn-ai-spatial > .vn-ai-composer > div:first-child:has(button:focus-visible) { border-color:#fff !important; }
+.vn-ai-spatial > .vn-ai-composer button:hover { border-color:#fff !important; transform:none !important; filter:none !important; }

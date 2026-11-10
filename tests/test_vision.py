@@ -35,6 +35,37 @@ from fastapi.testclient import TestClient  # noqa: E402
 from backend.api import app  # noqa: E402
 from backend import vision_api  # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def no_developer_vision_stream_token(monkeypatch):
+    """Isolate the vision token tests from a developer checkout's real token.
+
+    backend.api runs load_dotenv() on the developer's root .env during import,
+    so on a dev machine a real VISION_STREAM_TOKEN is seeded into the process
+    environment, and the real vision_api.stream_token() additionally falls back
+    to reading that same .env file whenever the variable is unset. The token
+    tests below manage their own tokens through monkeypatch and assume none is
+    configured, so every test in this module starts with:
+
+      * VISION_STREAM_TOKEN removed from the environment, and
+      * an environment-only stream_token() substituted for the real one. It
+        re-reads os.environ on every call, so a token a test sets up with
+        monkeypatch.setenv() still takes effect.
+
+    monkeypatch undoes both after every test: the production function is
+    restored between tests and no developer token state is ever mutated
+    outside this module.
+    """
+    monkeypatch.delenv("VISION_STREAM_TOKEN", raising=False)
+
+    def _env_only_stream_token() -> str:
+        # Same resolution as the real stream_token() minus its .env file
+        # fallback, which is impossible to satisfy during tests without
+        # rewriting a protected module.
+        return (os.environ.get("VISION_STREAM_TOKEN") or "").strip()
+
+    monkeypatch.setattr(vision_api, "stream_token", _env_only_stream_token)
+
 from ml.config import (  # noqa: E402
     CameraSettings,
     ModelSettings,

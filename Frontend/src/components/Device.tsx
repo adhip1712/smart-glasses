@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
   STATUS_COLORS,
@@ -461,7 +461,7 @@ export default function Device() {
   ]
 
   return (
-    <div className="p-4 md:p-8 space-y-6 max-w-7xl mx-auto">
+    <div className="page-stack feature-grid device-layout vn-figma-device p-4 md:p-8 space-y-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -518,7 +518,7 @@ export default function Device() {
 
         {devices.length === 0 ? (
           <div className="font-mono text-[11px] text-white/30 py-6 text-center">
-            {loading ? 'Loading…' : 'No device yet. “Add Glasses” reserves exactly one setup session.'}
+        {loading ? 'Loading...' : 'No device yet. Add Glasses to reserve a setup session.'}
           </div>
         ) : (
           <div className="space-y-3">

@@ -1,3 +1,4 @@
+import './music-spatial.css'
 import { useEffect, useState } from 'react'
 import SpotifyMusic from './SpotifyMusic'
 import YouTubeMusic from './YouTubeMusic'

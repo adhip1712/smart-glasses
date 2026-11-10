@@ -1,0 +1,369 @@
+:root{color-scheme:dark}
+html,body,#root{width:100%;min-height:100%;margin:0;background:#050505!important}
+body{overflow-x:hidden!important}
+#root{min-height:100vh}
+.vn-content,.page-content{width:100%!important;max-width:none!important;min-width:0!important;min-height:calc(100vh - 28px)!important;height:auto!important;overflow:visible!important;padding:28px 30px 34px!important;box-sizing:border-box!important}
+.vn-content>*{width:100%;max-width:1440px;margin-left:auto!important;margin-right:auto!important}
+.vn-ai-figma-layout{display:grid!important;grid-template-columns:minmax(0,1fr) 300px!important;gap:24px!important;align-items:stretch!important;width:100%!important;max-width:1440px!important;margin:0 auto!important}
+.vn-ai-figma-layout>.assistant-panel{min-width:0!important;min-height:calc(100vh - 100px)!important;height:auto!important;max-height:none!important;overflow:visible!important;padding:28px!important;border:1px solid rgba(225,230,235,.19)!important;border-radius:30px!important;background:radial-gradient(ellipse at 50% 40%,rgba(255,255,255,.09),transparent 42%),linear-gradient(150deg,#202020,#101010 55%,#080808)!important;box-shadow:0 30px 90px #000b,inset 0 1px #ffffff20!important}
+.vn-ai-figma-layout .vn-ai-header{background:transparent!important;background-image:none!important;border-bottom:1px solid #ffffff20!important;padding:0 0 20px!important;min-height:70px!important}
+.vn-ai-figma-layout .vn-ai-header *{color:#f2f2f2!important}
+.vn-ai-figma-layout .vn-ai-tabs{padding:16px 0!important}
+.vn-ai-figma-layout .vn-ai-tabs button{background:linear-gradient(145deg,#252525,#111)!important;color:#eee!important;border:1px solid #ffffff24!important;box-shadow:0 8px 20px #0008!important}
+.vn-ai-figma-layout .vn-ai-messages{min-height:350px!important;max-height:none!important;overflow-y:auto!important;padding:24px 18px!important}
+.vn-ai-figma-layout .assistant-intro{min-height:310px!important;justify-content:center!important}
+.vn-ai-figma-layout .vn-ai-welcome-orb{width:250px!important;height:250px!important;margin:0 auto 18px!important}
+.vn-ai-figma-layout .vn-ai-welcome-orb img,.vn-ai-figma-layout .vn-ai-context-orb img{display:block!important;width:100%!important;height:100%!important;object-fit:contain!important}
+.vn-ai-figma-layout .vn-ai-composer{margin-top:16px!important;padding:16px!important;border:1px solid #ffffff25!important;border-radius:24px!important;background:linear-gradient(145deg,#202020,#0b0b0b)!important;box-shadow:0 18px 42px #0009,inset 0 1px #ffffff12!important}
+.vn-ai-figma-layout .vn-ai-composer textarea,.vn-ai-figma-layout .vn-ai-composer input{background:#111!important;color:#fff!important;border:1px solid #ffffff20!important;border-radius:12px!important}
+.vn-ai-figma-layout>.vn-ai-context{display:flex!important;flex-direction:column!important;gap:16px!important;min-width:0!important}
+.vn-ai-figma-layout .vn-ai-context .context-card{padding:20px!important;border:1px solid #ffffff20!important;border-radius:24px!important;background:linear-gradient(145deg,#202020,#0a0a0a)!important;box-shadow:0 20px 50px #0009,inset 0 1px #ffffff10!important}
+.vn-ai-figma-layout .vn-ai-context-orb{height:170px!important;display:grid!important;place-items:center!important}
+.vn-ai-figma-layout .vn-ai-context-orb img{max-width:100%!important;filter:drop-shadow(0 18px 30px #fff2)!important}
+.vn-figma-vision{width:100%!important;max-width:1440px!important;margin:0 auto!important;min-height:calc(100vh - 90px)!important}
+.vn-figma-vision>.panel-toolbar{background:transparent!important;border:0!important;border-bottom:1px solid #ffffff20!important}
+.vn-figma-vision>.vision-layout{display:grid!important;grid-template-columns:minmax(0,1.8fr) minmax(300px,.85fr)!important;gap:22px!important;align-items:start!important}
+.vn-figma-vision .camera-panel{min-width:0!important;padding:20px!important;border:1px solid #ffffff20!important;border-radius:26px!important;background:linear-gradient(145deg,#202020,#090909)!important;box-shadow:0 24px 60px #0009!important}
+.vn-figma-vision .camera-scene{width:100%!important;min-height:0!important;height:auto!important;aspect-ratio:16/10!important;border-radius:20px!important;overflow:hidden!important;background:#080808!important}
+.vn-figma-vision .context-column{display:flex!important;flex-direction:column!important;gap:16px!important}
+.vn-figma-vision .context-column>.glass{padding:20px!important;border:1px solid #ffffff20!important;border-radius:22px!important;background:linear-gradient(145deg,#202020,#0a0a0a)!important;box-shadow:0 18px 44px #0008!important}
+.vn-figma-vision .camera-actions button{border-radius:14px!important}
+.vn-spotify-page{width:100%!important;max-width:1440px!important;margin:0 auto!important}
+.vn-spotify-content.music-layout{display:grid!important;grid-template-columns:1fr!important;gap:20px!important;min-height:calc(100vh - 90px)!important}
+.vn-spotify-content>header{grid-column:1/-1!important;background:transparent!important;border-bottom:1px solid #ffffff20!important;padding:8px 4px 20px!important}
+.vn-spotify-content>section{grid-column:1/-1!important;display:grid!important;grid-template-columns:minmax(0,1.35fr) minmax(320px,.85fr)!important;gap:22px!important}
+.vn-spotify-page .music-player,.vn-spotify-page .music-library,.vn-spotify-page .search-results{border:1px solid #ffffff20!important;border-radius:26px!important;background:linear-gradient(145deg,#202020,#090909)!important;box-shadow:0 24px 60px #0009,inset 0 1px #ffffff10!important}
+.vn-spotify-page .music-player{min-height:560px!important;padding:30px!important}
+.vn-spotify-page .music-library{min-height:560px!important;padding:26px!important}
+.vn-spotify-page button{border-radius:14px!important}
+.vn-spotify-page button[class*="bg-"],.vn-spotify-page [class*="1ed760"]{filter:grayscale(1)!important}
+@media(max-width:1050px){.vn-ai-figma-layout{grid-template-columns:1fr!important}.vn-ai-figma-layout>.vn-ai-context{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important}.vn-figma-vision>.vision-layout,.vn-spotify-content>section{grid-template-columns:1fr!important}}
+@media(max-width:700px){.vn-content,.page-content{padding:16px!important}.vn-ai-figma-layout>.vn-ai-context{grid-template-columns:1fr!important}.vn-ai-figma-layout>.assistant-panel{padding:18px!important}.vn-spotify-page .music-player,.vn-spotify-page .music-library{min-height:0!important;padding:18px!important}}
+:root{--primary:#fff!important;--accent:#fff!important;--accent-color:#fff!important;--brand:#fff!important;--blue:#fff!important;--cyan:#fff!important;--indigo:#fff!important}
+html,body,#root,.app,.app-shell,.main-content,.content-area{background:#050505!important;color:#f5f5f5!important}
+.vn-ai-figma-layout .vn-ai-header,.vn-ai-figma-layout .vn-ai-header *{background-color:transparent!important;background-image:none!important;color:#f5f5f5!important}
+.vn-ai-figma-layout button,.vn-figma-vision button,.vn-spotify-page button,[role=button]{filter:grayscale(1)!important}
+.vn-ai-figma-layout .vn-ai-tabs button,.vn-ai-figma-layout .vn-ai-composer button,.vn-figma-vision .camera-actions button{background:linear-gradient(145deg,#303030,#111)!important;color:#fff!important;border-color:#ffffff35!important}
+.vn-ai-figma-layout .vn-ai-context .context-card,.vn-ai-figma-layout>.assistant-panel,.vn-figma-vision .camera-panel,.vn-figma-vision .context-column>.glass,.vn-spotify-page .music-player,.vn-spotify-page .music-library,.vn-spotify-page .search-results{background:linear-gradient(145deg,#202020,#090909)!important;color:#f5f5f5!important}
+.vn-ai-figma-layout .vn-ai-context .context-card *,.vn-ai-figma-layout>.assistant-panel *,.vn-figma-vision .camera-panel *,.vn-figma-vision .context-column *,.vn-spotify-page .music-player *,.vn-spotify-page .music-library *{border-color:rgba(255,255,255,.18)}
+.vn-ai-figma-layout .vn-ai-context-orb img,.vn-ai-figma-layout .vn-ai-welcome-orb img{display:block!important;object-fit:contain!important}
+/* Final targeted neutralization of remaining blue AI-chat controls and bubbles. */
+.vn-ai-figma-layout .vn-ai-header button,
+.vn-ai-figma-layout .vn-ai-header button *,
+.vn-ai-figma-layout .vn-ai-context-action,
+.vn-ai-figma-layout .vn-ai-context-action *,
+.vn-ai-figma-layout .vn-ai-tabs button,
+.vn-ai-figma-layout .vn-ai-tabs button *,
+.vn-ai-figma-layout .vn-ai-tabs>div>div,
+.vn-ai-figma-layout .vn-ai-tabs>div>div button,
+.vn-ai-figma-layout .vn-ai-tabs>div>div button *,
+.vn-ai-figma-layout .vn-ai-composer button{
+  background-color:#242424!important;
+  background-image:linear-gradient(145deg,#303030,#141414)!important;
+  color:#f5f5f5!important;
+  border-color:rgba(255,255,255,.22)!important;
+  box-shadow:0 5px 16px rgba(0,0,0,.38),inset 0 1px rgba(255,255,255,.08)!important;
+  filter:none!important;
+}
+.vn-ai-figma-layout .vn-ai-tabs>div>div{
+  border:1px solid rgba(255,255,255,.2)!important;
+  border-radius:14px!important;
+}
+.vn-ai-figma-layout .vn-ai-tabs button[title="Delete this chat"]{
+  background:#171717!important;
+  color:#d8d8d8!important;
+  border:0!important;
+  box-shadow:none!important;
+}
+.vn-ai-figma-layout .vn-ai-tabs button[title="Delete this chat"]:hover{
+  background:#3a2020!important;color:#fff!important;
+}
+.vn-ai-figma-layout .vn-ai-messages .space-y-5>div>div{
+  background:#1b1b1b!important;
+  background-image:linear-gradient(145deg,#242424,#151515)!important;
+  color:#f4f4f4!important;
+  border:1px solid rgba(255,255,255,.16)!important;
+  box-shadow:0 10px 26px rgba(0,0,0,.3)!important;
+}
+.vn-ai-figma-layout .vn-ai-messages .space-y-5>div>div *{
+  color:inherit;
+}
+.vn-ai-figma-layout .vn-ai-messages .space-y-5>div>div .ai-markdown,
+.vn-ai-figma-layout .vn-ai-messages .space-y-5>div>div .ai-markdown p,
+.vn-ai-figma-layout .vn-ai-messages .space-y-5>div>div .ai-markdown li{
+  color:#f2f2f2!important;
+}
+.vn-ai-figma-layout .vn-ai-messages .space-y-5>div>div .ai-markdown a{
+  color:#fff!important;text-decoration:underline;
+}
+.vn-ai-figma-layout .vn-ai-messages .space-y-5>div>div .ai-markdown code,
+.vn-ai-figma-layout .vn-ai-messages .space-y-5>div>div .ai-markdown pre{
+  background:#090909!important;color:#fff!important;border-color:#444!important;
+}
+.vn-ai-figma-layout .vn-ai-header button:hover,
+.vn-ai-figma-layout .vn-ai-tabs button:hover,
+.vn-ai-figma-layout .vn-ai-context-action:hover{
+  background-color:#3a3a3a!important;
+  background-image:linear-gradient(145deg,#3a3a3a,#1b1b1b)!important;
+}
+.vn-ai-figma-layout .vn-ai-header button:focus-visible,
+.vn-ai-figma-layout .vn-ai-tabs button:focus-visible{
+  outline:2px solid #aaa!important;outline-offset:2px!important;
+}
+.vn-ai-figma-layout .vn-music-status{background:linear-gradient(145deg,#252525,#101010)!important;background-color:#181818!important;border:1px solid rgba(255,255,255,.22)!important;color:#fff!important;box-shadow:0 10px 24px #0008,inset 0 1px #ffffff12!important}
+.vn-ai-figma-layout .vn-music-status *{color:#f5f5f5!important}
+.vn-ai-figma-layout .vn-music-status .vn-check-youtube{background:linear-gradient(145deg,#353535,#171717)!important;background-color:#222!important;color:#fff!important;border:1px solid rgba(255,255,255,.28)!important;box-shadow:0 5px 14px #0008!important}
+.vn-ai-figma-layout .vn-music-status .vn-check-youtube:hover{background:#444!important}
+.vn-ai-figma-layout .vn-chat-bubble{background:linear-gradient(145deg,#242424,#111)!important;background-color:#181818!important;color:#fff!important;border:1px solid rgba(255,255,255,.2)!important;box-shadow:0 10px 28px #0008!important}
+.vn-ai-figma-layout .vn-chat-bubble *,.vn-ai-figma-layout .vn-chat-bubble .ai-markdown,.vn-ai-figma-layout .vn-chat-bubble .ai-markdown p,.vn-ai-figma-layout .vn-chat-bubble .ai-markdown span,.vn-ai-figma-layout .vn-chat-bubble .ai-markdown strong,.vn-ai-figma-layout .vn-chat-bubble .ai-markdown li,.vn-ai-figma-layout .vn-chat-bubble .ai-markdown h1,.vn-ai-figma-layout .vn-chat-bubble .ai-markdown h2,.vn-ai-figma-layout .vn-chat-bubble .ai-markdown h3{color:#f5f5f5!important}
+/* Hard override: white UI surfaces, black text, no blue gradients in AI header/chat. */
+.vn-ai-figma-layout .assistant-panel .panel-toolbar,
+.vn-ai-figma-layout .assistant-panel .panel-toolbar *,
+.vn-ai-figma-layout .assistant-panel .vn-ai-header{
+  background:#080808!important;
+  background-image:none!important;
+  color:#f5f5f5!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-music-status{
+  background:#f1f1f1!important;
+  background-image:none!important;
+  border:1px solid #fff!important;
+  color:#080808!important;
+  box-shadow:0 8px 22px #0009!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-music-status *{
+  color:#080808!important;
+  background-image:none!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-music-status .vn-check-youtube{
+  background:#fff!important;
+  color:#050505!important;
+  border:1px solid #111!important;
+  box-shadow:none!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-music-status .vn-check-youtube:hover{
+  background:#dcdcdc!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble{
+  background:#171717!important;
+  background-image:none!important;
+  border:1px solid #555!important;
+  color:#fff!important;
+  box-shadow:0 8px 22px #0008!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble:has(.whitespace-pre-wrap){
+  background:#f1f1f1!important;
+  background-image:none!important;
+  border:1px solid #fff!important;
+  color:#050505!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble:has(.whitespace-pre-wrap) *{
+  color:#050505!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown,
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown p,
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown span,
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown strong,
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown li,
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown h1,
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown h2,
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown h3{
+  color:#fff!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble:has(.whitespace-pre-wrap) .ai-markdown,
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble:has(.whitespace-pre-wrap) .ai-markdown *{
+  color:#050505!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown code,
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown pre{
+  background:#050505!important;color:#fff!important;border-color:#555!important;
+}
+
+/* Cascade fix: Tailwind important utilities outrank unlayered !important rules.
+   Put the final monochrome AI styles in the earliest Tailwind layer. */
+@layer theme {
+  .vn-ai-figma-layout .assistant-panel .vn-ai-header,
+  .vn-ai-figma-layout .assistant-panel .vn-ai-header * {
+    background-color: transparent !important;
+    background-image: none !important;
+    color: #f5f5f5 !important;
+    border-color: rgba(255,255,255,.18) !important;
+  }
+  .vn-ai-figma-layout .assistant-panel .vn-music-status {
+    background: #202020 !important;
+    background-image: none !important;
+    border: 1px solid #555 !important;
+    color: #fff !important;
+    box-shadow: 0 10px 28px #0009 !important;
+  }
+  .vn-ai-figma-layout .assistant-panel .vn-music-status * {
+    color: #fff !important;
+    background-image: none !important;
+  }
+  .vn-ai-figma-layout .assistant-panel .vn-music-status .vn-check-youtube {
+    background: #f4f4f4 !important;
+    background-image: none !important;
+    color: #080808 !important;
+    border: 1px solid #fff !important;
+    box-shadow: none !important;
+  }
+  .vn-ai-figma-layout .assistant-panel .vn-music-status .vn-check-youtube * {
+    color: #080808 !important;
+  }
+  .vn-ai-figma-layout .assistant-panel .vn-chat-bubble {
+    background: #191919 !important;
+    background-image: none !important;
+    border: 1px solid #555 !important;
+    color: #fff !important;
+    box-shadow: 0 8px 22px #0008 !important;
+  }
+  .vn-ai-figma-layout .assistant-panel .vn-chat-bubble * {
+    color: #fff !important;
+  }
+  .vn-ai-figma-layout .assistant-panel .vn-chat-bubble:has(.whitespace-pre-wrap) {
+    background: #f2f2f2 !important;
+    background-image: none !important;
+    border: 1px solid #fff !important;
+    color: #050505 !important;
+  }
+  .vn-ai-figma-layout .assistant-panel .vn-chat-bubble:has(.whitespace-pre-wrap) * {
+    color: #050505 !important;
+  }
+  .vn-ai-figma-layout .vn-ai-tabs button,
+  .vn-ai-figma-layout .vn-ai-tabs button *,
+  .vn-ai-figma-layout .vn-ai-header button,
+  .vn-ai-figma-layout .vn-ai-header button * {
+    background-color: #242424 !important;
+    background-image: linear-gradient(145deg,#303030,#141414) !important;
+    color: #f5f5f5 !important;
+    border-color: #555 !important;
+  }
+}
+
+/* Quick action icons: replace broken placeholder glyphs with crisp vector icons. */
+.vn-ai-context-action{display:flex!important;align-items:center!important;gap:12px!important;text-align:left!important}
+.vn-quick-action-icon{width:19px!important;height:19px!important;flex:0 0 19px!important;opacity:.9}
+.vn-quick-action-label{flex:1!important}
+.vn-quick-action-arrow{width:16px!important;height:16px!important;flex:0 0 16px!important;opacity:.65}
+
+
+/* AI composer: keep microphone and Send controls strictly monochrome. */
+.vn-ai-figma-layout .vn-ai-composer button,
+.vn-ai-figma-layout .vn-ai-composer button:hover,
+.vn-ai-figma-layout .vn-ai-composer button:active {
+  border-color: rgba(255,255,255,.22) !important;
+  outline-color: rgba(255,255,255,.75) !important;
+  box-shadow: 0 5px 0 #111, 0 10px 18px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.16) !important;
+}
+.vn-ai-figma-layout .vn-ai-composer button:focus,
+.vn-ai-figma-layout .vn-ai-composer button:focus-visible {
+  outline: 1px solid rgba(255,255,255,.8) !important;
+  outline-offset: 2px !important;
+}
+
+/* Final monochrome override for the entire AI message composer shell. */
+.vn-ai-spatial > .vn-ai-composer > div:first-child {
+  border: 1px solid rgba(255,255,255,.2) !important;
+  background: linear-gradient(145deg,#202020,#090909) !important;
+  box-shadow: 0 7px 0 #050505, 0 18px 34px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.09) !important;
+  backdrop-filter: blur(18px) !important;
+}
+.vn-ai-spatial > .vn-ai-composer textarea {
+  border: 1px solid rgba(255,255,255,.16) !important;
+  background: linear-gradient(145deg,#101010,#191919) !important;
+  color: #f5f5f5 !important;
+  box-shadow: inset 0 3px 8px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.05) !important;
+}
+.vn-ai-spatial > .vn-ai-composer button,
+.vn-ai-spatial > .vn-ai-composer button:hover,
+.vn-ai-spatial > .vn-ai-composer button:active {
+  border: 1px solid rgba(255,255,255,.22) !important;
+  background: linear-gradient(145deg,#343434,#171717) !important;
+  color: #fff !important;
+  box-shadow: 0 4px 0 #080808, 0 9px 14px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.16) !important;
+}
+.vn-ai-spatial > .vn-ai-composer button:hover {
+  border-color: rgba(255,255,255,.95) !important;
+}
+.vn-ai-spatial > .vn-ai-composer button:focus-visible,
+.vn-ai-spatial > .vn-ai-composer textarea:focus-visible {
+  outline: 1px solid #fff !important;
+  outline-offset: 3px !important;
+}
+
+/* Composer hover: override Tailwind's important utilities without adding motion. */
+@layer theme {
+  .vn-ai-figma-layout .assistant-panel .vn-ai-composer button:hover {
+    border-color: #fff !important;
+    transform: none !important;
+    transition: border-color 180ms ease !important;
+  }
+}
+
+/* AI composer: animate the existing shared wrapper border to white on control hover.
+   No extra outline, lift, scale, or movement is introduced. */
+.vn-ai-spatial > .vn-ai-composer > div:first-child {
+  border-color: rgba(255,255,255,.22) !important;
+  transition: border-color 220ms ease !important;
+}
+.vn-ai-spatial > .vn-ai-composer > div:first-child:has(button:hover),
+.vn-ai-spatial > .vn-ai-composer > div:first-child:has(button:focus-visible) {
+  border-color: #fff !important;
+}
+.vn-ai-spatial > .vn-ai-composer button {
+  transition: border-color 220ms ease, background-color 220ms ease !important;
+}
+.vn-ai-spatial > .vn-ai-composer button:hover {
+  border-color: #fff !important;
+  transform: none !important;
+  filter: none !important;
+}
+
+/* Animated white perimeter highlight for every AI Assistant control. */
+@property --vn-ai-border-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes vn-ai-border-travel {
+  to { --vn-ai-border-angle: 360deg; }
+}
+.vn-ai-figma-layout .assistant-panel button,
+.vn-ai-figma-layout .assistant-panel .vn-ai-tabs > div > div {
+  position:relative !important;
+  isolation:isolate;
+}
+.vn-ai-figma-layout .assistant-panel button::after,
+.vn-ai-figma-layout .assistant-panel .vn-ai-tabs > div > div::after {
+  content:"";
+  position:absolute;
+  inset:-1px;
+  padding:1.5px;
+  border-radius:inherit;
+  background:conic-gradient(from var(--vn-ai-border-angle), transparent 0deg 285deg, rgba(255,255,255,.12) 315deg, #fff 342deg, rgba(255,255,255,.35) 352deg, transparent 360deg);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;
+  mask-composite:exclude;
+  opacity:0;
+  pointer-events:none;
+  z-index:2;
+}
+.vn-ai-figma-layout .assistant-panel button:hover::after,
+.vn-ai-figma-layout .assistant-panel .vn-ai-tabs > div > div:hover::after,
+.vn-ai-figma-layout .assistant-panel button:focus-visible::after {
+  opacity:1;
+  animation:vn-ai-border-travel 1.8s linear infinite;
+}
+.vn-ai-figma-layout .assistant-panel button:hover,
+.vn-ai-figma-layout .assistant-panel .vn-ai-tabs > div > div:hover {
+  transform:none !important;
+  filter:none !important;
+}
+@media (prefers-reduced-motion:reduce) {
+  .vn-ai-figma-layout .assistant-panel button:hover::after,
+  .vn-ai-figma-layout .assistant-panel .vn-ai-tabs > div > div:hover::after,
+  .vn-ai-figma-layout .assistant-panel button:focus-visible::after {
+    animation:none;
+    opacity:1;
+  }
+}

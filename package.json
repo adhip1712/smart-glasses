@@ -1,4 +1,15 @@
 {
+  "name": "visionary-nexus",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Visionary Nexus Smart Glasses desktop application",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "app": "electron .",
+    "app:dev": "electron .",
+    "frontend:dev": "npm --prefix Frontend run dev",
+    "frontend:build": "npm --prefix Frontend run build"
+  },
   "dependencies": {
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
@@ -8,6 +19,7 @@
   "devDependencies": {
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "electron": "^45.2.1",
     "typescript": "^7.0.2"
   }
 }

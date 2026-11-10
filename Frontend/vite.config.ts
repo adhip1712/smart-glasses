@@ -62,16 +62,25 @@ react(),
       // of calling 127.0.0.1 from the browser.
       proxy: {
         '/api': {
-          target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',
+          target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8001',
           changeOrigin: true,
           configure: (proxy) => {
             proxy.on('proxyReq', (proxyReq, req) => {
+              const token = env.VITE_VISION_TOKEN
+              const requestPath = req.url || ''
+
+              // Attach authorization for Vision controls and event analysis on the
+              // dev server, keeping the camera token out of browser request code.
+              if (token && /^\/api\/vision\/(?:start|stop|photo|events(?:\/.*)?)\b/.test(requestPath)) {
+                proxyReq.setHeader('Authorization', 'Bearer ' + token)
+              }
+
               // Keep the camera token on the dev server, not in the browser URL.
-              if (/vision\/(?:stream|frame)/.test(req.url || '')) {
-                const token = env.VITE_VISION_TOKEN
-                if (token) {
+              if (/vision\/(?:stream|frame)/.test(requestPath)) {
+                const hasToken = /(?:[?&])token=/.test(proxyReq.path)
+                if (token && !hasToken) {
                   const separator = proxyReq.path.includes('?') ? '&' : '?'
-                  proxyReq.path = `${proxyReq.path}${separator}token=${encodeURIComponent(token)}`
+                  proxyReq.path = proxyReq.path + separator + 'token=' + encodeURIComponent(token)
                 }
               }
             })
@@ -89,14 +98,17 @@ react(),
       port: parseInt(process.env.PORT || '8443'),
       proxy: {
         '/api': {
-          target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',
+          target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8001',
           changeOrigin: true,
           configure: (proxy) => {
             proxy.on('proxyReq', (proxyReq, req) => {
               // Keep the camera token on the dev server, not in the browser URL.
               if (/vision\/(?:stream|frame)/.test(req.url || '')) {
                 const token = env.VITE_VISION_TOKEN
-                if (token) {
+                // The browser may already include the token for a direct API_BASE.
+                // Avoid appending a duplicate query parameter in the local proxy.
+                const hasToken = /(?:[?&])token=/.test(proxyReq.path)
+                if (token && !hasToken) {
                   const separator = proxyReq.path.includes('?') ? '&' : '?'
                   proxyReq.path = `${proxyReq.path}${separator}token=${encodeURIComponent(token)}`
                 }

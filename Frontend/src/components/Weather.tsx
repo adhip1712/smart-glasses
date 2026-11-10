@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, readJson } from '../services/api'
+import './weather-spatial.css'
 
 interface WeatherResult {
   success?: boolean
@@ -10,12 +11,14 @@ interface WeatherResult {
   feels_like_c?: number
   humidity?: number
   wind_kph?: number
+  visibility_km?: number
+  uv_index?: number
   condition?: string
   condition_icon?: string
   last_updated?: string
   source?: string
   message?: string
-  forecast?: { date?: string; condition?: string; temperature_c?: number; max_c?: number }[]
+  forecast?: { date?: string; condition?: string; temperature_c?: number; max_c?: number; min_c?: number }[]
 }
 
 interface RecentLocation {
@@ -42,7 +45,7 @@ export default function Weather() {
     setBusy(true)
     setStatus('')
     try {
-      const response = await apiFetch(`/api/weather/${encodeURIComponent(target)}`)
+      const response = await apiFetch(`/api/weather/forecast/${encodeURIComponent(target)}`)
       const data = await readJson<WeatherResult>(response)
       if (data && data.success !== false) {
         setCurrent(data)
@@ -80,12 +83,13 @@ export default function Weather() {
   const isMock = current?.source === 'mock'
 
   return (
-    <div className="p-4 md:p-8 space-y-6 max-w-7xl mx-auto">
+    <div className="vn-weather-spatial">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-widest text-white">WEATHER</h1>
+          <div className="vn-weather-nexus">NEXUS 02 <span>VISION SYSTEM ONLINE</span></div>
           <div className="font-mono text-xs text-white/30 tracking-widest mt-0.5 uppercase">
-            Current conditions · Forecast · Recent locations
+            Current conditions / Forecast / Recent locations
           </div>
         </div>
         <div className="glass rounded-full px-4 py-2 flex items-center gap-2">
@@ -100,7 +104,7 @@ export default function Weather() {
         <input
           value={city}
           onChange={event => setCity(event.target.value)}
-          placeholder="Search a city…"
+          placeholder="Search a city..."
           className="flex-1 bg-black/30 border border-white/15 px-4 py-3 text-white text-sm"
         />
         <button
@@ -118,7 +122,7 @@ export default function Weather() {
 
       {current && (
         <>
-          <div className="glass rounded-2xl p-6 flex flex-col md:flex-row md:items-center gap-6">
+          <div className="vn-weather-hero glass rounded-2xl p-6 flex flex-col md:flex-row md:items-center gap-6">
             <div className="flex items-center gap-4">
               {current.condition_icon && (
                 <img src={current.condition_icon.startsWith('//') ? `https:${current.condition_icon}` : current.condition_icon} alt="" className="w-16 h-16" />
@@ -130,9 +134,9 @@ export default function Weather() {
                 <div className="font-mono text-xs text-white/50 mt-1">{current.condition || 'Unknown conditions'}</div>
               </div>
             </div>
-            <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="flex-1 vn-weather-metric-grid grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                { label: 'Location', value: [current.location, current.country].filter(Boolean).join(', ') || '—' },
+                { label: 'Location', value: [current.location, current.country].filter(Boolean).join(', ') || '--' },
                 { label: 'Feels like', value: `${current.feels_like_c ?? '--'}°C` },
                 { label: 'Humidity', value: `${current.humidity ?? '--'}%` },
                 { label: 'Wind', value: `${current.wind_kph ?? '--'} km/h` },
@@ -145,17 +149,21 @@ export default function Weather() {
             </div>
           </div>
 
-          <div className="glass rounded-2xl p-5">
-            <div className="font-display text-xs tracking-widest text-white/50 uppercase mb-4">Forecast</div>
+          <div className="vn-weather-forecast glass rounded-2xl p-5">
+            <div className="font-display text-xs tracking-widest text-white/50 uppercase mb-4">7-Day Forecast</div>
             {forecast.length === 0 ? (
               <p className="font-mono text-xs text-white/40">No forecast rows were returned for this location.</p>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="vn-weather-days grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
                 {forecast.map((day, index) => (
-                  <div key={`${day.date}-${index}`} className="p-3 rounded-xl text-center" style={{ background: 'rgba(0,229,255,0.04)', border: '1px solid rgba(0,229,255,0.12)' }}>
-                    <div className="font-mono text-[10px] text-white/50 uppercase">{day.date}</div>
-                    <div className="font-mono text-lg text-cyan-300 mt-1">{day.max_c ?? day.temperature_c ?? '--'}°C</div>
-                    <div className="font-mono text-[10px] text-white/50 mt-1">{day.condition}</div>
+                  <div key={`${day.date}-${index}`} className="min-w-0 p-3 rounded-xl text-center" style={{ background: 'rgba(0,229,255,0.04)', border: '1px solid rgba(0,229,255,0.12)' }}>
+                    <div className="font-mono text-[10px] text-white/50 uppercase">
+                      {index === 0 ? 'Today' : day.date ? new Intl.DateTimeFormat('en', { weekday: 'short' }).format(new Date(String(day.date) + 'T12:00:00')) : 'Day ' + (index + 1)}
+                    </div>
+                    <div className="font-mono text-base text-cyan-300 mt-2">
+                      {day.max_c ?? day.temperature_c ?? '--'}°C <span className="text-white/45">/ {day.min_c ?? '--'}°C</span>
+                    </div>
+                    <div className="font-mono text-[10px] text-white/50 mt-2">{day.condition}</div>
                   </div>
                 ))}
               </div>
@@ -164,7 +172,7 @@ export default function Weather() {
         </>
       )}
 
-      <div className="glass rounded-2xl p-5">
+      <div className="vn-weather-recent glass rounded-2xl p-5">
         <div className="font-display text-xs tracking-widest text-white/50 uppercase mb-4">Recent Locations</div>
         {recent.length === 0 ? (
           <p className="font-mono text-xs text-white/40">No weather lookups yet.</p>

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+﻿import { useEffect, useState, type FormEvent } from 'react'
 import { apiFetch, readJson, setSession, type AuthUser } from '../services/api'
 
 type Props = { onAuthenticated: () => void }
@@ -10,6 +10,25 @@ export default function AuthScreen({ onAuthenticated }: Props) {
   const [displayName, setDisplayName] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [providers, setProviders] = useState<{id:string;name:string;configured:boolean}[]>([
+    { id: 'google', name: 'Google', configured: false },
+    { id: 'facebook', name: 'Facebook', configured: false },
+    { id: 'apple', name: 'Apple', configured: false },
+    { id: 'microsoft', name: 'Microsoft', configured: false },
+    { id: 'github', name: 'GitHub', configured: false },
+  ])
+  useEffect(() => {
+    let active = true
+    apiFetch('/api/auth/providers', { headers: { Accept: 'application/json' } }).then(r => { if (!r.ok) throw new Error('Provider status unavailable'); return r.json() }).then(data => {
+      if (active && Array.isArray(data.providers)) {
+        const status = new Map(data.providers.map((p: {id:string;name:string;configured:boolean}) => [p.id, p]))
+        setProviders(current => current.map(p => ({ ...p, ...(status.get(p.id) || {}) })))
+      }
+    }).catch(() => undefined)
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('oauth_error')) setError('Sign-in was cancelled or could not be completed. Please try again.')
+    return () => { active = false }
+  }, [])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -34,8 +53,8 @@ export default function AuthScreen({ onAuthenticated }: Props) {
   }
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#030b20] px-5 py-10 text-white">
-      <div className="w-full max-w-md rounded-3xl border border-cyan-400/20 bg-[#07152d]/90 p-7 shadow-[0_0_70px_rgba(0,174,255,0.12)]">
+    <div className="vn-auth-screen min-h-screen w-full flex items-center justify-center bg-black px-5 py-10 text-white">
+      <div className="vn-auth-card w-full max-w-md rounded-3xl border border-white bg-white p-7 shadow-none">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center">
             <svg viewBox="0 0 240 220" className="h-full w-full overflow-visible" role="img" aria-label="Visionary Nexus symbol">
@@ -75,6 +94,21 @@ export default function AuthScreen({ onAuthenticated }: Props) {
             className={`rounded-lg py-2.5 text-xs tracking-widest transition ${mode === 'register' ? 'bg-cyan-400/15 text-cyan-200' : 'text-slate-500 hover:text-white'}`}>SIGN UP</button>
         </div>
 
+        <div className="mb-5 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            {providers.map(provider => (
+              <button key={provider.id} type="button" disabled={!provider.configured}
+                onClick={() => { window.location.href = '/api/auth/oauth/' + provider.id + '/start' }}
+                title={provider.configured ? provider.name : provider.name + ' setup required'}
+                className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-3 text-xs font-semibold text-slate-200 transition hover:border-cyan-400/50 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-40">
+                {provider.name}{!provider.configured && <span className="mt-1 block text-[9px] font-normal text-slate-500">SETUP REQUIRED</span>}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-3 pt-2 text-[10px] tracking-widest text-slate-500">
+            <span className="h-px flex-1 bg-white/10" /><span>OR USE EMAIL</span><span className="h-px flex-1 bg-white/10" />
+          </div>
+        </div>
         <form onSubmit={submit} className="space-y-4">
           {mode === 'register' && (
             <label className="block text-xs text-slate-400">DISPLAY NAME
@@ -97,7 +131,7 @@ export default function AuthScreen({ onAuthenticated }: Props) {
           </label>
           {error && <p role="alert" className="rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-2 text-xs text-red-300">{error}</p>}
           <button disabled={busy} className="w-full rounded-xl bg-cyan-400 py-3.5 text-xs font-bold tracking-[0.2em] text-slate-950 transition hover:bg-cyan-300 disabled:cursor-wait disabled:opacity-50">
-            {busy ? 'PLEASE WAIT…' : mode === 'login' ? 'SIGN IN' : 'CREATE ACCOUNT'}
+            {busy ? 'PLEASE WAIT...' : mode === 'login' ? 'SIGN IN' : 'CREATE ACCOUNT'}
           </button>
         </form>
         <p className="mt-5 text-center text-[10px] leading-relaxed text-slate-500">Your account is stored by the Visionary Nexus backend. Passwords are hashed before storage.</p>

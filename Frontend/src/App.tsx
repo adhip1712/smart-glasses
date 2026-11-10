@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import Dashboard from './components/Dashboard'
+﻿import { useCallback, useEffect, useState } from 'react'
+import SpatialDashboard from './components/SpatialDashboard'
 import AIAssistant from './components/AIAssistant'
 import Vision from './components/Vision'
 import Music from './components/Music'
@@ -112,16 +112,46 @@ export default function App() {
   const consumeWhatsAppDraft = useCallback(() => setPendingWhatsAppDraft(null), [])
   const [pendingCallRequest, setPendingCallRequest] = useState<{ recipient: string; channel: 'phone' | 'whatsapp' } | null>(null)
   const consumeCallRequest = useCallback(() => setPendingCallRequest(null), [])
-  const [status, setStatus] = useState<SystemStatus>({ backend: false, aiProvider: '—', glassesOnline: 0, wifiLabel: 'UNKNOWN' })
+  const [status, setStatus] = useState<SystemStatus>({ backend: false, aiProvider: 'â€”', glassesOnline: 0, wifiLabel: 'UNKNOWN' })
   const [authReady, setAuthReady] = useState(false)
   const [authenticated, setAuthenticated] = useState(false)
-  // OAuth returns through a full-page redirect. Do not replay the intro splash
-  // during that redirect, otherwise it looks like sign-in merely restarted.
+  const storedUser = getStoredUser()
+  const displayName = storedUser?.display_name?.trim() || storedUser?.email?.split('@')[0] || 'My Workspace'
+  const userInitialsText = displayName.trim().split(/\s+/).slice(0, 2).map(part => part[0]?.toUpperCase() || '').join('') || 'VN'
+  const avatarUrl = (storedUser as (typeof storedUser & { avatar_url?: string | null }) | null)?.avatar_url || null
+
+  useEffect(() => {
+    document.title = authenticated && storedUser
+      ? displayName + ' | VN-' + storedUser.id
+      : 'Visionary Nexus'
+  }, [authenticated, displayName, storedUser?.id])
+
+  // Play the intro once when a browser tab session starts. Ordinary refreshes
+  // keep the session marker; a hard-refresh shortcut clears it before reload.
   const [showIntro, setShowIntro] = useState(() => {
     const params = new URLSearchParams(window.location.search)
-    return !params.has('oauth_ticket') && !params.has('oauth_error')
+    const isOAuthReturn = params.has('oauth_ticket') || params.has('oauth_error')
+    try {
+      if (sessionStorage.getItem('vn_intro_seen_v2') === '1') return false
+      sessionStorage.setItem('vn_intro_seen_v2', '1')
+    } catch {
+      // If session storage is unavailable, keep the intro for this page load.
+    }
+    return !isOAuthReturn
   })
-  const [introKey, setIntroKey] = useState(0)
+
+  useEffect(() => {
+    const allowIntroOnReload = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase()
+      const hardRefresh = (event.ctrlKey && event.shiftKey && key === 'r') ||
+        (event.ctrlKey && key === 'f5')
+      if (hardRefresh) {
+        try { sessionStorage.removeItem('vn_intro_seen_v2') } catch { /* storage unavailable */ }
+      }
+    }
+    window.addEventListener('keydown', allowIntroOnReload)
+    return () => window.removeEventListener('keydown', allowIntroOnReload)
+  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -134,7 +164,7 @@ export default function App() {
           if (!exchange.ok || !data?.access_token || !data.user) throw new Error('Social sign-in could not be completed.')
           setSession(data.access_token, data.user)
           window.history.replaceState({}, document.title, '/')
-          if (mounted) setAuthenticated(true)
+          if (mounted) { setAuthenticated(true); setShowIntro(true) }
         } catch {
           setSession(null, null)
           window.history.replaceState({}, document.title, '/?oauth_error=failed')
@@ -167,7 +197,7 @@ export default function App() {
   useEffect(() => {
     let mounted = true
     const load = async () => {
-      const next: SystemStatus = { backend: false, aiProvider: '—', glassesOnline: 0, wifiLabel: 'UNKNOWN' }
+      const next: SystemStatus = { backend: false, aiProvider: 'â€”', glassesOnline: 0, wifiLabel: 'UNKNOWN' }
       try {
         const response = await apiFetch('/api/health')
         const data = await readJson<{ ai?: { provider: string | null; configured: boolean } }>(response)
@@ -214,79 +244,31 @@ export default function App() {
   }
 
   if (showIntro) {
-    return <IntroSplash key={introKey} onComplete={() => setShowIntro(false)} />
+    return <IntroSplash onComplete={() => setShowIntro(false)} userName={authenticated ? displayName : undefined} userId={authenticated ? storedUser?.id : undefined} avatarUrl={authenticated ? avatarUrl : null} />
   }
 
   if (!authenticated) {
     return <AuthScreen onAuthenticated={() => {
       setAuthenticated(true)
-      setShowIntro(true)
-      setIntroKey(current => current + 1)
+      setShowIntro(false)
     }} />
   }
 
-  const storedUser = getStoredUser()
-  const displayName = storedUser?.display_name?.trim() || storedUser?.email?.split('@')[0] || 'My Workspace'
-
   return (
-    <div className="min-h-screen bg-[#030712] text-white flex flex-row relative overflow-hidden">
-      {/* Background grid */}
-      <div className="fixed inset-0 bg-grid-pattern pointer-events-none z-0" />
+    <div className="app-shell">
+      {/* Figma spatial navigation shell */}
 
-      {/* Background ambient orbs */}
-      <div
-        className="vn-ambient fixed w-[600px] h-[600px] rounded-full pointer-events-none z-0 animate-orb"
-        style={{
-          top: '-10%', left: '-10%',
-          background: 'radial-gradient(circle, rgba(0,229,255,0.06) 0%, transparent 70%)',
-        }}
-      />
-      <div
-        className="vn-ambient fixed w-[500px] h-[500px] rounded-full pointer-events-none z-0"
-        style={{
-          bottom: '-5%', right: '-5%',
-          background: 'radial-gradient(circle, rgba(168,85,247,0.08) 0%, transparent 70%)',
-          animation: 'orb-drift 16s ease-in-out infinite reverse',
-        }}
-      />
-      <div
-        className="vn-ambient fixed w-[400px] h-[400px] rounded-full pointer-events-none z-0"
-        style={{
-          top: '40%', left: '40%',
-          background: 'radial-gradient(circle, rgba(77,158,255,0.04) 0%, transparent 70%)',
-          animation: 'orb-drift 20s ease-in-out infinite',
-        }}
-      />
-
-      {/* Vertical tab rail — always visible so the content keeps full width */}
-      <aside className="vn-sidebar flex flex-col w-[232px] min-h-screen relative z-10 flex-shrink-0 max-md:w-[68px]"
-        style={{
-          background: 'rgba(3, 7, 18, 0.8)',
-          backdropFilter: 'blur(24px)',
-          borderRight: '1px solid rgba(0, 229, 255, 0.1)',
-          boxShadow: '4px 0 40px rgba(0, 0, 0, 0.5)',
-        }}>
-        {/* Signed-in workspace identity */}
-        <div className="vn-sidebar-identity px-3 md:px-5 py-5 border-b border-white/5">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="vn-avatar w-9 h-9 flex-shrink-0 rounded-lg flex items-center justify-center font-semibold text-sm" aria-hidden="true">{displayName.charAt(0).toUpperCase()}</div>
-            <div className="hidden md:block leading-tight min-w-0">
-              <div className="vn-display-name" title={displayName}>{displayName}</div>
-              <div className="mt-1 text-[10px] tracking-[0.12em] text-slate-400 uppercase">Personal workspace</div>
-            </div>
-          </div>
-          <div className="mt-3 flex items-center gap-2">
-            <div
-              className="w-1.5 h-1.5 rounded-full animate-status-blink"
-              style={{ backgroundColor: status.backend ? '#4ade80' : '#ef4444', color: '#4ade80' }}
-            />
-            <span className="hidden md:inline font-mono text-[10px] text-white/40 tracking-widest uppercase">
-              {status.backend ? 'BACKEND ONLINE' : 'BACKEND OFFLINE'}
-            </span>
-          </div>
-        </div>
+      <aside className="sidebar">
+        <button className="brand identity-brand" type="button" onClick={() => setActiveTab('settings')}>
+          {avatarUrl ? <img className="avatar brand-avatar" src={avatarUrl} alt="" /> : <span className="avatar brand-avatar">{userInitialsText}</span>}
+          <span>
+            <b>{displayName.toUpperCase()}</b>
+            <small>ID / VN-{storedUser?.id ?? 'GUEST'}</small>
+          </span>
+        </button>
 
         {/* Navigation (vertical tabs) */}
+
         <nav className="flex-1 px-2 md:px-3 py-4 space-y-1 overflow-y-auto">
           {tabs.map(({ id, label, Icon }) => {
             const isActive = activeTab === id
@@ -296,7 +278,7 @@ export default function App() {
                 onClick={() => setActiveTab(id)}
                 title={label}
                 className={`w-full flex items-center justify-center md:justify-start gap-3 px-2 md:px-4 py-3 rounded-lg transition-all duration-300 group ${
-                  isActive ? 'nav-item-active' : 'hover:bg-white/5'
+                  isActive ? 'active' : ''
                 }`}
               >
                 <span className={`transition-colors duration-300 ${isActive ? 'text-cyan-400' : 'text-white/40 group-hover:text-white/70'}`}>
@@ -316,39 +298,35 @@ export default function App() {
           })}
         </nav>
 
-        {/* Sidebar bottom status (live from the backend) */}
-        <div className="hidden md:block px-4 py-4 border-t border-white/5 space-y-2">
-          <div className="glass rounded-lg px-3 py-2 flex items-center justify-between">
-            <span className="font-mono text-[10px] text-white/40 uppercase tracking-widest">AI</span>
-            <span
-              className="font-mono text-[10px] text-glow-cyan"
-              style={{ color: status.aiProvider === 'NOT CONFIGURED' ? '#f59e0b' : '#00e5ff' }}
-            >
-              {status.aiProvider.toUpperCase()}
+        <div className="sidebar-footer">
+          <p><span className="sidebar-trust-mark">N</span> Your world. Only yours.</p>
+          <button type="button" onClick={() => setActiveTab('settings')}>
+            {avatarUrl ? <img className="avatar" src={avatarUrl} alt="" /> : <span className="avatar">{userInitialsText}</span>}
+            <span>
+              <b>{displayName}</b>
+              <small>Personal workspace / VN-{storedUser?.id ?? 'GUEST'}</small>
             </span>
-          </div>
-          <div className="glass rounded-lg px-3 py-2 flex items-center justify-between">
-            <span className="font-mono text-[10px] text-white/40 uppercase tracking-widest">Glasses</span>
-            <span className="font-mono text-[10px] text-cyan-400 text-glow-cyan">
-              {status.glassesOnline} ONLINE
-            </span>
-          </div>
-          <div className="glass rounded-lg px-3 py-2 flex items-center justify-between">
-            <span className="font-mono text-[10px] text-white/40 uppercase tracking-widest">Link</span>
-            <span className="font-mono text-[10px] text-cyan-400 text-glow-cyan">{status.wifiLabel}</span>
-          </div>
+            <span className="profile-arrow">?</span>
+          </button>
         </div>
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 relative z-10 overflow-auto" style={{ minHeight: '100vh' }}>
-        <header className="vn-topbar">
+      <section className="workspace">
+        <header className="topbar drift-soft">
           <div>
-            <div className="vn-topbar-title">{tabs.find(tab => tab.id === activeTab)?.label || 'Workspace'}</div>
-            <div className="vn-topbar-subtitle">Visionary Nexus <span className="mx-1 text-slate-600">/</span> Smart glasses workspace</div>
+            <p className="eyebrow">Your spatial workspace</p>
+            <div className="page-title">
+              <h1>{tabs.find(tab => tab.id === activeTab)?.label || 'Workspace'}</h1>
+              <span>VN-{storedUser?.id ?? 'GUEST'}</span>
+            </div>
+            <p className="page-description">Personal intelligence - Smart glasses interface</p>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="vn-status-pill"><span className="vn-status-dot" style={{ background: status.backend ? '#4cc69a' : '#d69b50' }} />{status.backend ? 'System connected' : 'Backend unavailable'}</span>
+          <div className="system-controls">
+            <span className="online"><i />{status.backend ? 'System connected' : 'Backend unavailable'}</span>
+            <span className="divider" />
+            <span className="clock">{new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
+            <button className="round-button" type="button" aria-label="Notifications" onClick={() => setActiveTab('notifications')}><BellIcon /></button>
           </div>
         </header>
         <VoiceControl onCommand={async (spoken) => {
@@ -447,8 +425,8 @@ export default function App() {
             setActiveTab('ai')
           }
         }} />
-        <div className="animate-slide-in vn-content">
-          {activeTab === 'dashboard' && <Dashboard setActiveTab={setActiveTab} />}
+        <div className="page-content animate-slide-in vn-content">
+          {activeTab === 'dashboard' && <SpatialDashboard setActiveTab={setActiveTab} displayName={displayName} backendOnline={status.backend} glassesOnline={status.glassesOnline} />}
           {activeTab === 'ai' && <AIAssistant
             onNavigate={(destination) => { setNavigationDestination(destination); setActiveTab('nav') }}
             onMusic={() => setActiveTab('music')}
@@ -472,7 +450,7 @@ export default function App() {
             setActiveTab('dashboard')
           }} />}
         </div>
-      </main>
+      </section>
 
     </div>
   )

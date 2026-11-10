@@ -1,0 +1,63 @@
+﻿/* Queue and playlist library only. Player, search, results and playback controls are untouched. */
+.vn-music-root .vn-music-queue,.vn-music-root .vn-music-library{min-width:0;position:relative;overflow:hidden;padding:clamp(20px,2.2vw,30px)!important;border:1px solid rgba(255,255,255,.16)!important;border-radius:26px!important;background:radial-gradient(ellipse at 8% 0%,rgba(255,255,255,.09),transparent 38%),linear-gradient(145deg,#242424 0%,#151515 52%,#090909 100%)!important;box-shadow:0 24px 58px rgba(0,0,0,.48),inset 0 1px rgba(255,255,255,.11)!important}
+.vn-music-root .vn-music-queue>div:first-child,.vn-music-root .vn-music-library>div:first-child{position:relative;padding-bottom:16px;border-bottom:1px solid rgba(255,255,255,.12)}
+.vn-music-root .vn-music-queue h2,.vn-music-root .vn-music-library h2{color:#fff!important;font-size:21px!important;font-weight:650!important;letter-spacing:-.035em}
+.vn-music-root .vn-music-queue>div:first-child span{border-color:rgba(255,255,255,.2)!important;background:rgba(255,255,255,.055);color:rgba(255,255,255,.78)!important}
+.vn-music-root .vn-music-queue>div:last-child>div:not(:only-child){transition:background .2s ease,transform .2s ease,border-color .2s ease}
+.vn-music-root .vn-music-queue>div:last-child>div:not(:only-child):hover{background:rgba(255,255,255,.075)!important;transform:translateX(3px)}
+.vn-music-root .vn-music-queue img,.vn-music-root .vn-music-library img{border:1px solid rgba(255,255,255,.13);box-shadow:0 7px 18px rgba(0,0,0,.45)}
+.vn-music-root .vn-music-queue button,.vn-music-root .vn-music-library button,.vn-music-root .vn-music-library label{transition:background .2s ease,border-color .2s ease,color .2s ease,transform .2s ease}
+.vn-music-root .vn-music-library>div:first-child>div:last-child{gap:9px!important}
+.vn-music-root .vn-music-library input:not([type=file]):not([type=checkbox]){min-height:40px;color:#fff!important;background:rgba(0,0,0,.38)!important;border:1px solid rgba(255,255,255,.17)!important}
+.vn-music-root .vn-music-library input::placeholder{color:rgba(255,255,255,.4)}
+.vn-music-root .vn-music-library label,.vn-music-root .vn-music-library>div:first-child button{border:1px solid rgba(255,255,255,.19)!important;background:linear-gradient(145deg,rgba(255,255,255,.09),rgba(255,255,255,.025));color:rgba(255,255,255,.82)!important}
+.vn-music-root .vn-music-library label:hover,.vn-music-root .vn-music-library>div:first-child button:hover{border-color:rgba(255,255,255,.42)!important;background:rgba(255,255,255,.12)!important;transform:translateY(-1px)}
+.vn-music-root .vn-music-library>div:last-child{gap:15px!important}
+.vn-music-root .vn-music-library>div:last-child>div{min-width:0;padding:17px!important;border:1px solid rgba(255,255,255,.13)!important;border-radius:19px!important;background:linear-gradient(145deg,rgba(255,255,255,.065),rgba(0,0,0,.28))!important;box-shadow:inset 0 1px rgba(255,255,255,.065),0 12px 28px rgba(0,0,0,.25);transition:border-color .2s ease,background .2s ease,transform .2s ease,box-shadow .2s ease}
+.vn-music-root .vn-music-library>div:last-child>div:hover{border-color:rgba(255,255,255,.27)!important;background:linear-gradient(145deg,rgba(255,255,255,.09),rgba(0,0,0,.25))!important;box-shadow:inset 0 1px rgba(255,255,255,.09),0 18px 34px rgba(0,0,0,.36);transform:translateY(-2px)}
+.vn-music-root .vn-music-library>div:last-child>div button:first-child{color:#fff!important}
+.vn-music-root .vn-music-library>div:last-child>div button[aria-label^="Play playlist"]{border:0!important;border-radius:999px!important;background:#fff!important;color:#080808!important;padding:8px 15px!important;font-weight:700}
+.vn-music-root .vn-music-library>div:last-child>div button[aria-label^="Play playlist"]:hover{background:#dedede!important}
+.vn-music-root .vn-music-library>div:last-child>div>div:last-child>div{min-width:0;padding:7px 8px;border:1px solid rgba(255,255,255,.075);border-radius:11px;background:rgba(0,0,0,.19)}
+.vn-music-root .vn-music-library>div:last-child>div>div:last-child>div:hover{border-color:rgba(255,255,255,.2);background:rgba(255,255,255,.045)}
+.vn-music-root .vn-music-library input[aria-label="New playlist name"]{background:rgba(0,0,0,.55)!important;border:1px solid rgba(255,255,255,.28)!important}
+.vn-music-root .vn-music-queue p,.vn-music-root .vn-music-library p{color:rgba(255,255,255,.56)}
+@media(max-width:720px){.vn-music-root .vn-music-queue,.vn-music-root .vn-music-library{padding:17px!important;border-radius:20px!important}.vn-music-root .vn-music-library>div:last-child{grid-template-columns:minmax(0,1fr)!important}}
+
+/* Give the playlist library the available horizontal space; keep player untouched. */
+@media (min-width: 900px) {
+  .vn-music-root > div.grid:has(> .vn-music-queue) {
+    grid-template-columns: minmax(250px, .68fr) minmax(0, 1.32fr) !important;
+    align-items: start;
+    gap: 18px !important;
+  }
+}
+.vn-music-root .vn-music-library > div:last-child {
+  grid-template-columns: minmax(0, 1fr) !important;
+  width: 100%;
+}
+.vn-music-root .vn-music-library > div:last-child > div {
+  width: 100%;
+}
+.vn-music-root .vn-music-library > div:last-child > div > div:last-child {
+  width: 100%;
+}
+.vn-music-root .vn-music-library > div:last-child > div > div:last-child > div {
+  width: 100%;
+  box-sizing: border-box;
+}
+.vn-music-root .vn-music-library > div:first-child > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+}
+.vn-music-root .vn-music-library > div:first-child > div:last-child > button {
+  min-height: 38px;
+  padding-inline: 14px !important;
+}
+@media (max-width: 899px) {
+  .vn-music-root > div.grid:has(> .vn-music-queue) {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}

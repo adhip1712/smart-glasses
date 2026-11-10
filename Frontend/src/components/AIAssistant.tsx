@@ -1,3 +1,4 @@
+import aiVisual from '../assets/ba6b2.png'
 import React, {
   useEffect,
   useRef,
@@ -8,6 +9,7 @@ import { apiFetch } from "../services/api"
 import { parseMusicCommand, publishMusicCommand, type MusicCommandAction } from "../services/voiceMusic"
 
 import ReactMarkdown from "react-markdown"
+import AIOrbScene from "./AIOrbScene"
 import remarkGfm from "remark-gfm"
 
 // =========================================================
@@ -129,6 +131,28 @@ const AIAssistant: React.FC<{
   const inputRef = useRef<HTMLInputElement>(null)
   const [speechStatus, setSpeechStatus] = useState("Voice not tested")
 
+  // Warm the personal WhatsApp contact map while the AI tab is open. That
+  // allows a typed send command to launch WhatsApp synchronously without
+  // waiting for a network request (which would lose the browser user gesture).
+  useEffect(() => {
+    let active = true
+    apiFetch('/api/whatsapp/contacts')
+      .then(async response => {
+        if (!response.ok) return
+        const data = await response.json()
+        if (!active || !Array.isArray(data?.contacts) || !data.contacts.length) return
+        const contacts: Record<string, string> = {}
+        data.contacts.forEach((contact: { name?: string; phone?: string }) => {
+          if (contact.name && contact.phone) contacts[contact.name] = contact.phone
+        })
+        if (Object.keys(contacts).length) {
+          window.localStorage.setItem('visionary_whatsapp_contacts', JSON.stringify(contacts))
+        }
+      })
+      .catch(() => undefined)
+    return () => { active = false }
+  }, [])
+
   // Use short sequential utterances to prevent long answers being cut off by Chromium.
   const speakResponse = (value: string) => {
     setSpeechStatus("Starting voice...")
@@ -193,13 +217,13 @@ const AIAssistant: React.FC<{
   // Short follow-ups such as "how?", "why?" and "explain" intentionally
   // return null and stay in the current conversation.
   const inferTopic = (value: string): string | null => {
-    const text = value.toLowerCase().replace(/[^a-z0-9+*/×÷.-]+/g, " ").trim()
+    const text = value.toLowerCase().replace(/[^a-z0-9+*/x.-]+/g, " ").trim()
     if (!text || /^(how|why|what do you mean|explain|tell me more|continue|and then|example|give an example|can you explain|what about)\??$/.test(text)) {
       return null
     }
 
     const rules: Array<[string, RegExp]> = [
-      ["math", /\b(math|mathematics|calculate|calculation|equation|algebra|geometry|fraction|percentage|multiply|multiplication|divide|addition|subtract|square root|\d+\s*[x×*÷/]\s*\d+|\d+\s*[+\-]\s*\d+)\b/i],
+      ["math", /\b(math|mathematics|calculate|calculation|equation|algebra|geometry|fraction|percentage|multiply|multiplication|divide|addition|subtract|square root|\d+\s*[x*\/]\s*\d+|\d+\s*[+\-]\s*\d+)\b/i],
       ["ai", /\b(ai|artificial intelligence|machine learning|neural network|large language model|chatgpt|llm)\b/i],
       ["coding", /\b(code|coding|programming|python|javascript|typescript|react|fastapi|api|debug|bug|compiler|database|sql|github|git)\b/i],
       ["weather", /\b(weather|temperature|forecast|rain|humidity)\b/i],
@@ -219,7 +243,7 @@ const AIAssistant: React.FC<{
       if (pattern.test(text)) return topic
     }
 
-    if (/^\d+(?:\s*[x×*÷/+\-]\s*\d+)+$/.test(text)) return "math"
+    if (/^\d+(?:\s*[x*\/+\-]\s*\d+)+$/.test(text)) return "math"
     if (/^(what is|who is|where is|when did|define)\s+.+/.test(text)) {
       const subject = text.replace(/^(what is|who is|where is|when did|define)\s+/, "").split(" ").slice(0, 3).join(" ")
       return subject || null
@@ -885,7 +909,7 @@ const AIAssistant: React.FC<{
     if (youtubeStatus === "ERROR") {
       return youtubeError || "Music provider unavailable."
     }
-    if (musicProvider === "spotify") return "Spotify · playback runs on your account"
+    if (musicProvider === "spotify") return "Spotify  |  playback runs on your account"
     if (musicProvider === "mock") return "Demo music mode"
     if (musicProvider === "youtube" && youtubeStatus === "READY") return "YouTube playback ready"
     return "Music provider not configured"
@@ -1261,10 +1285,10 @@ const AIAssistant: React.FC<{
 
       if (searchResult.needsConfirmation) {
         const suggestions = tracks.slice(0, 5).map((candidate, index) =>
-          `${index + 1}. ${candidate.name || "Untitled"} — ${candidate.artist || "Unknown artist"}`
+          `${index + 1}. ${candidate.name || "Untitled"} - ${candidate.artist || "Unknown artist"}`
         ).join("\n")
         addLocalMessage(
-          `${searchResult.notice || "I couldn't identify the exact song."}\n\n${suggestions}\n\nTell me the exact title or artist and I’ll play that match.`
+          `${searchResult.notice || "I couldn't identify the exact song."}\n\n${suggestions}\n\nTell me the exact title or artist and I'll play that match.`
         )
         return
       }
@@ -1614,7 +1638,7 @@ const AIAssistant: React.FC<{
         }\n\n`
 
       weatherText +=
-        `**Temperature:** ${temperature}°C\n\n`
+        `**Temperature:** ${temperature} deg C\n\n`
 
       weatherText +=
         `**Condition:** ${condition}`
@@ -1924,6 +1948,50 @@ const AIAssistant: React.FC<{
 
     if (!message) {
       return
+    }
+
+    // Personal WhatsApp message commands are handled synchronously from the
+    // submit gesture. This is important: opening a custom protocol after async
+    // AI/conversation requests can be blocked by the browser/Electron popup guard.
+    const whatsappCommand =
+      message.match(/^send\s+(?:a\s+)?message\s+to\s+(.+?)\s+saying\s+(.+)$/i)
+      || message.match(/^send\s+(.+?)\s+to\s+(.+)$/i)
+      || message.match(/^send\s+(.+?)\s+a\s+message\s+saying\s+(.+)$/i)
+      || message.match(/^tell\s+(.+?)\s+(?:that\s+)?(.+)$/i)
+    if (whatsappCommand && onWhatsAppDraft) {
+      let recipient = ''
+      let messageText = ''
+      if (/^send\s+(?:a\s+)?message\s+to\s+/i.test(message)) {
+        recipient = whatsappCommand[1].trim()
+        messageText = whatsappCommand[2].trim()
+      } else if (/^send\s+.+\s+a\s+message\s+saying\s+/i.test(message)) {
+        recipient = whatsappCommand[1].trim()
+        messageText = whatsappCommand[2].trim()
+      } else if (/^tell\s+/i.test(message)) {
+        recipient = whatsappCommand[1].trim()
+        messageText = whatsappCommand[2].trim()
+      } else {
+        // Greedy first capture deliberately splits on the final " to ",
+        // preserving message text that itself contains the word "to".
+        const match = message.match(/^send\s+(.+)\s+to\s+(.+)$/i)
+        if (match) {
+          messageText = match[1].trim()
+          recipient = match[2].trim()
+        }
+      }
+
+      recipient = recipient.replace(/[?.!,]+$/g, '').trim()
+      messageText = messageText.replace(/^[,\s]+|[,\s]+$/g, '').trim()
+      if (recipient && messageText) {
+        setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: 'user', content: message }])
+        setInput('')
+        // Route to the WhatsApp tab first. A custom whatsapp:// launch here can
+        // be blocked by browser protocol/popup handling and hide the prepared draft.
+        // The user opens Web/Desktop from a direct click in the WhatsApp tab.
+        onWhatsAppDraft({ recipient, message: messageText })
+        addLocalMessage(`Prepared a WhatsApp message to **${recipient}**. Open the WhatsApp tab, review the recipient and message, then open WhatsApp and click Send.`)
+        return
+      }
     }
 
     // Call commands are routed locally so they work even without an AI provider.
@@ -2282,11 +2350,13 @@ const AIAssistant: React.FC<{
   // =======================================================
 
   return (
-    <div className="w-full h-full flex flex-col">
+    <div className="content-grid assistant-grid vn-ai-figma-layout">
+      <section className="hero-panel assistant-panel vn-ai-spatial w-full h-full flex flex-col">
+      <AIOrbScene />
 
       {/* HEADER */}
 
-      <div className="flex items-center justify-between px-6 py-4">
+      <div className="panel-toolbar vn-ai-header flex items-center justify-between px-6 py-4">
 
         <div>
           <h1 className="text-xl font-semibold">
@@ -2316,7 +2386,7 @@ const AIAssistant: React.FC<{
 
           {/* MUSIC STATUS */}
 
-          <div className="px-3 py-2 rounded-xl text-xs border border-white/10 bg-white/5 max-w-[260px] text-right">
+          <div className="vn-music-status px-3 py-2 rounded-xl text-xs border border-white/10 bg-white/5 max-w-[260px] text-right">
             <div className="font-medium">
               {musicPlaying ? "Music Playing" : "Music Ready"}
             </div>
@@ -2326,7 +2396,7 @@ const AIAssistant: React.FC<{
             <button
               type="button"
               onClick={() => void checkYoutubeConfig()}
-              className="mt-2 rounded-md border border-white/10 bg-white/10 px-2 py-1 text-[10px] font-medium text-white disabled:opacity-50 hover:bg-white/15 transition-all"
+              className="vn-check-youtube mt-2 rounded-md border border-white/10 bg-white/10 px-2 py-1 text-[10px] font-medium text-white disabled:opacity-50 hover:bg-white/15 transition-all"
             >
               {youtubePlayerReady ? "YouTube Ready" : "Check YouTube"}
             </button>
@@ -2424,7 +2494,7 @@ const AIAssistant: React.FC<{
 
       {/* TABS */}
 
-      <div className="px-6">
+      <div className="vn-ai-tabs px-6">
 
         <div className="flex items-center gap-2 overflow-x-auto pb-3">
 
@@ -2499,7 +2569,7 @@ const AIAssistant: React.FC<{
                           transition-all
                         "
                       >
-                        ×
+                        x
                       </button>
 
                     </div>
@@ -2536,14 +2606,15 @@ const AIAssistant: React.FC<{
 
       {/* MESSAGES */}
 
-      <div className="flex-1 overflow-y-auto px-6 py-4">
+      <div className="messages vn-ai-messages flex-1 overflow-y-auto px-6 py-4">
 
         {messages.length === 0 &&
         !isThinking ? (
 
-          <div className="h-full flex flex-col items-center justify-center text-center">
+          <div className="assistant-intro h-full flex flex-col items-center justify-center text-center">
 
-            <div className="w-20 h-20 rounded-full flex items-center justify-center border border-white/20 bg-white/5 mb-5">
+            <div className="vn-ai-welcome-orb"><img src={aiVisual} alt="" /></div>
+            <div className="hidden">
 
               <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center">
 
@@ -2599,6 +2670,7 @@ const AIAssistant: React.FC<{
                     <div
                       className={`
                         max-w-[80%]
+                        vn-chat-bubble
                         rounded-2xl
                         px-4
                         py-3
@@ -2718,7 +2790,7 @@ const AIAssistant: React.FC<{
 
       {/* INPUT */}
 
-      <div className="p-6">
+      <div className="composer vn-ai-composer p-6">
 
         <div className="
           flex
@@ -2755,7 +2827,7 @@ const AIAssistant: React.FC<{
           >
             <span className="text-sm">
               {isListening
-                ? "■"
+                ? "STOP"
                 : "MIC"}
             </span>
           </button>
@@ -2814,17 +2886,45 @@ const AIAssistant: React.FC<{
         <div className="mt-2 text-center">
 
           <span className="text-[10px] opacity-25">
-            Voice: "play spooky" ·
-            "pause" · "resume" ·
-            "next song" ·
-            "previous song" ·
-            "weather in Bengaluru"
+            Voice commands: "play spooky" | "pause" | "resume" |
+            "next song" | "previous song" | "weather in Bengaluru"
           </span>
 
         </div>
 
       </div>
-
+      </section>
+      <aside className="context-column vn-ai-context">
+        <section className="context-card">
+          <div className="row between"><p className="eyebrow">Personal intelligence</p><span className="status"><i /> {isThinking ? "Thinking" : isListening ? "Listening" : "Ready"}</span></div>
+          <div className="vn-ai-context-orb"><img src={aiVisual} alt="AI assistant visual" /></div>
+          <h3>Nexus AI</h3>
+          <p>Your assistant is connected to the existing conversation and voice services.</p>
+        </section>
+        <section className="context-card">
+          <p className="eyebrow">Current audio</p>
+          {currentTrack ? <div className="track">
+            {currentTrack.image ? <img src={currentTrack.image} alt="" /> : <span className="vn-ai-track-placeholder">?</span>}
+            <div><h3>{currentTrack.name || "Unknown track"}</h3><p>{currentTrack.artist || "Artist unavailable"}</p></div>
+          </div> : <p className="vn-ai-context-muted">No track is currently selected.</p>}
+          <div className="hairline" />
+          <p className="vn-ai-context-muted">{musicPlaying ? "Playback is active" : "Playback is paused or idle"}</p>
+        </section>
+        <section className="context-card">
+          <p className="eyebrow">Quick actions</p>
+          <button type="button" className="vn-ai-context-action" onClick={() => void createNewTab()}>
+            <svg className="vn-quick-action-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+            <span className="vn-quick-action-label">Start a new conversation</span>
+            <svg className="vn-quick-action-arrow" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+          </button>
+          <button type="button" className="vn-ai-context-action" onClick={() => void checkYoutubeConfig()}>
+            <svg className="vn-quick-action-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 13v-1a9 9 0 0 1 18 0v1M3 13h3v6H5a2 2 0 0 1-2-2v-4Zm18 0h-3v6h1a2 2 0 0 0 2-2v-4Z" /></svg>
+            <span className="vn-quick-action-label">Check audio connection</span>
+            <svg className="vn-quick-action-arrow" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+          </button>
+          <p className="vn-ai-context-muted">Device and weather information remains available in their respective live tabs.</p>
+        </section>
+      </aside>
     </div>
   )
 }

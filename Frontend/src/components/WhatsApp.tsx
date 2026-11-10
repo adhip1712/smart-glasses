@@ -104,12 +104,16 @@ export default function WhatsApp({ initialDraft = null, onDraftConsumed }: {
   ), [contacts, query])
 
   const resolvedRecipient = useMemo(() => {
-    const value = draftRecipient.trim().toLowerCase()
+    const raw = draftRecipient.trim()
+    const value = raw.toLowerCase()
     if (!value) return undefined
-    const exact = contacts.find(contact => contact.name.toLowerCase() === value || normalizePhone(contact.phone) === normalizePhone(value))
+    const exact = contacts.find(contact => contact.name.toLowerCase() === value || normalizePhone(contact.phone) === normalizePhone(raw))
     if (exact) return exact
     const matches = contacts.filter(contact => contact.name.toLowerCase().includes(value))
-    return matches.length === 1 ? matches[0] : undefined
+    if (matches.length === 1) return matches[0]
+    const digits = normalizePhone(raw)
+    if (digits.length >= 8 && digits.length <= 15) return { name: raw, phone: digits }
+    return undefined
   }, [contacts, draftRecipient])
 
   useEffect(() => {
@@ -207,32 +211,43 @@ export default function WhatsApp({ initialDraft = null, onDraftConsumed }: {
     void persist(contacts.filter(item => normalizePhone(item.phone) !== normalizePhone(contact.phone)), 'Contact removed.')
   }
 
+  const openExternal = (url: string) => {
+    // Open synchronously from the click. If a new tab is blocked, navigate this tab.
+    const opened = window.open(url, '_blank')
+    if (opened) opened.opener = null
+    else window.location.assign(url)
+  }
+
   const openChat = (contact: Contact) => {
-    const url = `whatsapp://send?phone=${normalizePhone(contact.phone)}`
-    window.open(url, '_blank', 'noopener,noreferrer')
+    openExternal(`https://wa.me/${normalizePhone(contact.phone)}`)
   }
 
   const openPreparedDesktopMessage = () => {
-    if (!resolvedRecipient) {
-      setDraftNotice('Choose a saved contact from the recipient suggestions, or add this person to Saved contacts first.')
+    if (!draftRecipient.trim() || !draftMessage.trim()) {
+      setDraftNotice('Enter a recipient and message first.')
       return
     }
-    if (!draftMessage.trim()) {
-      setDraftNotice('Enter the message you want to prepare before opening WhatsApp.')
-      return
-    }
-    const url = `whatsapp://send?phone=${normalizePhone(resolvedRecipient.phone)}&text=${encodeURIComponent(draftMessage.trim())}`
-    setDraftNotice(`Opening WhatsApp Desktop for ${resolvedRecipient.name}. Review the message there and click Send when ready.`)
-    window.open(url, '_blank', 'noopener,noreferrer')
+    const phone = resolvedRecipient?.phone ? normalizePhone(resolvedRecipient.phone) : ''
+    const url = phone
+      ? `whatsapp://send?phone=${phone}&text=${encodeURIComponent(draftMessage.trim())}`
+      : `whatsapp://send?text=${encodeURIComponent(draftMessage.trim())}`
+    setDraftNotice('Trying WhatsApp Desktop. If it does not open, use Open WhatsApp with message.')
+    openExternal(url)
   }
 
   const openPreparedWebMessage = () => {
-    if (!resolvedRecipient || !draftMessage.trim()) {
-      setDraftNotice('Choose a saved contact and enter a message first.')
+    if (!draftRecipient.trim() || !draftMessage.trim()) {
+      setDraftNotice('Enter a recipient and message first.')
       return
     }
-    const url = `https://wa.me/${normalizePhone(resolvedRecipient.phone)}?text=${encodeURIComponent(draftMessage.trim())}`
-    window.open(url, '_blank', 'noopener,noreferrer')
+    const phone = resolvedRecipient?.phone ? normalizePhone(resolvedRecipient.phone) : ''
+    const url = phone
+      ? `https://wa.me/${phone}?text=${encodeURIComponent(draftMessage.trim())}`
+      : `https://wa.me/?text=${encodeURIComponent(draftMessage.trim())}`
+    setDraftNotice(phone
+      ? `Opening WhatsApp for ${resolvedRecipient?.name}. Review the message and press Send there.`
+      : `Opening WhatsApp's chat chooser with your message. Select ${draftRecipient.trim()}, review it, and press Send there.`)
+    openExternal(url)
   }
 
   async function sendBusinessMessage(event: FormEvent) {
@@ -319,7 +334,7 @@ export default function WhatsApp({ initialDraft = null, onDraftConsumed }: {
   }
 
   return (
-    <section className="space-y-6 p-4 md:p-7">
+    <section className="space-y-6 p-4 md:p-7 vn-figma-communications vn-figma-whatsapp">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="text-xs tracking-[0.2em] text-emerald-300/80 uppercase">Communication</div>
@@ -328,7 +343,7 @@ export default function WhatsApp({ initialDraft = null, onDraftConsumed }: {
         </div>
         <a href="https://web.whatsapp.com/" target="_blank" rel="noreferrer"
           className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-2.5 text-sm text-emerald-200 hover:bg-emerald-400/20">
-          Open WhatsApp Web ↗
+          Open WhatsApp Web →
         </a>
       </div>
 
@@ -351,10 +366,10 @@ export default function WhatsApp({ initialDraft = null, onDraftConsumed }: {
 
       <div className="rounded-2xl border border-emerald-400/25 bg-emerald-400/5 p-5">
         <h2 className="text-lg font-medium text-white">Prepare a personal WhatsApp message</h2>
-        <p className="mt-1 text-sm text-slate-400">Choose a saved contact and review the message. Visionary Nexus opens WhatsApp Desktop with the text filled in; you press Send inside WhatsApp.</p>
+        <p className="mt-1 text-sm text-slate-400">Enter a contact name or phone number and review the message. Saved contacts are matched automatically; if a name is not saved, WhatsApp opens its chat chooser with your message ready. You press Send inside WhatsApp.</p>
         <div className="mt-4 grid gap-3">
           <label className="block text-sm text-slate-300">Recipient
-            <input list="visionary-whatsapp-recipient-list" value={draftRecipient} onChange={event => setDraftRecipient(event.target.value)} placeholder="Type a saved contact name"
+            <input list="visionary-whatsapp-recipient-list" value={draftRecipient} onChange={event => setDraftRecipient(event.target.value)} placeholder="Contact name or international phone number"
               className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none focus:border-emerald-400/60" />
             <datalist id="visionary-whatsapp-recipient-list">
               {contacts.map(contact => <option key={contact.phone} value={contact.name}>{`+${contact.phone}`}</option>)}
@@ -367,13 +382,13 @@ export default function WhatsApp({ initialDraft = null, onDraftConsumed }: {
               className="mt-2 w-full resize-y rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none focus:border-emerald-400/60" />
           </label>
           <div className="flex flex-wrap gap-3">
-            <button type="button" onClick={openPreparedDesktopMessage} disabled={!resolvedRecipient || !draftMessage.trim()}
+            <button type="button" onClick={openPreparedDesktopMessage} disabled={!draftRecipient.trim() || !draftMessage.trim()}
               className="rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50">
-              Open WhatsApp Desktop with message
+              Try WhatsApp Desktop
             </button>
-            <button type="button" onClick={openPreparedWebMessage} disabled={!resolvedRecipient || !draftMessage.trim()}
-              className="rounded-xl border border-white/15 px-4 py-2.5 text-sm text-slate-200 hover:bg-white/5 disabled:opacity-50">
-              Use WhatsApp Web instead
+            <button type="button" onClick={openPreparedWebMessage} disabled={!draftRecipient.trim() || !draftMessage.trim()}
+              className="rounded-xl border border-white/15 px-4 py-2.5 text-sm text-slate-200 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50">
+              Open WhatsApp with message
             </button>
           </div>
           {draftNotice && <p className="text-sm text-slate-300" role="status">{draftNotice}</p>}

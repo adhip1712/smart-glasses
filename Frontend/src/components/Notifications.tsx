@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+﻿import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, readJson } from '../services/api'
 
 interface NotificationItem {
@@ -63,7 +63,7 @@ export default function Notifications() {
   }
 
   return (
-    <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
+    <div className="page-stack list-page vn-figma-notifications p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-widest text-white">NOTIFICATIONS</h1>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { apiFetch, readJson, setSession } from '../services/api'
 
 function Toggle({
@@ -200,6 +200,26 @@ export default function Settings({ onSignOut }: { onSignOut?: () => void }) {
   // =========================
 
   const [wifiSSID] = useState('SG-Network-5G')
+  const [backendUrl, setBackendUrl] = useState(() => {
+    try { return localStorage.getItem('visionary.backend_url') || '' } catch { return '' }
+  })
+  const [backendUrlSaved, setBackendUrlSaved] = useState(false)
+  const saveBackendUrl = () => {
+    let value = backendUrl.trim()
+    while (value.endsWith('/')) value = value.slice(0, -1)
+    if (value && !(value.startsWith('http://') || value.startsWith('https://'))) {
+      alert('Enter a complete backend URL, for example http://192.168.1.10:8000')
+      return
+    }
+    try {
+      if (value) localStorage.setItem('visionary.backend_url', value)
+      else localStorage.removeItem('visionary.backend_url')
+      setBackendUrlSaved(true)
+      window.setTimeout(() => window.location.reload(), 500)
+    } catch {
+      alert('Could not save the backend URL on this device.')
+    }
+  }
   const [autoConnect, setAutoConnect] = useState(true)
   const [cloudSync, setCloudSync] = useState(true)
 
@@ -274,7 +294,7 @@ export default function Settings({ onSignOut }: { onSignOut?: () => void }) {
   }
 
   return (
-    <div className="p-4 md:p-8 space-y-6 max-w-4xl mx-auto">
+    <div className="page-stack settings-page settings-layout vn-figma-settings p-4 md:p-8 space-y-6 max-w-4xl mx-auto">
 
       {/* =========================
           HEADER
@@ -547,7 +567,7 @@ export default function Settings({ onSignOut }: { onSignOut?: () => void }) {
         <SettingRow label="Detection Sensitivity" description="High is the default; may increase false activations">
           <Select options={['high', 'balanced', 'low']} value={wakeSensitivity} onChange={setWakeSensitivity} />
         </SettingRow>
-        <p className="font-mono text-[10px] leading-relaxed text-white/35">Wake listening uses the browser speech-recognition service while the app is open. It listens through the operating system’s default microphone; when the glasses expose an audio input, select that input as the Windows default. Offline detection for arbitrary phrases needs a local speech recognizer or a trained model.</p>
+        <p className="font-mono text-[10px] leading-relaxed text-white/35">Wake listening uses the browser speech-recognition service while the app is open. It listens through the operating system's default microphone; when the glasses expose an audio input, select that input as the Windows default. Offline detection for arbitrary phrases needs a local speech recognizer or a trained model.</p>
         <div className="flex flex-wrap items-center gap-3">
           <button type="button" onClick={() => void saveWakeSettings()} className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 font-mono text-xs text-cyan-200 hover:bg-cyan-400/20">Save Wake Settings</button>
           {wakeSaved && <span className="font-mono text-xs text-emerald-300">Saved</span>}
@@ -603,6 +623,16 @@ export default function Settings({ onSignOut }: { onSignOut?: () => void }) {
       ========================= */}
 
       <Section title="Network">
+
+        <div className="rounded-xl border border-cyan-400/15 bg-cyan-400/5 p-4 space-y-3">
+          <div className="font-mono text-xs text-cyan-200">Mobile app backend address</div>
+          <p className="font-mono text-[10px] leading-relaxed text-white/40">For iOS and Android, enter the address of the computer/server running Visionary Nexus FastAPI. Keep the phone and server on the same Wi-Fi network when using a local backend. Example: http://192.168.1.10:8000</p>
+          <input aria-label="Backend server URL" value={backendUrl} onChange={event => { setBackendUrl(event.target.value); setBackendUrlSaved(false) }} placeholder="http://192.168.1.10:8000" className="w-full rounded-lg border border-cyan-400/20 bg-slate-950 px-3 py-2 font-mono text-xs text-cyan-100 outline-none focus:border-cyan-400/60" />
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={saveBackendUrl} className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 font-mono text-xs text-cyan-200">Save backend address</button>
+            {backendUrlSaved && <span className="font-mono text-xs text-emerald-300">Saved — restarting app…</span>}
+          </div>
+        </div>
 
         <SettingRow
           label="Network"

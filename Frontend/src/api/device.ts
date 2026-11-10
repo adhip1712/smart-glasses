@@ -20,7 +20,8 @@
 const viteEnv =
   (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {}
 
-export const API_BASE = viteEnv.VITE_API_URL ?? ''
+const configuredApiBase = viteEnv.VITE_API_URL ?? (() => { try { return window.localStorage.getItem('visionary.backend_url') ?? '' } catch { return '' } })()
+export const API_BASE = configuredApiBase.endsWith('/') ? configuredApiBase.slice(0, -1) : configuredApiBase
 
 const STORAGE_KEY = 'visionary.device_id'
 

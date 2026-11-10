@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Visionary Nexus</string>
+    <string name="title_activity_main">Visionary Nexus</string>
+    <string name="package_name">com.visionarynexus.app</string>
+    <string name="custom_url_scheme">com.visionarynexus.app</string>
+</resources>

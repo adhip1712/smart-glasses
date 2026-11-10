@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+﻿import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, readJson } from '../services/api'
 
 interface RouteStep {
@@ -104,7 +104,7 @@ export default function Navigation({ initialDestination = '' }: { initialDestina
   const isMock = route?.source === 'mock'
 
   return (
-    <div className="p-4 md:p-8 space-y-6 max-w-7xl mx-auto">
+    <div className="page-stack navigation-layout vn-figma-navigation p-4 md:p-8 space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-widest text-white">NAVIGATION</h1>

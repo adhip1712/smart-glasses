@@ -217,6 +217,18 @@ class MusicPlaylist(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
+class WhatsAppContact(Base):
+    """A user's explicitly imported WhatsApp contact directory."""
+    __tablename__ = "whatsapp_contacts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(160), nullable=False)
+    phone = Column(String(20), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 class CommandLog(Base):
     __tablename__ = "command_history"
 

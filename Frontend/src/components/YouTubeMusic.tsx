@@ -119,6 +119,10 @@ export default function YouTubeMusic({ onSpotify }: Props) {
   const youtubePlayerRef = useRef<any>(null)
   const youtubePlayerReadyRef = useRef(false)
   const pendingVideoIdRef = useRef<string | null>(null)
+  const restorePositionRef = useRef<number | null>(null)
+  const pendingResumeRef = useRef(false)
+  const activePlaylistNameRef = useRef('')
+  activePlaylistNameRef.current = activePlaylistName
 
   const navigateResult = (url: string) => {
     const navigated = navigateNamedYouTubeWindow(url)
@@ -709,6 +713,71 @@ export default function YouTubeMusic({ onSpotify }: Props) {
     else player.playVideo()
   }
 
+  // Restore the last song and queue without autoplaying after a restart.
+  // The saved position is cued into YouTube, then the user can press Resume.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem('visionary_music_playback_v1')
+      if (!raw) return
+      const saved = JSON.parse(raw) as { current?: YouTubeTrack; queue?: YouTubeTrack[]; position?: number; activePlaylistName?: string }
+      if (!saved.current?.id || !isValidYouTubeVideoId(saved.current.id)) return
+      const restoredTrack = { ...saved.current, provider: 'youtube' }
+      currentTrackRef.current = restoredTrack
+      setCurrent(restoredTrack)
+      const restoredQueue = Array.isArray(saved.queue)
+        ? saved.queue.filter(track => track?.id && isValidYouTubeVideoId(track.id)).map(track => ({ ...track, provider: 'youtube' }))
+        : []
+      replaceQueue(restoredQueue)
+      const restoredPlaylist = typeof saved.activePlaylistName === 'string' ? saved.activePlaylistName : ''
+      activePlaylistNameRef.current = restoredPlaylist
+      setActivePlaylistName(restoredPlaylist)
+      restorePositionRef.current = Number.isFinite(saved.position) ? Math.max(0, Number(saved.position)) : 0
+      pendingVideoIdRef.current = restoredTrack.id
+      setMessage('Restored ' + restoredTrack.name + '. Paused at your last position ? press Resume when ready.')
+    } catch {
+      window.localStorage.removeItem('visionary_music_playback_v1')
+    }
+  }, [])
+
+  // Save frequently and synchronously when the page is closed or hidden. This
+  // also covers switching away from the Music tab if the component unmounts.
+  useEffect(() => {
+    const savePlayback = () => {
+      const track = currentTrackRef.current
+      if (!track?.id) return
+      const player = youtubePlayerRef.current
+      let position = restorePositionRef.current ?? 0
+      try {
+        const currentTime = player?.getCurrentTime?.()
+        if (Number.isFinite(currentTime)) position = Math.max(0, currentTime)
+      } catch { /* Keep the last known saved position. */ }
+      const snapshot = {
+        current: track,
+        queue: queueRef.current,
+        position,
+        activePlaylistName: activePlaylistNameRef.current,
+        savedAt: Date.now(),
+      }
+      try { window.localStorage.setItem('visionary_music_playback_v1', JSON.stringify(snapshot)) } catch { /* Storage may be unavailable. */ }
+    }
+    const interval = window.setInterval(savePlayback, 1500)
+    const onPageExit = () => {
+      savePlayback()
+      try { youtubePlayerRef.current?.pauseVideo?.() } catch { /* Player may already be closing. */ }
+    }
+    const onVisibility = () => { if (document.visibilityState === 'hidden') savePlayback() }
+    window.addEventListener('pagehide', onPageExit)
+    window.addEventListener('beforeunload', onPageExit)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      savePlayback()
+      window.clearInterval(interval)
+      window.removeEventListener('pagehide', onPageExit)
+      window.removeEventListener('beforeunload', onPageExit)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [])
+
   // Use the YouTube IFrame API inside Visionary Nexus. A separate YouTube tab
   // is cross-origin and cannot report ENDED events, so queue auto-skip cannot
   // work reliably there.
@@ -742,7 +811,17 @@ export default function YouTubeMusic({ onSpotify }: Props) {
             }
             const pending = pendingVideoIdRef.current
             if (pending) {
-              youtubePlayerRef.current?.loadVideoById(pending)
+              const restorePosition = restorePositionRef.current
+              if (restorePosition !== null) {
+                youtubePlayerRef.current?.cueVideoById({ videoId: pending, startSeconds: restorePosition })
+                restorePositionRef.current = null
+                if (pendingResumeRef.current) {
+                  pendingResumeRef.current = false
+                  window.setTimeout(() => youtubePlayerRef.current?.playVideo?.(), 250)
+                }
+              } else {
+                youtubePlayerRef.current?.loadVideoById(pending)
+              }
               pendingVideoIdRef.current = null
             }
           },
@@ -823,7 +902,18 @@ export default function YouTubeMusic({ onSpotify }: Props) {
         return
       }
       if (action === 'resume' || /^(resume|continue)( music)?$/i.test(spoken)) {
-        setMessage("Use YouTube's playback controls; this page cannot control cross-origin playback.")
+        if (!currentTrackRef.current) {
+          setMessage('There is no saved song to resume. Play a song first.')
+          return
+        }
+        if (!youtubePlayerReadyRef.current || !youtubePlayerRef.current) {
+          pendingResumeRef.current = true
+          setMessage('Preparing your saved song. It will start as soon as the player is ready.')
+          return
+        }
+        pendingResumeRef.current = false
+        youtubePlayerRef.current.playVideo()
+        setMessage('Resuming ' + currentTrackRef.current.name + '.')
         return
       }
       if (action === 'next' || /^(next|skip)( song| track)?$/i.test(spoken)) { playNext(); return }

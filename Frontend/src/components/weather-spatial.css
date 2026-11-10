@@ -1,0 +1,35 @@
+.vn-weather-spatial{width:min(100%,1440px);margin:0 auto;padding:28px clamp(18px,3vw,46px) 48px;color:#f7f7f7;display:flex;flex-direction:column;gap:22px;min-height:100%}
+.vn-weather-spatial *{box-sizing:border-box}
+.vn-weather-spatial>.flex:first-child{padding-bottom:20px;border-bottom:1px solid rgba(255,255,255,.14)}
+.vn-weather-spatial h1{font-size:19px!important;font-weight:650!important;letter-spacing:.2em!important}
+.vn-weather-nexus{font:600 9px ui-monospace,monospace;letter-spacing:.18em;color:#eee;margin-top:8px}
+.vn-weather-nexus span{display:block;color:rgba(255,255,255,.43);font-size:8px;margin-top:4px}
+.vn-weather-spatial>.flex:first-child>.glass{background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important}
+.vn-weather-spatial form{width:min(100%,390px);margin-left:auto;gap:0!important;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.035);padding:5px}
+.vn-weather-spatial form input{min-width:0;background:transparent!important;border:0!important;color:#fff!important;outline:0;box-shadow:none!important}
+.vn-weather-spatial form input::placeholder{color:#777}
+.vn-weather-spatial form button{background:#f4f4f4!important;color:#080808!important;border:1px solid #f4f4f4!important;border-radius:2px!important;padding:0 16px!important;font-size:9px!important;letter-spacing:.13em}
+.vn-weather-spatial>.glass.rounded-2xl{border:1px solid rgba(255,255,255,.13)!important;border-radius:4px!important;background:linear-gradient(115deg,rgba(255,255,255,.075),rgba(255,255,255,.018) 58%,rgba(255,255,255,.045))!important;box-shadow:none!important;backdrop-filter:none!important}
+.vn-weather-spatial>.vn-weather-hero{min-height:300px;position:relative;overflow:hidden;display:grid;grid-template-columns:1fr 1fr;align-items:center;padding:35px clamp(22px,5vw,72px)!important}
+.vn-weather-spatial>.vn-weather-hero:after{content:"";position:absolute;right:13%;top:50%;width:210px;height:210px;transform:translateY(-50%);border:1px solid rgba(255,255,255,.15);border-radius:50%;box-shadow:0 0 0 24px rgba(255,255,255,.025),0 0 0 48px rgba(255,255,255,.018),inset 0 0 50px rgba(255,255,255,.035);pointer-events:none}
+.vn-weather-spatial>.vn-weather-hero>div:first-child{position:relative;z-index:1}
+.vn-weather-spatial>.vn-weather-hero img{width:90px;height:90px;object-fit:contain;filter:grayscale(1) brightness(1.8);position:relative;z-index:1}
+.vn-weather-spatial>.vn-weather-hero .text-cyan-400{font-size:clamp(76px,10vw,124px)!important;font-weight:250!important;letter-spacing:-.085em;line-height:1;color:#f7f7f7!important;text-shadow:none!important}
+.vn-weather-spatial>.vn-weather-hero .text-cyan-400:after{content:""}
+.vn-weather-spatial>.vn-weather-hero .text-center{background:transparent!important;border:0!important;border-left:1px solid rgba(255,255,255,.1)!important;border-radius:0!important;padding:12px!important}
+.vn-weather-spatial .vn-weather-metric-grid{position:relative;z-index:1}
+.vn-weather-spatial>.vn-weather-forecast{padding:22px clamp(16px,2.5vw,30px)!important}
+.vn-weather-spatial>.vn-weather-forecast>div:first-child{font-size:19px!important;font-weight:500;color:#f5f5f5!important;letter-spacing:-.02em}
+.vn-weather-spatial>.vn-weather-forecast .grid{grid-template-columns:repeat(5,minmax(0,1fr))!important;border-top:1px solid rgba(255,255,255,.13);gap:0!important}
+.vn-weather-spatial>.vn-weather-forecast .grid>div{background:transparent!important;border:0!important;border-right:1px solid rgba(255,255,255,.12)!important;border-radius:0!important;padding:18px 8px!important}
+.vn-weather-spatial>.vn-weather-forecast .grid>div:last-child{border-right:0!important}
+.vn-weather-spatial>.vn-weather-forecast .text-cyan-300{color:#f5f5f5!important;font-size:20px}
+.vn-weather-spatial>.vn-weather-forecast .font-mono{color:#999}
+.vn-weather-spatial>.vn-weather-recent{padding:20px 24px!important}
+.vn-weather-spatial>.vn-weather-recent>div:first-child{font-size:10px;letter-spacing:.17em}
+.vn-weather-spatial>.vn-weather-recent button{border-radius:2px!important;background:rgba(255,255,255,.035)!important}
+.vn-weather-spatial .text-amber-200{color:#f2cf9d}
+@media(max-width:760px){.vn-weather-spatial{padding:20px 14px 35px;gap:16px}.vn-weather-spatial>.vn-weather-hero{grid-template-columns:1fr;min-height:0;padding:25px 20px!important}.vn-weather-spatial>.vn-weather-hero:after{width:150px;height:150px;right:8%;top:30%}.vn-weather-spatial>.vn-weather-hero .text-cyan-400{font-size:88px!important}.vn-weather-spatial .vn-weather-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important}.vn-weather-spatial>.vn-weather-forecast .grid{grid-template-columns:repeat(5,minmax(82px,1fr))!important;overflow-x:auto}.vn-weather-spatial>.vn-weather-forecast .grid>div{padding-inline:5px!important}.vn-weather-spatial form{width:100%;margin-left:0}}
+
+/* Remove decorative weather hero orbit circles */
+.vn-weather-spatial > .vn-weather-hero::after { content: none !important; display: none !important; }

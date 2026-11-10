@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 
 import { cameraSnapshotUrl, fetchCameraStatus, type CameraStatus } from '../api/camera'
 import {
@@ -280,7 +280,7 @@ export default function Vision() {
     ? `${mlResolution} · YOLO`
     : camera?.last_frame?.resolution
       ? `${camera.last_frame.resolution}${camera.last_frame.stale ? ' · STALE' : ''}`
-      : '1920×1080 · 30FPS'
+      : '1920×1080 Â· 30FPS'
 
   const fpsText = vision?.running ? `${(vision.fps ?? 0).toFixed(1)} FPS` : ''
   const latencyText = vision?.running ? `${(vision.inference_ms ?? 0).toFixed(0)} ms` : ''
@@ -326,9 +326,9 @@ export default function Vision() {
   })
 
   return (
-    <div className="p-4 md:p-8 space-y-6 max-w-7xl mx-auto">
+    <div className="page-stack vn-figma-vision p-4 md:p-8 space-y-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="panel-toolbar flex items-center justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-widest text-white">VISION MODE</h1>
           <div className="font-mono text-xs text-white/30 tracking-widest mt-0.5 uppercase">
@@ -343,11 +343,11 @@ export default function Vision() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="vision-layout grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Camera view */}
-        <div className="lg:col-span-2">
+        <div className="camera-panel lg:col-span-2">
           <div
-            className="relative rounded-2xl overflow-hidden"
+            className="camera-scene relative rounded-2xl overflow-hidden"
             style={{
               background: 'linear-gradient(135deg, #0a0f1e 0%, #0d1528 40%, #0a1020 70%, #050810 100%)',
               border: '1px solid rgba(0,229,255,0.2)',
@@ -566,7 +566,7 @@ export default function Vision() {
         </div>
 
         {/* Right panel */}
-        <div className="space-y-4">
+        <div className="context-column space-y-4">
           {/* Model / camera status. Real state from /api/vision/status. */}
           <div className="glass rounded-2xl p-5">
             <div className="font-display text-xs tracking-widest text-white/50 uppercase mb-3">
