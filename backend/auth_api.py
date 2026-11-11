@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import jwt
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 try:
@@ -153,58 +153,3 @@ def session(request: Request):
         raise HTTPException(status_code=401, detail="Not authenticated.")
     return {"user": _public_user(user)}
 
-
-class LocalUserImport(BaseModel):
-    email: str = Field(min_length=5, max_length=254)
-    display_name: str = Field(default="", max_length=80)
-    password_hash: str = Field(min_length=100, max_length=200)
-
-
-@router.post("/_migration/import-user")
-def import_local_user(
-    payload: LocalUserImport,
-    x_vn_migration_token: str = Header(default=""),
-):
-    """One-time, token-protected migration of a local account into the cloud DB."""
-    expected = os.getenv("VN_ACCOUNT_MIGRATION_TOKEN", "").strip()
-    if not expected or not hmac.compare_digest(x_vn_migration_token, expected):
-        raise HTTPException(status_code=404, detail="Not found.")
-
-    encoded = payload.password_hash
-    parts = encoded.split("$")
-    if (
-        len(parts) != 4
-        or parts[0] != "pbkdf2_sha256"
-        or not parts[1].isdigit()
-        or not (100_000 <= int(parts[1]) <= 1_000_000)
-        or len(parts[2]) != 32
-        or len(parts[3]) != 64
-    ):
-        raise HTTPException(status_code=422, detail="Unsupported password hash format.")
-    try:
-        bytes.fromhex(parts[2])
-        bytes.fromhex(parts[3])
-    except ValueError:
-        raise HTTPException(status_code=422, detail="Invalid password hash format.")
-
-    email = payload.email.strip().lower()
-    db = SessionLocal()
-    try:
-        user = db.query(User).filter(User.email == email).first()
-        if user is None:
-            user = User(
-                email=email,
-                display_name=payload.display_name.strip() or email.split("@", 1)[0],
-                password_hash=encoded,
-                created_at=datetime.utcnow(),
-            )
-            db.add(user)
-        else:
-            user.password_hash = encoded
-            if payload.display_name.strip():
-                user.display_name = payload.display_name.strip()
-        db.commit()
-        db.refresh(user)
-        return {"imported": True, "user_id": user.id}
-    finally:
-        db.close()
