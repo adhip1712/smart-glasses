@@ -22,6 +22,7 @@
 # Registered in backend/api.py next to the device router.
 # =========================================================
 
+from dataclasses import replace
 from datetime import datetime
 import os
 import sys
@@ -72,8 +73,20 @@ def _device_snapshot(db: Session) -> dict:
         if not candidates:
             return None
 
-        online = [device for device in candidates if device.status == "online"]
-        device = online[0] if online else candidates[0]
+        # The Atom Echo is also a Wi-Fi device and reports its own heartbeat.
+        # Never mistake that controller's IP for the camera stream host. Prefer
+        # devices explicitly identified as camera hardware, with camera_ready
+        # as a fallback for older firmware/model labels.
+        camera_candidates = [
+            device for device in candidates
+            if bool(device.camera_ready)
+            or any(marker in str(device.model or "").lower() for marker in ("camera", "cam"))
+        ]
+        if not camera_candidates:
+            return None
+
+        online = [device for device in camera_candidates if device.status == "online"]
+        device = online[0] if online else camera_candidates[0]
 
         return {
             "device_id": device.device_id,
@@ -108,10 +121,21 @@ def _device_lookup() -> dict:
 
 
 def _camera_service():
-    """The process-wide camera service, wired to the device registry."""
+    """The process-wide camera service, wired to the correct camera board."""
 
     service = get_camera_service()
-    service.configure(device_lookup=_device_lookup)
+    # Start with the service's existing config so test injection and runtime
+    # overrides (webcam opt-in, explicit stream URLs, custom timeouts) survive.
+    config = service.config
+    device = _device_lookup()
+    model = str((device or {}).get("model") or "").lower()
+
+    # M5Stack Unit CAM firmware serves its JPEG capture on port 80. The
+    # standard ESP32-CAM stream convention remains unchanged for other boards.
+    if "unit cam" in model:
+        config = replace(config, port=80, snapshot_path="/capture")
+
+    service.configure(config=config, device_lookup=_device_lookup)
     return service
 
 

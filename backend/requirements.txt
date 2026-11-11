@@ -5,6 +5,9 @@ google-genai
 python-dotenv
 PyJWT
 sqlalchemy
-sqlalchemy-libsql
 cryptography
 groq
+httpx
+kokoro-onnx
+soundfile
+sqlalchemy-libsql

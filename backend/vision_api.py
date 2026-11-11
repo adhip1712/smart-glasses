@@ -52,12 +52,14 @@ try:
     from ml.detector import ModelUnavailableError
     from ml.session import VisionSession
     from ml.webcam_source import SourceUnavailableError
+    from ml import event_analysis as vision_events
 
     ML_IMPORT_ERROR = ""
 except Exception as _error:  # numpy or the ml package missing: degrade, never fail
     VisionConfigError = SourceUnavailableError = ModelUnavailableError = RuntimeError
     VisionSession = None  # type: ignore[assignment]
     load_settings = None  # type: ignore[assignment]
+    vision_events = None  # type: ignore[assignment]
     ML_IMPORT_ERROR = f"{type(_error).__name__}: {_error}"
 
 router = APIRouter(prefix="/api/vision", tags=["vision"])
@@ -140,9 +142,27 @@ def _unavailable(message: str, status: int = 503) -> JSONResponse:
 # ---------------------------------------------------------
 
 def stream_token() -> str:
-    """The configured token for camera access, or "" when unset."""
+    """Read the camera token from the process environment or project .env.
 
-    return (os.getenv("VISION_STREAM_TOKEN") or "").strip()
+    The backend is sometimes launched directly with Uvicorn, which does not
+    automatically load .env. Reading only the named setting here keeps preview
+    authentication working without loading or exposing other secrets.
+    """
+
+    configured = (os.getenv("VISION_STREAM_TOKEN") or "").strip()
+    if configured:
+        return configured
+
+    env_file = os.path.join(_REPO_ROOT, ".env")
+    try:
+        with open(env_file, "r", encoding="utf-8-sig") as handle:
+            for line in handle:
+                key, separator, value = line.partition("=")
+                if separator and key.strip() == "VISION_STREAM_TOKEN":
+                    return value.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return ""
 
 
 def _authorize(
@@ -406,13 +426,17 @@ async def vision_start(
     except Exception as error:
         return _unavailable(f"{type(error).__name__}: {error}", status=500)
 
+    session = get_session()
+    if vision_events is not None:
+        vision_events.start_monitor(session)
+
     return JSONResponse(
         status_code=200,
         content={
             "status": "ok",
             "started": bool(result.get("started")),
             "already_running": bool(result.get("already_running")),
-            "session": get_session().status(),
+            "session": session.status(),
         },
     )
 
@@ -436,6 +460,9 @@ async def vision_stop(
             content={"status": "ok", "stopped": True, "was_running": False},
         )
 
+    if vision_events is not None:
+        vision_events.stop_monitor()
+
     from starlette.concurrency import run_in_threadpool
 
     try:
@@ -449,8 +476,81 @@ async def vision_stop(
 
 
 # ---------------------------------------------------------
+# EVENT ANALYSIS (additive endpoints; local detector remains independent)
+# ---------------------------------------------------------
+
+@router.get("/events")
+def vision_events_status(
+    authorization: Optional[str] = Header(default=None),
+    x_vision_token: Optional[str] = Header(default=None, alias="X-Vision-Token"),
+) -> Any:
+    """Latest event-analysis results and API-key readiness; never returns a key."""
+    if stream_token():
+        denied = _authorize(authorization, x_vision_token)
+        if denied is not None:
+            return denied
+    if vision_events is None:
+        return {"enabled": False, "running": False, "last_error": "event analysis module unavailable", "events": []}
+    return vision_events.status()
+
+
+@router.post("/events/analyze")
+def vision_analyze_event(
+    authorization: Optional[str] = Header(default=None),
+    x_vision_token: Optional[str] = Header(default=None, alias="X-Vision-Token"),
+) -> JSONResponse:
+    """Analyze one fresh frame on demand with the configured local Ollama vision model."""
+    if stream_token():
+        denied = _authorize(authorization, x_vision_token)
+        if denied is not None:
+            return denied
+    if vision_events is None or VisionSession is None:
+        return JSONResponse(status_code=503, content={"status": "unavailable", "error": "Vision event analysis is unavailable."})
+    try:
+        result = vision_events.analyze_latest(get_session())
+    except Exception as error:
+        return JSONResponse(status_code=500, content={"status": "error", "error": f"{type(error).__name__}: {error}"})
+    code = 200 if result.get("status") == "ok" else 503 if result.get("status") in ("unconfigured", "unavailable") else 502
+    return JSONResponse(status_code=code, content=result)
+
+
+# ---------------------------------------------------------
 # FRAMES (token protected)
 # ---------------------------------------------------------
+
+@router.post("/photo")
+def vision_capture_photo(
+    authorization: Optional[str] = Header(default=None),
+    x_vision_token: Optional[str] = Header(default=None, alias="X-Vision-Token"),
+) -> JSONResponse:
+    """Capture the newest frame from the already-running worker and describe it with high-detail AI."""
+    if stream_token():
+        denied = _authorize(authorization, x_vision_token)
+        if denied is not None:
+            return denied
+    if VisionSession is None or vision_events is None:
+        return JSONResponse(status_code=503, content={"status": "unavailable", "error": "Vision service is unavailable."})
+    try:
+        session = get_session()
+        snapshot = session.latest(max_age_seconds=3.0)
+        if not snapshot.get("running") or snapshot.get("stale"):
+            return JSONResponse(status_code=503, content={"status": "unavailable", "error": "No fresh camera frame. Start detection and wait for a frame."})
+        jpeg = session.latest_jpeg(max_age_seconds=3.0)
+        if not jpeg:
+            return JSONResponse(status_code=503, content={"status": "unavailable", "error": "No camera photo is available yet."})
+        # Capture must not wait for Ollama/AI. Return the actual JPEG immediately;
+        # photo analysis is a separate action so a slow local model cannot block capture.
+        import base64
+        return JSONResponse(status_code=200, content={
+            "status": "ok",
+            "summary": "Photo captured successfully. AI analysis is optional.",
+            "photo_data_url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode("ascii"),
+            "photo_bytes": len(jpeg),
+            "timestamp": time.time(),
+        })
+    except Exception as error:
+        return JSONResponse(status_code=500, content={"status": "error", "error": f"{type(error).__name__}: {error}"})
+
 
 @router.get("/frame")
 def vision_frame(

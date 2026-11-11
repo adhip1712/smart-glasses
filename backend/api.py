@@ -2,12 +2,13 @@
 # VISIONARY NEXUS - BACKEND API
 # =========================================================
 
+import base64
 import os
 import json
 import re
 import time
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlencode, quote
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -16,8 +17,9 @@ import jwt
 
 from dotenv import load_dotenv
 
-from fastapi import FastAPI
+from fastapi import FastAPI, File, Form, UploadFile, Request as FastAPIRequest
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from pydantic import BaseModel
 
@@ -27,16 +29,24 @@ from sqlalchemy.orm import Session
 
 try:
     from backend.database import engine, SessionLocal, Base
-    from backend.models import Conversation, Message, RecentLocation, MusicPlaylist, Setting
+    from backend.models import Conversation, Message, RecentLocation, MusicPlaylist, Setting, User
+    from backend.auth_api import router as auth_router, authenticate_token
     from backend.device_api import router as device_router
     from backend.camera_api import router as camera_router
     from backend.vision_api import router as vision_router
+    from backend.youtube_oauth_api import router as youtube_oauth_router
+    from backend.social_auth_api import router as social_auth_router
+    from backend.whatsapp_api import router as whatsapp_router
 except ImportError:
     from database import engine, SessionLocal, Base
-    from models import Conversation, Message, RecentLocation, MusicPlaylist, Setting
+    from models import Conversation, Message, RecentLocation, MusicPlaylist, Setting, User
+    from auth_api import router as auth_router, authenticate_token
     from device_api import router as device_router
     from camera_api import router as camera_router
     from vision_api import router as vision_router
+    from youtube_oauth_api import router as youtube_oauth_router
+    from social_auth_api import router as social_auth_router
+    from whatsapp_api import router as whatsapp_router
 
 
 # =========================================================
@@ -60,56 +70,23 @@ load_dotenv(ENV_PATH)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 NAVIDROME_URL = os.getenv("NAVIDROME_URL", "http://127.0.0.1:4533").rstrip("/")
 NAVIDROME_USERNAME = (os.getenv("NAVIDROME_USERNAME") or "").strip()
 NAVIDROME_PASSWORD = (os.getenv("NAVIDROME_PASSWORD") or "").strip()
 NAVIDROME_ENABLED = (os.getenv("NAVIDROME_ENABLED", "true") or "true").strip().lower() == "true"
-APPLE_MUSIC_KEY_ID = os.getenv("APPLE_MUSIC_KEY_ID")
-APPLE_MUSIC_TEAM_ID = os.getenv("APPLE_MUSIC_TEAM_ID")
-APPLE_MUSIC_PRIVATE_KEY = os.getenv("APPLE_MUSIC_PRIVATE_KEY")
-APPLE_MUSIC_PROVIDER = os.getenv("APPLE_MUSIC_PROVIDER", "mock").lower()
+# YouTube is the primary song catalogue; Piped and Invidious are fallbacks.
+# Spotify remains an optional Premium library. Legacy provider credentials stay intact.
+SPOTIFY_CLIENT_ID = (os.getenv("SPOTIFY_CLIENT_ID") or "").strip()
+SPOTIFY_CLIENT_SECRET = (os.getenv("SPOTIFY_CLIENT_SECRET") or "").strip()
+YOUTUBE_API_KEY = (os.getenv("YOUTUBE_API_KEY") or "").strip()
+AUDIUS_API_KEY = (os.getenv("AUDIUS_API_KEY") or "").strip()
+SOUNDCLOUD_CLIENT_ID = (os.getenv("SOUNDCLOUD_CLIENT_ID") or "").strip()
+SOUNDCLOUD_CLIENT_SECRET = (os.getenv("SOUNDCLOUD_CLIENT_SECRET") or "").strip()
+SOUNDCLOUD_TOKEN_CACHE = {"access_token": "", "expires_at": 0.0}
 WEATHER_PROVIDER = os.getenv("WEATHER_PROVIDER", "mock").lower()
 NAVIGATION_PROVIDER = os.getenv("NAVIGATION_PROVIDER", "mock").lower()
-APPLE_MUSIC_BASE_URL = os.getenv("APPLE_MUSIC_BASE_URL", "https://itunes.apple.com")
 WEATHER_BASE_URL = os.getenv("WEATHER_BASE_URL", "https://api.weatherapi.com")
 NAVIGATION_BASE_URL = os.getenv("NAVIGATION_BASE_URL", "https://nominatim.openstreetmap.org")
-
-
-def _load_apple_music_private_key() -> str | None:
-    value = (APPLE_MUSIC_PRIVATE_KEY or "").strip()
-    if not value:
-        return None
-
-    if os.path.exists(value):
-        try:
-            with open(value, "r", encoding="utf-8") as key_file:
-                return key_file.read().strip()
-        except OSError:
-            return None
-
-    return value.replace("\\n", "\n").strip()
-
-
-def generate_apple_music_developer_token() -> str:
-    if not APPLE_MUSIC_KEY_ID or not APPLE_MUSIC_TEAM_ID:
-        raise ValueError("Apple MusicKit developer credentials are missing: APPLE_MUSIC_KEY_ID and APPLE_MUSIC_TEAM_ID are required.")
-
-    private_key = _load_apple_music_private_key()
-    if not private_key:
-        raise ValueError("Apple MusicKit developer credentials are missing: APPLE_MUSIC_PRIVATE_KEY is required.")
-
-    now = int(time.time())
-    payload = {
-        "iss": APPLE_MUSIC_TEAM_ID,
-        "iat": now,
-        "exp": now + 15777000,
-    }
-    headers = {
-        "alg": "ES256",
-        "kid": APPLE_MUSIC_KEY_ID,
-    }
-    return jwt.encode(payload, private_key, algorithm="ES256", headers=headers)
 
 
 # =========================================================
@@ -149,244 +126,6 @@ class MockMusicProvider(BaseMusicProvider):
             }
             for index in range(3)
         ]
-
-
-class RealMusicProvider(BaseMusicProvider):
-    def _search_itunes(self, clean_query: str):
-        """Search Apple's public iTunes catalogue and return playable preview clips."""
-        params = urlencode({"term": clean_query, "entity": "song", "limit": 10, "country": "US"})
-        search_url = f"{APPLE_MUSIC_BASE_URL.rstrip('/')}/search?{params}"
-        request = Request(search_url, headers={"User-Agent": "VISIONARY-NEXUS/1.0", "Accept": "application/json"}, method="GET")
-        try:
-            with urlopen(request, timeout=2) as response:
-                payload = json.loads(response.read().decode("utf-8", errors="ignore"))
-        except (HTTPError, URLError, TimeoutError, ValueError):
-            return []
-
-        tracks = []
-        for index, item in enumerate(payload.get("results", [])):
-            track_id = item.get("trackId") or item.get("collectionId")
-            title = item.get("trackName")
-            if not title:
-                continue
-            artwork = item.get("artworkUrl100") or item.get("artworkUrl60") or ""
-            if artwork:
-                artwork = re.sub(r"\d+x\d+bb", "600x600bb", artwork)
-            tracks.append({
-                "id": str(track_id or f"itunes-{index}"),
-                "name": title,
-                "artist": item.get("artistName") or "Unknown artist",
-                "album": item.get("collectionName") or "",
-                "duration": item.get("trackTimeMillis") or 0,
-                "image": artwork,
-                "audio": item.get("previewUrl") or "",
-                "url": item.get("trackViewUrl") or item.get("collectionViewUrl") or "https://music.apple.com",
-                "genre": item.get("primaryGenreName") or "Apple Music",
-                "provider": "apple-itunes",
-                "score": 100 - index,
-            })
-        return tracks
-
-    def _search_ytdlp(self, query: str):
-        """Fallback search when YouTube Data API quota/rate limits are hit."""
-        try:
-            import yt_dlp
-            options = {
-                "quiet": True,
-                "no_warnings": True,
-                "skip_download": True,
-                "extract_flat": "in_playlist",
-                "ignoreerrors": True,
-                "socket_timeout": 2,
-                "retries": 0,
-                "extractor_retries": 0,
-            }
-            with yt_dlp.YoutubeDL(options) as ydl:
-                payload = ydl.extract_info(f"ytsearch5:{query}", download=False)
-        except Exception:
-            return []
-
-        tracks = []
-        for index, item in enumerate((payload or {}).get("entries") or []):
-            if not item:
-                continue
-            video_id = item.get("id")
-            if not video_id:
-                continue
-            title = item.get("title") or "YouTube Track"
-            channel = item.get("channel") or item.get("uploader") or "YouTube"
-            duration_seconds = int(item.get("duration") or 0)
-            track_url = f"https://www.youtube.com/watch?v={video_id}"
-            tracks.append({
-                "id": video_id,
-                "name": title,
-                "artist": channel,
-                "album": channel,
-                "duration": duration_seconds * 1000,
-                "image": item.get("thumbnail") or "",
-                "audio": track_url,
-                "url": track_url,
-                "genre": "YouTube",
-                "videoId": video_id,
-                "provider": "youtube",
-                "score": 100 - index,
-            })
-        return tracks
-
-    def search(self, query: str):
-        clean_query = (query or "").strip()
-        if not clean_query:
-            return []
-
-        if not YOUTUBE_API_KEY:
-            return self._search_itunes(clean_query)
-
-        search_params = urlencode({
-            "part": "snippet",
-            "q": clean_query,
-            "type": "video",
-            "videoEmbeddable": "true",
-            "videoCategoryId": "10",
-            # Keep fallback searches fast while still checking several alternate channels.
-            "maxResults": 10,
-            "order": "relevance",
-            "safeSearch": "moderate",
-            "key": YOUTUBE_API_KEY,
-        })
-
-        search_url = f"https://www.googleapis.com/youtube/v3/search?{search_params}"
-        search_request = Request(
-            search_url,
-            headers={
-                "User-Agent": "VISIONARY-NEXUS/1.0",
-                "Accept": "application/json",
-            },
-            method="GET",
-        )
-
-        try:
-            with urlopen(search_request, timeout=2) as response:
-                search_data = json.loads(response.read().decode("utf-8", errors="ignore"))
-        except (HTTPError, URLError, TimeoutError, ValueError) as exc:
-            # YouTube quota/rate-limit errors (including HTTP 429) must not crash
-            # music search. Fall back to yt-dlp's independent search extractor.
-            if isinstance(exc, HTTPError) and exc.code not in (403, 429, 500, 502, 503, 504):
-                raise
-            return self._search_ytdlp(clean_query)
-
-        items = search_data.get("items", [])
-        video_ids = [item.get("id", {}).get("videoId") for item in items if item.get("id", {}).get("videoId")]
-
-        if not video_ids:
-            return []
-
-        detail_params = urlencode({
-            "part": "snippet,contentDetails,status",
-            "id": ",".join(video_ids),
-            "key": YOUTUBE_API_KEY,
-        })
-        detail_url = f"https://www.googleapis.com/youtube/v3/videos?{detail_params}"
-        detail_request = Request(
-            detail_url,
-            headers={
-                "User-Agent": "VISIONARY-NEXUS/1.0",
-                "Accept": "application/json",
-            },
-            method="GET",
-        )
-
-        try:
-            with urlopen(detail_request, timeout=2) as response:
-                detail_data = json.loads(response.read().decode("utf-8", errors="ignore"))
-        except (HTTPError, URLError, TimeoutError, ValueError) as exc:
-            if isinstance(exc, HTTPError) and exc.code not in (403, 429, 500, 502, 503, 504):
-                raise
-            return self._search_ytdlp(clean_query)
-
-        detail_map = {
-            item.get("id"): item
-            for item in detail_data.get("items", [])
-            if item.get("id")
-        }
-
-        tracks = []
-        for index, item in enumerate(items):
-            video_id = item.get("id", {}).get("videoId")
-            if not video_id:
-                continue
-
-            snippet = item.get("snippet", {})
-            detail = detail_map.get(video_id, {})
-            status = detail.get("status", {})
-            if not status.get("embeddable", True):
-                continue
-
-            title = snippet.get("title") or "YouTube Track"
-            artist = snippet.get("channelTitle") or "YouTube"
-            thumbnails = snippet.get("thumbnails", {})
-            image = ""
-            for size in ["maxres", "high", "medium", "default"]:
-                candidate = thumbnails.get(size)
-                if candidate:
-                    image = candidate.get("url") or ""
-                    break
-
-            duration_raw = detail.get("contentDetails", {}).get("duration")
-            duration_seconds = 0
-            if duration_raw:
-                values = [int(value) for value in re.findall(r"(\d+)", duration_raw)]
-                if len(values) == 3:
-                    duration_seconds = values[0] * 3600 + values[1] * 60 + values[2]
-                elif len(values) == 2:
-                    duration_seconds = values[0] * 60 + values[1]
-                elif len(values) == 1:
-                    duration_seconds = values[0]
-
-            track_url = f"https://www.youtube.com/watch?v={video_id}"
-            tracks.append({
-                "id": video_id,
-                "name": title,
-                "artist": artist,
-                "album": artist,
-                "duration": duration_seconds * 1000,
-                "image": image,
-                "audio": track_url,
-                "url": track_url,
-                "genre": "YouTube",
-                "videoId": video_id,
-                "provider": "youtube",
-                "score": 100 - index,
-            })
-
-        # Prefer the requested song in a normal-length upload over a 1-hour,
-        # ultra-slowed, or otherwise altered upload unless the user asked for it.
-        query_terms = set(re.findall(r"[a-z0-9]+", clean_query.casefold()))
-        asks_for_altered_version = bool(query_terms & {
-            "slowed", "ultra", "super", "speed", "sped", "nightcore", "remix",
-            "reverb", "extended", "hour", "hours", "1hr", "1hour", "loop", "looped",
-        })
-        altered_title_pattern = re.compile(
-            r"\b(?:ultra[ -]?slowed|super[ -]?slowed|slowed(?:[ -]+(?:and|\+|with)?[ -]*reverb)?|"
-            r"\d+\s*(?:hours?|hrs?|hr)\b|one[ -]?hour|1[ -]?hour|extended[ -]?mix|"
-            r"10[ -]?hours?|looped?)\b",
-            re.IGNORECASE,
-        )
-
-        def youtube_rank(track):
-            title = str(track.get("name") or "").casefold()
-            title_terms = set(re.findall(r"[a-z0-9]+", title))
-            duration_seconds = int(track.get("duration") or 0) // 1000
-            exact_phrase = bool(clean_query) and clean_query.casefold() in title
-            token_overlap = len(query_terms & title_terms)
-            altered_penalty = 0 if asks_for_altered_version or not altered_title_pattern.search(title) else 500
-            # Prefer ordinary song lengths when available; do not reject live versions.
-            duration_penalty = 0 if asks_for_altered_version else (250 if duration_seconds > 900 else 0)
-            normal_song_bonus = 20 if 90 <= duration_seconds <= 600 else 0
-            return (int(exact_phrase) * 1000 + token_overlap * 30 + normal_song_bonus
-                    - altered_penalty - duration_penalty + int(track.get("score", 0)))
-
-        tracks.sort(key=youtube_rank, reverse=True)
-        return tracks[:20]
 
 
 class AudiusMusicProvider(BaseMusicProvider):
@@ -591,119 +330,242 @@ class NavidromeMusicProvider(BaseMusicProvider):
         return tracks[:10]
 
 
+class JamendoMusicProvider(BaseMusicProvider):
+    """Jamendo's non-commercial catalogue and direct MP3 streaming API."""
+
+    BASE_URL = "https://api.jamendo.com/v3.0"
+
+    def __init__(self, client_id: str | None = None):
+        self.client_id = (client_id if client_id is not None else os.getenv("JAMENDO_CLIENT_ID", "")).strip()
+
+    def search(self, query: str):
+        clean_query = (query or "").strip()
+        if not clean_query or not self.client_id:
+            return []
+
+        params = urlencode({
+            "client_id": self.client_id,
+            "format": "json",
+            "search": clean_query,
+            "limit": 10,
+            "type": "single albumtrack",
+            "audioformat": "mp32",
+            "imagesize": 300,
+            "include": "licenses",
+        })
+        request = Request(
+            f"{self.BASE_URL}/tracks/?{params}",
+            headers={"User-Agent": "VISIONARY-NEXUS/1.0", "Accept": "application/json"},
+            method="GET",
+        )
+        try:
+            with urlopen(request, timeout=4) as response:
+                payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+        except (HTTPError, URLError, TimeoutError, ValueError):
+            return []
+
+        tracks = []
+        for item in payload.get("results") or []:
+            if not isinstance(item, dict):
+                continue
+            audio_url = str(item.get("audio") or "").strip()
+            if not audio_url.startswith("https://"):
+                continue
+            track_id = str(item.get("id") or "")
+            if not track_id:
+                continue
+            tracks.append({
+                "id": f"jamendo-{track_id}",
+                "name": str(item.get("name") or "Unknown track"),
+                "artist": str(item.get("artist_name") or "Unknown artist"),
+                "album": str(item.get("album_name") or ""),
+                "duration": int(item.get("duration") or 0) * 1000,
+                "image": str(item.get("image") or item.get("album_image") or ""),
+                "audio": audio_url,
+                "url": str(item.get("shareurl") or item.get("shorturl") or "https://www.jamendo.com"),
+                "genre": "Jamendo",
+                "provider": "jamendo",
+                "license": str(item.get("license_ccurl") or ""),
+                "score": 90 - len(tracks),
+            })
+        return tracks
+
+class SpotifyMusicProvider(BaseMusicProvider):
+    """Spotify Web API catalogue search (client credentials flow).
+
+    Playback is handled in the frontend by the SpotifyMusic component with the
+    user's own OAuth session; this provider only maps search results into the
+    shared track shape for the voice/AI music endpoints.
+    """
+
+    TOKEN_URL = "https://accounts.spotify.com/api/token"
+    SEARCH_URL = "https://api.spotify.com/v1/search"
+
+    def _access_token(self):
+        if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
+            return ""
+        credentials = f"{SPOTIFY_CLIENT_ID}:{SPOTIFY_CLIENT_SECRET}".encode("utf-8")
+        authorization = base64.b64encode(credentials).decode("ascii")
+        request = Request(
+            self.TOKEN_URL,
+            data=urlencode({"grant_type": "client_credentials"}).encode("utf-8"),
+            headers={
+                "Authorization": f"Basic {authorization}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=6) as response:
+                return json.loads(response.read().decode("utf-8", errors="ignore")).get("access_token") or ""
+        except (HTTPError, URLError, TimeoutError, ValueError):
+            return ""
+
+    def search(self, query: str):
+        clean_query = (query or "").strip()
+        token = self._access_token()
+        if not clean_query or not token:
+            return []
+
+        params = urlencode({"q": clean_query, "type": "track", "limit": 10})
+        request = Request(
+            f"{self.SEARCH_URL}?{params}",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+            method="GET",
+        )
+        try:
+            with urlopen(request, timeout=6) as response:
+                payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+        except (HTTPError, URLError, TimeoutError, ValueError):
+            return []
+
+        tracks = []
+        for index, item in enumerate((payload.get("tracks") or {}).get("items") or []):
+            track_id = item.get("id") or ""
+            title = item.get("name")
+            if not track_id or not title:
+                continue
+            artists = ", ".join(artist.get("name") or "" for artist in item.get("artists") or []) or "Spotify artist"
+            album = item.get("album") or {}
+            image = ""
+            for candidate in album.get("images") or []:
+                image = candidate.get("url") or ""
+                if image:
+                    break
+            track_url = (item.get("external_urls") or {}).get("spotify") or "https://open.spotify.com"
+            tracks.append({
+                "id": f"spotify-{track_id}",
+                "name": title,
+                "artist": artists,
+                "album": album.get("name") or "",
+                "duration": item.get("duration_ms") or 0,
+                "image": image,
+                "audio": item.get("preview_url") or "",
+                "url": track_url,
+                "genre": "Spotify",
+                "provider": "spotify",
+                "spotifyId": track_id,
+                "score": 100 - index,
+            })
+        return tracks
+
+
+class SoundCloudMusicProvider(BaseMusicProvider):
+    """Legacy provider retained for compatibility; it is not selected by default."""
+
+    def search(self, query: str):
+        soundcloud = music_soundcloud_search(query, 18)
+        if soundcloud.get("success") and soundcloud.get("matched"):
+            return [
+                {**track, "audio": track.get("stream_url", "")}
+                for track in (soundcloud.get("tracks") or [])
+                if track.get("matched") and track.get("stream_url")
+            ]
+
+        audius = music_audius_search(query, 18)
+        return [
+            {**track, "audio": track.get("stream_url", "")}
+            for track in (audius.get("tracks") or [])
+            if track.get("matched") and track.get("stream_url")
+        ]
+
+
+class YouTubeMusicProvider(BaseMusicProvider):
+    """YouTube-first catalogue with Piped then Invidious as keyless fallbacks."""
+
+    def search(self, query: str):
+        result = music_youtube_search(query, 18)
+        tracks = result.get("tracks") or []
+        message = str(result.get("message") or "")
+        if not tracks and (not YOUTUBE_API_KEY or re.search(r"quota|daily.*limit|per.day.*limit", message, re.IGNORECASE)):
+            fallback = music_youtube_alternative_search(query, 18)
+            tracks = fallback.get("tracks") or []
+        normalized = []
+        for track in tracks:
+            item = dict(track)
+            item["videoId"] = item.get("id") or item.get("videoId")
+            item["duration"] = int(item.get("durationSeconds") or 0) * 1000
+            item["provider"] = "youtube"
+            normalized.append(item)
+        return normalized
+
+
 class MusicService:
     def __init__(self, provider: BaseMusicProvider | None = None):
         if provider is None:
-            if NAVIDROME_ENABLED and NAVIDROME_URL and NAVIDROME_USERNAME:
-                provider = NavidromeMusicProvider()
-            elif APPLE_MUSIC_PROVIDER == "mock":
-                provider = MockMusicProvider()
-            elif not YOUTUBE_API_KEY:
-                # Audius offers a free public music catalogue and streamable tracks
-                # without requiring a YouTube API key or a music subscription.
-                provider = AudiusMusicProvider()
-            else:
-                provider = RealMusicProvider()
+            # YouTube is the primary music source. Spotify is opt-in from the
+            # dedicated library UI and never replaces the default catalogue.
+            provider = YouTubeMusicProvider()
         self.provider = provider
 
     def search(self, query: str):
         normalized = (query or "").strip()
         tracks = self.provider.search(normalized)
-        source_name = "mock"
-        notice = "Mock music mode enabled."
-
-        if isinstance(self.provider, NavidromeMusicProvider):
-            source_name = "navidrome"
-            notice = "Navidrome library results are ready for playback."
-        elif isinstance(self.provider, AudiusMusicProvider):
-            source_name = "audius"
+        if isinstance(self.provider, SpotifyMusicProvider):
+            source_name = "spotify"
             notice = (
-                "Full-track streaming from Audius. If the exact song is unavailable, "
-                "no short preview will be substituted."
+                "Spotify catalogue results are ready for playback."
+                if SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET
+                else "Spotify search is not configured yet; add SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET to backend/.env."
             )
-        elif isinstance(self.provider, RealMusicProvider):
-            source_name = "youtube" if YOUTUBE_API_KEY else "apple-itunes"
+        elif isinstance(self.provider, YouTubeMusicProvider):
+            source_name = "youtube"
             notice = (
-                "YouTube search results are returned for browser playback."
-                if YOUTUBE_API_KEY
-                else "Apple catalogue results include short previews where available."
+                "YouTube results found. Piped and Invidious are used when YouTube API quota is unavailable."
+                if tracks
+                else "No matching YouTube tracks were found."
             )
+        elif isinstance(self.provider, SoundCloudMusicProvider):
+            source_name = tracks[0].get("provider", "soundcloud") if tracks else "soundcloud"
+            notice = (
+                "SoundCloud catalogue match found."
+                if source_name == "soundcloud"
+                else "No close SoundCloud match; using the Audius fallback."
+                if tracks
+                else "No sufficiently close playable match was found on SoundCloud or Audius."
+            )
+        elif isinstance(self.provider, MockMusicProvider):
+            source_name = "mock"
+            notice = "Mock music mode enabled."
+        else:
+            source_name = "unavailable"
+            notice = "No active music catalogue is available."
 
-        # Rank against the user's original query, but also account for the
-        # phonetic spelling correction used by the Audius provider.
         query_tokens = set(re.findall(r"[a-z0-9]+", normalized.casefold()))
-        match_query = normalized
-        if isinstance(self.provider, AudiusMusicProvider):
-            match_query = re.sub(r"\bmontegam\b", "montagem", normalized, flags=re.IGNORECASE)
-        query_tokens_for_match = set(re.findall(r"[a-z0-9]+", match_query.casefold()))
-
-        asks_for_variant = bool(query_tokens_for_match & {
-            "slowed", "ultra", "super", "speed", "sped", "nightcore", "remix",
-            "reverb", "extended", "hour", "hours", "1hr", "1hour", "loop", "looped",
-        })
-        altered_title_pattern = re.compile(
-            r"\b(?:ultra[ -]?slowed|super[ -]?slowed|slowed(?:[ -]+(?:and|\+|with)?[ -]*reverb)?|"
-            r"\d+\s*(?:hours?|hrs?|hr)\b|one[ -]?hour|1[ -]?hour|extended[ -]?mix|10[ -]?hours?|looped?)\b",
-            re.IGNORECASE,
-        )
-        is_youtube_search = isinstance(self.provider, RealMusicProvider) and bool(YOUTUBE_API_KEY)
-
         def track_rank(track):
             title = str(track.get("name") or "").casefold()
             artist = str(track.get("artist") or "").casefold()
             title_tokens = set(re.findall(r"[a-z0-9]+", title))
             artist_tokens = set(re.findall(r"[a-z0-9]+", artist))
-            matched_title = len(query_tokens_for_match & title_tokens)
-            matched_artist = len(query_tokens_for_match & artist_tokens)
-            duration = int(track.get("duration") or 0)
-            exact_phrase = bool(match_query) and match_query.casefold() in title
-            altered = bool(altered_title_pattern.search(title))
-            prefer_requested_version = int(not is_youtube_search or asks_for_variant or not altered)
-            avoid_hour_loop = int(not is_youtube_search or asks_for_variant or duration <= 900000)
-            normal_song_bonus = int(is_youtube_search and 90000 <= duration <= 600000)
-            return (
-                prefer_requested_version,
-                avoid_hour_loop,
-                int(exact_phrase),
-                matched_title,
-                matched_artist,
-                normal_song_bonus,
-                int(duration >= 60000),
-                duration,
-            )
+            return (int(bool(normalized) and normalized.casefold() in title), len(query_tokens & title_tokens), len(query_tokens & artist_tokens), int(track.get("duration") or 0))
 
         if tracks:
-            # Do not report a completely unrelated Audius result as a successful
-            # match for a multi-word song title (e.g. "montegam elder" -> "Sem Demora").
-            # Single-word genre searches such as "phonk" remain broad by design.
-            if isinstance(self.provider, AudiusMusicProvider) and len(query_tokens_for_match) >= 2:
-                relevant_tracks = [
-                    track for track in tracks
-                    if query_tokens_for_match
-                    & (
-                        set(re.findall(r"[a-z0-9]+", str(track.get("name") or "").casefold()))
-                        | set(re.findall(r"[a-z0-9]+", str(track.get("artist") or "").casefold()))
-                    )
-                ]
-                tracks = relevant_tracks
-
             tracks.sort(key=track_rank, reverse=True)
-            tracks_at_least_one_minute = [
-                track for track in tracks
-                if int(track.get("duration") or 0) >= 60000
-            ]
-            if tracks_at_least_one_minute:
-                tracks = tracks_at_least_one_minute
-            if any(query_tokens_for_match & set(re.findall(r"[a-z0-9]+", str(track.get("name") or "").casefold())) for track in tracks):
-                notice = notice + " Short clips under 60 seconds are excluded when longer matches are available."
+            longer_tracks = [track for track in tracks if int(track.get("duration") or 0) >= 60000]
+            if longer_tracks:
+                tracks = longer_tracks
 
-        return {
-            "success": bool(tracks),
-            "query": normalized,
-            "tracks": tracks,
-            "source": source_name,
-            "notice": notice,
-        }
+        return {"success": bool(tracks), "query": normalized, "tracks": tracks, "source": source_name, "notice": notice}
 
     def play(self, query: str):
         # Remove command phrasing before searching. Otherwise searching
@@ -737,7 +599,9 @@ class MusicService:
                 track_title_tokens = set(re.findall(r"[a-z0-9]+", str(track.get("name", "")).casefold()))
                 track_artist_tokens = set(re.findall(r"[a-z0-9]+", str(track.get("artist", "")).casefold()))
                 if artist_tokens:
-                    return title_tokens.issubset(track_title_tokens) and artist_tokens.issubset(track_artist_tokens)
+                    # Some Audius uploads include the original artist in the
+                    # track title while the uploader profile is a distributor.
+                    return title_tokens.issubset(track_title_tokens) and artist_tokens.issubset(track_artist_tokens | track_title_tokens)
                 return title_tokens.issubset(track_title_tokens) or title_tokens.issubset(track_artist_tokens)
 
             matching_tracks = [track for track in tracks if covers_query(track)]
@@ -806,9 +670,21 @@ class MockWeatherProvider(BaseWeatherProvider):
 
     def get_forecast(self, city: str):
         current = self.get_current(city)
+        highs = [28, 27, 29, 28, 27, 29, 30]
+        lows = [20, 20, 21, 20, 19, 20, 21]
+        conditions = [
+            "Partly cloudy", "Light rain", "Mostly clear", "Cloudy",
+            "Partly cloudy", "Clear sky", "Mostly clear",
+        ]
         current["forecast"] = [
-            {"date": "today", "condition": "Partly cloudy", "temperature_c": 28},
-            {"date": "tomorrow", "condition": "Rain likely", "temperature_c": 27},
+            {
+                "date": (datetime.utcnow().date() + timedelta(days=offset)).isoformat(),
+                "condition": conditions[offset],
+                "temperature_c": highs[offset],
+                "max_c": highs[offset],
+                "min_c": lows[offset],
+            }
+            for offset in range(7)
         ]
         current["source"] = "mock"
         return current
@@ -953,7 +829,7 @@ class RealWeatherProvider(BaseWeatherProvider):
         city_name = (city or "Bengaluru").strip() or "Bengaluru"
 
         if WEATHER_API_KEY:
-            params = urlencode({"key": WEATHER_API_KEY, "q": city_name, "days": 3, "aqi": "no", "alerts": "no"})
+            params = urlencode({"key": WEATHER_API_KEY, "q": city_name, "days": 7, "aqi": "no", "alerts": "no"})
             url = f"{WEATHER_BASE_URL}/v1/forecast.json?{params}"
             request = Request(url, headers={"User-Agent": "VISIONARY-NEXUS/1.0"})
 
@@ -993,7 +869,7 @@ class RealWeatherProvider(BaseWeatherProvider):
             "longitude": geocode["longitude"],
             "daily": "weather_code,temperature_2m_max,temperature_2m_min",
             "timezone": "auto",
-            "forecast_days": 3,
+            "forecast_days": 7,
         })
         url = f"https://api.open-meteo.com/v1/forecast?{params}"
         request = Request(url, headers={"User-Agent": "VISIONARY-NEXUS/1.0"})
@@ -1284,6 +1160,11 @@ app = FastAPI(
     version="7.0.0"
 )
 
+app.include_router(auth_router)
+app.include_router(youtube_oauth_router)
+app.include_router(social_auth_router)
+app.include_router(whatsapp_router)
+
 
 # =========================================================
 # DEVICE LIFECYCLE ROUTES
@@ -1354,20 +1235,49 @@ app.router.lifespan_context = _lifespan_with_vision_cleanup
 
 
 # =========================================================
+# APPLICATION AUTHENTICATION
+# =========================================================
+
+@app.middleware("http")
+async def require_account_session(request: FastAPIRequest, call_next):
+    path = request.url.path
+    public_prefixes = (
+        "/api/auth/login", "/api/auth/register", "/api/auth/providers", "/api/auth/oauth/", "/api/health",
+        "/api/device/", "/api/camera/", "/api/vision/", "/api/music/youtube-oauth/callback", "/api/music/audius-stream/",
+        "/api/music/youtube-oauth/status",
+    )
+    is_public = path == "/" or any(path == prefix or path.startswith(prefix) for prefix in public_prefixes)
+    if path.startswith("/api/") and not is_public:
+        authorization = request.headers.get("authorization", "")
+        scheme, _, token = authorization.partition(" ")
+        user = authenticate_token(token) if scheme.lower() == "bearer" and token else None
+        if not user:
+            return JSONResponse(status_code=401, content={"detail": "Sign in to access Visionary Nexus."})
+        request.state.auth_user = user
+    return await call_next(request)
+
+
+# =========================================================
 # CORS
 # =========================================================
 
 app.add_middleware(
     CORSMiddleware,
 
-    allow_origins=[
+    allow_origins=list(dict.fromkeys([
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:4173",
         "http://127.0.0.1:4173",
         "http://localhost:8443",
         "http://127.0.0.1:8443",
-    ],
+        "https://localhost",
+        "capacitor://localhost",
+    ] + [
+        origin.strip()
+        for origin in os.getenv("CORS_ORIGINS", "").split(",")
+        if origin.strip()
+    ])),
 
     allow_credentials=True,
 
@@ -1410,7 +1320,7 @@ class NavigationRequest(BaseModel):
 
 
 # =========================================================
-# APPLE MUSIC REQUEST
+# MUSIC REQUEST
 # =========================================================
 
 class MusicSearchRequest(BaseModel):
@@ -1436,8 +1346,9 @@ def root():
         "features": [
             "Groq AI",
             "Weather",
-            "Apple Music Search",
-            "Music Previews",
+            "YouTube Music",
+            "Optional Spotify Premium library",
+            "Full-track playback",
             "Navigation",
             "SQLite",
             "Wake Word",
@@ -1451,24 +1362,26 @@ def root():
 
 @app.get("/api/health")
 def health():
+    """Report the provider that is actually selected by MusicService."""
+    provider = getattr(music_service, "provider", None)
+    if isinstance(provider, SpotifyMusicProvider):
+        music_provider = (
+            "Spotify catalogue search"
+            if SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET
+            else "Spotify search not configured (add SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET to .env)"
+        )
+    elif isinstance(provider, MockMusicProvider):
+        music_provider = "Mock music provider"
+    else:
+        music_provider = type(provider).__name__ if provider is not None else "Unavailable"
 
     return {
         "status": "ok",
-
-        "groq_configured":
-            groq is not None,
-
-        "weather_configured":
-            bool(WEATHER_API_KEY),
-
-        "music":
-            "Apple iTunes Search API",
-
-        "navigation":
-            "OpenStreetMap + OSRM",
-
-        "timestamp":
-            datetime.utcnow().isoformat(),
+        "groq_configured": groq is not None,
+        "weather_configured": bool(WEATHER_API_KEY),
+        "music": music_provider,
+        "navigation": "OpenStreetMap + OSRM",
+        "timestamp": datetime.utcnow().isoformat(),
     }
 
 
@@ -2284,20 +2197,319 @@ def save_music_playlists(request: dict):
 
 @app.get("/api/music/config")
 def music_provider_config():
-    navidrome_configured = bool(NAVIDROME_ENABLED and NAVIDROME_URL and NAVIDROME_USERNAME and NAVIDROME_PASSWORD)
-    youtube_configured = bool(YOUTUBE_API_KEY)
-    itunes_available = bool(APPLE_MUSIC_BASE_URL) and APPLE_MUSIC_PROVIDER != "mock"
-    audius_available = not navidrome_configured and not youtube_configured and APPLE_MUSIC_PROVIDER != "mock"
-    configured = navidrome_configured or youtube_configured or itunes_available or audius_available
-    provider = "navidrome" if navidrome_configured else "youtube" if youtube_configured else "audius" if audius_available else "apple-itunes" if itunes_available else "none"
+    # YouTube is always the primary music experience. The official Data API
+    # improves catalogue search; Piped and Invidious remain keyless fallbacks.
+    # Spotify is exposed only as an optional connected Premium library.
+    youtube_api_configured = bool(YOUTUBE_API_KEY)
+    spotify_configured = bool(SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET)
     return {
-        "success": configured,
-        "provider": provider,
-        "configured": configured,
-        "requiresApiKey": False if audius_available else not configured,
-        "message": "Navidrome is configured." if navidrome_configured else "YouTube music is configured." if youtube_configured else "Free Audius search and full-track streaming are ready; some mainstream songs may not be in its catalogue." if audius_available else "Apple catalogue search is ready; playback uses short previews where available." if itunes_available else "No music provider is configured.",
-        "apiKeyConfigured": youtube_configured or navidrome_configured,
+        "success": True,
+        "provider": "youtube",
+        "configured": True,
+        "youtubeApiConfigured": youtube_api_configured,
+        "fallbackProvider": ["piped", "invidious"],
+        "requiresApiKey": False,
+        "message": (
+            "YouTube is primary. Piped and Invidious are fallback search sources."
+            if youtube_api_configured
+            else "YouTube API search is not configured; keyless Piped and Invidious search will be used."
+        ),
+        "apiKeyConfigured": youtube_api_configured,
+        "spotifyAvailable": spotify_configured,
     }
+
+
+def _soundcloud_access_token():
+    """Reuse a cached app token; SoundCloud limits client-credentials token creation."""
+    if not SOUNDCLOUD_CLIENT_ID or not SOUNDCLOUD_CLIENT_SECRET:
+        return ""
+    if SOUNDCLOUD_TOKEN_CACHE["access_token"] and time.time() < SOUNDCLOUD_TOKEN_CACHE["expires_at"]:
+        return SOUNDCLOUD_TOKEN_CACHE["access_token"]
+
+    credentials = f"{SOUNDCLOUD_CLIENT_ID}:{SOUNDCLOUD_CLIENT_SECRET}".encode("utf-8")
+    request = Request(
+        "https://secure.soundcloud.com/oauth/token",
+        data=urlencode({"grant_type": "client_credentials"}).encode("utf-8"),
+        headers={
+            "Authorization": "Basic " + base64.b64encode(credentials).decode("ascii"),
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    with urlopen(request, timeout=10) as response:
+        payload = json.loads(response.read().decode("utf-8", errors="replace"))
+    token = str(payload.get("access_token") or "")
+    if not token:
+        return ""
+    expires_in = int(payload.get("expires_in") or 3600)
+    SOUNDCLOUD_TOKEN_CACHE["access_token"] = token
+    SOUNDCLOUD_TOKEN_CACHE["expires_at"] = time.time() + max(60, expires_in - 90)
+    return token
+
+
+def _soundcloud_stream_url(track: dict, token: str) -> str:
+    """Resolve SoundCloud's authenticated stream redirect to a browser-playable URL."""
+    track_id = track.get("id")
+    stream_endpoint = track.get("stream_url")
+    if not stream_endpoint and track_id:
+        stream_endpoint = f"https://api.soundcloud.com/tracks/{quote(str(track_id), safe='')}/stream"
+    if not stream_endpoint:
+        return ""
+    request = Request(
+        stream_endpoint,
+        headers={"Authorization": f"OAuth {token}", "Accept": "application/json, */*"},
+        method="GET",
+    )
+    with urlopen(request, timeout=10) as response:
+        final_url = response.geturl()
+        body = response.read()
+    # Some API versions return a list of transcoding descriptors instead of redirecting.
+    try:
+        payload = json.loads(body.decode("utf-8", errors="replace"))
+        transcodings = payload if isinstance(payload, list) else payload.get("transcodings", [])
+        if isinstance(transcodings, list) and transcodings:
+            preferred = next(
+                (item for item in transcodings
+                 if (item.get("format") or {}).get("protocol") == "progressive"),
+                transcodings[0],
+            )
+            transcoding_url = preferred.get("url") or ""
+            if transcoding_url:
+                transcode_request = Request(
+                    transcoding_url,
+                    headers={"Authorization": f"OAuth {token}", "Accept": "application/json, */*"},
+                    method="GET",
+                )
+                with urlopen(transcode_request, timeout=10) as streamed:
+                    return streamed.geturl()
+    except (ValueError, AttributeError, TypeError):
+        pass
+    return final_url if final_url != stream_endpoint else ""
+
+
+@app.get("/api/music/soundcloud-search")
+def music_soundcloud_search(q: str = "", limit: int = 18):
+    """Search playable SoundCloud tracks and mark only sufficiently close matches."""
+    query = (q or "").strip()
+    if not query:
+        return {"success": False, "configured": bool(SOUNDCLOUD_CLIENT_ID and SOUNDCLOUD_CLIENT_SECRET),
+                "matched": False, "tracks": [], "message": "Enter a song or artist to search."}
+    if not SOUNDCLOUD_CLIENT_ID or not SOUNDCLOUD_CLIENT_SECRET:
+        return {"success": False, "configured": False, "matched": False, "tracks": [],
+                "message": "SoundCloud is not configured yet. Add SOUNDCLOUD_CLIENT_ID and SOUNDCLOUD_CLIENT_SECRET to the project .env file."}
+
+    try:
+        token = _soundcloud_access_token()
+        if not token:
+            raise RuntimeError("SoundCloud did not issue an access token.")
+        params = urlencode({
+            "q": query,
+            "access": "playable",
+            "limit": max(1, min(int(limit or 18), 30)),
+            "linked_partitioning": "true",
+        })
+        request = Request(
+            "https://api.soundcloud.com/tracks?" + params,
+            headers={"Authorization": f"OAuth {token}", "Accept": "application/json"},
+            method="GET",
+        )
+        with urlopen(request, timeout=12) as response:
+            payload = json.loads(response.read().decode("utf-8", errors="replace"))
+        raw_tracks = payload.get("collection") or payload.get("data") or []
+        query_tokens = set(re.findall(r"[a-z0-9]+", query.casefold())) - {
+            "a", "an", "and", "by", "for", "from", "i", "listen", "me", "my",
+            "of", "on", "or", "play", "please", "song", "the", "to", "track", "want",
+        }
+        tracks = []
+        for item in raw_tracks:
+            if not isinstance(item, dict) or item.get("access") == "blocked":
+                continue
+            title = str(item.get("title") or "").strip()
+            user = item.get("user") or {}
+            artist = str(item.get("metadata_artist") or user.get("username") or user.get("full_name") or "Unknown artist")
+            genre = str(item.get("genre") or "")
+            title_tokens = set(re.findall(r"[a-z0-9]+", title.casefold()))
+            artist_tokens = set(re.findall(r"[a-z0-9]+", artist.casefold()))
+            genre_tokens = set(re.findall(r"[a-z0-9]+", genre.casefold()))
+            all_tokens = title_tokens | artist_tokens | genre_tokens
+            coverage = len(query_tokens & all_tokens) / len(query_tokens) if query_tokens else 0.0
+            title_coverage = len(query_tokens & title_tokens) / len(query_tokens) if query_tokens else 0.0
+            artist_coverage = len(query_tokens & artist_tokens) / len(query_tokens) if query_tokens else 0.0
+            genre_coverage = len(query_tokens & genre_tokens) / len(query_tokens) if query_tokens else 0.0
+            matched = bool(query_tokens) and coverage >= 0.60 and (
+                title_coverage >= 0.50 or artist_coverage >= 0.70
+                or (len(query_tokens) == 1 and genre_coverage >= 0.80)
+            )
+            # Do not resolve streams for unrelated search hits; this keeps the
+            # primary search fast and prevents unrelated tracks being surfaced.
+            if not matched:
+                continue
+            stream_url = _soundcloud_stream_url(item, token)
+            if not stream_url:
+                continue
+            artwork = item.get("artwork_url") or ""
+            if artwork:
+                artwork = re.sub(r"-large\.", "-t500x500.", artwork)
+            tracks.append({
+                "id": str(item.get("urn") or item.get("id") or ""),
+                "name": title or "Untitled track",
+                "artist": artist,
+                "image": artwork,
+                "url": str(item.get("permalink_url") or ""),
+                "stream_url": stream_url,
+                "duration": int(item.get("duration") or 0),
+                "genre": genre,
+                "provider": "soundcloud",
+                "match_score": round(coverage, 3),
+                "matched": matched,
+            })
+        tracks.sort(key=lambda track: (track["matched"], track["match_score"]), reverse=True)
+        matched = any(track["matched"] for track in tracks)
+        return {
+            "success": True,
+            "configured": True,
+            "matched": matched,
+            "tracks": tracks,
+            "query": query,
+            "message": f"Found {len(tracks)} playable SoundCloud tracks." if tracks else "No playable SoundCloud tracks found.",
+        }
+    except HTTPError as error:
+        return {"success": False, "configured": True, "matched": False, "tracks": [],
+                "message": f"SoundCloud returned HTTP {error.code}."}
+    except (URLError, TimeoutError, ValueError, RuntimeError) as error:
+        print("SoundCloud search error:", str(error))
+        return {"success": False, "configured": True, "matched": False, "tracks": [],
+                "message": "SoundCloud is temporarily unavailable. Audius fallback can be used."}
+    except Exception as error:
+        print("SoundCloud search error:", str(error))
+        return {"success": False, "configured": True, "matched": False, "tracks": [],
+                "message": "SoundCloud search failed. Audius fallback can be used."}
+
+
+@app.get("/api/music/audius-search")
+def music_audius_search(q: str = "", limit: int = 12):
+    """Search Audius' public catalogue and return streamable track metadata."""
+    query = (q or "").strip()
+    if not query:
+        return {"success": False, "tracks": [], "message": "Enter a song, artist or genre to search."}
+
+    params = {"query": query, "limit": max(1, min(int(limit or 12), 30))}
+    if AUDIUS_API_KEY:
+        params["api_key"] = AUDIUS_API_KEY
+    request_url = "https://api.audius.co/v1/tracks/search?" + urlencode(params)
+    try:
+        request = Request(
+            request_url,
+            headers={"Accept": "application/json", "User-Agent": "VisionaryNexus/1.0"},
+        )
+        with urlopen(request, timeout=12) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        raw_tracks = payload.get("data") or []
+        query_tokens = set(re.findall(r"[a-z0-9]+", query.casefold())) - {
+            "a", "an", "and", "by", "for", "from", "i", "listen", "me", "my",
+            "of", "on", "or", "play", "please", "song", "the", "to", "track", "want",
+        }
+        tracks = []
+        for item in raw_tracks:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            user = item.get("user") or {}
+            artwork = item.get("artwork") or item.get("cover_art") or {}
+            stream = item.get("stream") or {}
+            stream_url = stream.get("url") if isinstance(stream, dict) else None
+            if not stream_url or not item.get("is_streamable", True):
+                continue
+            title = str(item.get("title") or "Unknown track")
+            artist = str(user.get("name") or user.get("handle") or "Unknown artist")
+            title_tokens = set(re.findall(r"[a-z0-9]+", title.casefold()))
+            artist_tokens = set(re.findall(r"[a-z0-9]+", artist.casefold()))
+            genre_tokens = set(re.findall(r"[a-z0-9]+", str(item.get("genre") or "").casefold()))
+            coverage = len(query_tokens & (title_tokens | artist_tokens | genre_tokens)) / len(query_tokens) if query_tokens else 0.0
+            title_coverage = len(query_tokens & title_tokens) / len(query_tokens) if query_tokens else 0.0
+            artist_coverage = len(query_tokens & artist_tokens) / len(query_tokens) if query_tokens else 0.0
+            genre_coverage = len(query_tokens & genre_tokens) / len(query_tokens) if query_tokens else 0.0
+            matched = bool(query_tokens) and coverage >= 0.60 and (
+                title_coverage >= 0.50 or artist_coverage >= 0.70
+                or (len(query_tokens) == 1 and genre_coverage >= 0.80)
+            )
+            permalink = item.get("permalink") or ""
+            tracks.append({
+                "id": str(item["id"]),
+                "name": title,
+                "artist": artist,
+                "image": artwork.get("480x480") or artwork.get("150x150") or "",
+                "url": "https://audius.co" + permalink if permalink.startswith("/") else (permalink or "https://audius.co"),
+                "stream_url": f"/api/music/audius-stream/{quote(str(item['id']), safe='')}",
+                "audio": f"/api/music/audius-stream/{quote(str(item['id']), safe='')}",
+                "duration": int(item.get("duration") or 0),
+                "genre": str(item.get("genre") or ""),
+                "play_count": int(item.get("play_count") or 0),
+                "provider": "audius",
+                "match_score": round(coverage, 3),
+                "matched": matched,
+            })
+        return {
+            "success": True,
+            "tracks": tracks,
+            "query": query,
+            "message": f"Found {len(tracks)} Audius tracks." if tracks else "No streamable Audius tracks found. Try another search.",
+        }
+    except HTTPError as error:
+        return {"success": False, "tracks": [], "message": f"Audius search returned HTTP {error.code}."}
+    except (URLError, TimeoutError, ValueError) as error:
+        print("Audius search error:", str(error))
+        return {"success": False, "tracks": [], "message": "Audius is temporarily unavailable. Please try again."}
+    except Exception as error:
+        print("Audius search error:", str(error))
+        return {"success": False, "tracks": [], "message": "Audius search failed. Please try again."}
+
+@app.get("/api/music/audius-stream/{track_id}")
+def music_audius_stream(track_id: str, request: FastAPIRequest):
+    """Proxy an Audius track stream so browser audio works across CORS/CDN hosts."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", track_id or ""):
+        return JSONResponse(status_code=400, content={"detail": "Invalid Audius track ID."})
+
+    params = {"app_name": "VisionaryNexus"}
+    if AUDIUS_API_KEY:
+        params["api_key"] = AUDIUS_API_KEY
+    stream_url = f"https://api.audius.co/v1/tracks/{quote(track_id, safe='')}/stream?{urlencode(params)}"
+    headers = {"User-Agent": "VisionaryNexus/1.0", "Accept": "audio/*, */*"}
+    byte_range = request.headers.get("range")
+    if byte_range:
+        headers["Range"] = byte_range
+
+    try:
+        upstream = urlopen(Request(stream_url, headers=headers, method="GET"), timeout=20)
+        status = getattr(upstream, "status", 200)
+        response_headers = {"Cache-Control": "no-store", "Accept-Ranges": "bytes"}
+        for header in ("Content-Type", "Content-Length", "Content-Range", "ETag", "Last-Modified"):
+            value = upstream.headers.get(header)
+            if value:
+                response_headers[header] = value
+
+        def stream_chunks():
+            try:
+                while True:
+                    chunk = upstream.read(64 * 1024)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                upstream.close()
+
+        return StreamingResponse(
+            stream_chunks(),
+            status_code=status,
+            headers=response_headers,
+            media_type=upstream.headers.get_content_type() or "audio/mpeg",
+        )
+    except HTTPError as error:
+        return JSONResponse(status_code=502, content={"detail": f"Audius stream returned HTTP {error.code}."})
+    except (URLError, TimeoutError, OSError) as error:
+        print("Audius stream proxy error:", str(error))
+        return JSONResponse(status_code=502, content={"detail": "Audius stream is temporarily unavailable."})
+
 
 
 # =========================================================
@@ -2364,6 +2576,7 @@ def correct_music_search_query(query: str) -> str:
             ],
             temperature=0,
             max_completion_tokens=256,
+            timeout=2.5,
         )
         corrected = (completion.choices[0].message.content or "").strip().strip('"').strip("'")
         if corrected and len(corrected) <= max(160, len(query) * 3):
@@ -2371,6 +2584,318 @@ def correct_music_search_query(query: str) -> str:
     except Exception as error:
         print("Music query correction error:", str(error))
     return query.strip()
+
+
+def music_search_relevance(query: str, tracks: list[dict]) -> float:
+    """Estimate whether returned titles/artists actually match the requested song."""
+    ignored = {"a", "an", "and", "by", "for", "from", "i", "listen", "me", "my", "of", "on", "or", "please", "song", "the", "to", "track", "want"}
+    tokens = set(re.findall(r"[a-z0-9]+", (query or "").casefold())) - ignored
+    if not tokens:
+        return 1.0
+    best = 0.0
+    for track in tracks or []:
+        searchable = " ".join(str(track.get(key) or "") for key in ("name", "artist", "album", "genre"))
+        found = set(re.findall(r"[a-z0-9]+", searchable.casefold()))
+        best = max(best, len(tokens & found) / len(tokens))
+    return best
+
+
+@app.get("/api/music/youtube-search")
+def music_youtube_search(q: str = "", limit: int = 12):
+    """Search the official YouTube Data API; playback stays in the embedded YouTube player."""
+    query = (q or "").strip()
+    if not query:
+        return {"success": False, "tracks": [], "message": "Enter a song, artist or genre to search."}
+    if not YOUTUBE_API_KEY:
+        return {"success": False, "tracks": [], "message": "YouTube search is not configured. Add YOUTUBE_API_KEY to the project .env file."}
+
+    def search_videos(term: str, duration_filter: str = "short"):
+        params = urlencode({
+            "part": "snippet",
+            "type": "video",
+            "videoEmbeddable": "true",
+            # Search short videos first so hour-long mixes never crowd out
+            # the actual song. A second medium pass below catches longer songs.
+            "videoDuration": duration_filter,
+            "safeSearch": "moderate",
+            "regionCode": "IN",
+            "maxResults": max(1, min(int(limit or 12), 20)),
+            "order": "relevance",
+            "q": term,
+            "key": YOUTUBE_API_KEY,
+        })
+        request = Request(
+            "https://www.googleapis.com/youtube/v3/search?" + params,
+            headers={"Accept": "application/json", "User-Agent": "VisionaryNexus/1.0"},
+            method="GET",
+        )
+        with urlopen(request, timeout=8) as response:
+            return json.loads(response.read().decode("utf-8", errors="replace"))
+
+    searched_query = query
+    try:
+        # Combine short and medium YouTube results. This avoids hour-long
+        # uploads dominating a title search while still allowing songs longer
+        # than four minutes.
+        payload = search_videos(query, "short")
+        items = payload.get("items") or []
+        seen_video_ids = {
+            str((item.get("id") or {}).get("videoId") or "")
+            for item in items
+        }
+        try:
+            medium_payload = search_videos(query, "medium")
+        except (HTTPError, URLError, TimeoutError, ValueError) as medium_error:
+            print("YouTube medium-duration search unavailable:", str(medium_error))
+            medium_payload = {}
+        for item in medium_payload.get("items") or []:
+            video_id = str((item.get("id") or {}).get("videoId") or "")
+            if video_id and video_id not in seen_video_ids:
+                items.append(item)
+                seen_video_ids.add(video_id)
+
+        if not items:
+            corrected = correct_music_search_query(query)
+            if corrected and corrected.casefold() != query.casefold():
+                retry_short = search_videos(corrected, "short")
+                retry_items = retry_short.get("items") or []
+                try:
+                    retry_medium = search_videos(corrected, "medium")
+                except (HTTPError, URLError, TimeoutError, ValueError) as medium_error:
+                    print("Corrected YouTube medium-duration search unavailable:", str(medium_error))
+                    retry_medium = {}
+                retry_seen = {
+                    str((item.get("id") or {}).get("videoId") or "")
+                    for item in retry_items
+                }
+                for item in retry_medium.get("items") or []:
+                    video_id = str((item.get("id") or {}).get("videoId") or "")
+                    if video_id and video_id not in retry_seen:
+                        retry_items.append(item)
+                        retry_seen.add(video_id)
+                if retry_items:
+                    items = retry_items
+                    searched_query = corrected
+
+        # Fetch duration for candidate videos so Shorts/clips are not blindly
+        # selected as full songs. This also supplies stable metadata to ranking.
+        video_ids = [
+            str((item.get("id") or {}).get("videoId") or "").strip()
+            for item in items
+        ]
+        video_ids = [video_id for video_id in video_ids if video_id]
+        details_by_id = {}
+        if video_ids:
+            detail_params = urlencode({
+                "part": "contentDetails,snippet",
+                "id": ",".join(video_ids),
+                "key": YOUTUBE_API_KEY,
+            })
+            detail_request = Request(
+                "https://www.googleapis.com/youtube/v3/videos?" + detail_params,
+                headers={"Accept": "application/json", "User-Agent": "VisionaryNexus/1.0"},
+                method="GET",
+            )
+            try:
+                with urlopen(detail_request, timeout=8) as detail_response:
+                    detail_payload = json.loads(detail_response.read().decode("utf-8", errors="replace"))
+                details_by_id = {
+                    str(video.get("id")): video
+                    for video in (detail_payload.get("items") or [])
+                }
+            except (HTTPError, URLError, TimeoutError, ValueError):
+                details_by_id = {}
+
+        def duration_seconds(value):
+            match = re.fullmatch(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", str(value or ""))
+            if not match:
+                return 0
+            hours, minutes, seconds = (int(part or 0) for part in match.groups())
+            return hours * 3600 + minutes * 60 + seconds
+
+        tracks = []
+        for item in items:
+            video_id = str((item.get("id") or {}).get("videoId") or "").strip()
+            snippet = item.get("snippet") or {}
+            if not video_id:
+                continue
+            detail = details_by_id.get(video_id) or {}
+            detail_snippet = detail.get("snippet") or snippet
+            duration = duration_seconds((detail.get("contentDetails") or {}).get("duration"))
+            title = str(detail_snippet.get("title") or snippet.get("title") or "YouTube video")
+            if (
+                (duration and (duration <= 60 or duration > 900))
+                or re.search(r"\bshorts?\b|#shorts|\b(?:1|one)\s*hour\b|\b60\s*min(?:ute)?s?\b|extended\s*mix|\bloops?\b", title, re.IGNORECASE)
+            ):
+                continue
+            thumbnails = (detail_snippet.get("thumbnails") or snippet.get("thumbnails") or {})
+            image = (
+                (thumbnails.get("high") or {}).get("url")
+                or (thumbnails.get("medium") or {}).get("url")
+                or (thumbnails.get("default") or {}).get("url")
+                or ""
+            )
+            tracks.append({
+                "id": video_id,
+                "name": title,
+                "artist": str(detail_snippet.get("channelTitle") or snippet.get("channelTitle") or "YouTube"),
+                "durationSeconds": duration,
+                "image": image,
+                "url": "https://www.youtube.com/watch?v=" + video_id,
+                "provider": "youtube",
+            })
+        return {
+            "success": bool(tracks),
+            "tracks": tracks,
+            "query": query,
+            "corrected_query": searched_query,
+            "message": "" if tracks else "No embeddable YouTube videos were found for that search.",
+        }
+    except HTTPError as error:
+        detail = "YouTube search request failed."
+        try:
+            body = json.loads(error.read().decode("utf-8", errors="replace"))
+            detail = str((body.get("error") or {}).get("message") or detail)
+        except Exception:
+            pass
+        return {"success": False, "tracks": [], "message": detail}
+    except (URLError, TimeoutError, ValueError) as error:
+        print("YouTube music search error:", str(error))
+        return {"success": False, "tracks": [], "message": "Could not reach YouTube search. Check the backend internet connection and try again."}
+
+
+@app.get("/api/music/youtube-alternative-search")
+def music_youtube_alternative_search(q: str = "", limit: int = 18):
+    """Search public Piped and Invidious instances after official YouTube API quota limits."""
+    query = (q or "").strip()
+    if not query:
+        return {"success": False, "tracks": [], "source": "", "message": "Enter a song, artist or genre to search."}
+
+    max_results = max(1, min(int(limit or 18), 20))
+    headers = {"Accept": "application/json", "User-Agent": "VisionaryNexus/1.0"}
+    # Public instance availability changes frequently. Keep several known
+    # API hosts in rotation and continue immediately when one is offline.
+    piped_instances = [
+        "https://pipedapi.kavin.rocks",
+        "https://pipedapi.nosebs.ru",
+        "https://piped-api.privacy.com.de",
+        "https://api.piped.yt",
+        "https://pipedapi.leptons.xyz",
+        "https://pipedapi.adminforge.de",
+    ]
+    invidious_instances = [
+        "https://invidious.tiekoetter.com",
+        "https://yt.chocolatemoo53.com",
+        "https://invidious.nerdvpn.de",
+        "https://inv.nadeko.net",
+    ]
+
+    def clean_video_id(value):
+        text = str(value or "")
+        match = re.search(r"(?:v=|/watch/|/shorts/|^)([A-Za-z0-9_-]{11})(?:\b|$)", text)
+        return match.group(1) if match else ""
+
+    def valid_track(track):
+        title = str(track.get("name") or "")
+        duration = int(track.get("durationSeconds") or 0)
+        return bool(
+            track.get("id") and title
+            and not re.search(
+                r"\bshorts?\b|#shorts|\b(?:1|one)\s*hour\b|\b60\s*min(?:ute)?s?\b|extended\s*mix|\bloops?\b",
+                title,
+                re.IGNORECASE,
+            )
+            and not (duration and (duration <= 60 or duration > 900))
+        )
+
+    # Piped first: it exposes YouTube search metadata without consuming the
+    # official YouTube Data API quota.
+    for instance in piped_instances:
+        try:
+            params = urlencode({"q": query, "filter": "music_songs"})
+            request = Request(instance + "/search?" + params, headers=headers)
+            with urlopen(request, timeout=3) as response:
+                payload = json.loads(response.read().decode("utf-8", errors="replace"))
+            items = payload if isinstance(payload, list) else payload.get("items") or []
+            tracks = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                video_id = clean_video_id(item.get("url") or item.get("videoId"))
+                if not video_id:
+                    continue
+                track = {
+                    "id": video_id,
+                    "name": str(item.get("title") or "YouTube video"),
+                    "artist": str(item.get("uploaderName") or item.get("uploader") or "YouTube"),
+                    "durationSeconds": int(item.get("duration") or 0),
+                    "image": str(item.get("thumbnail") or ""),
+                    "url": "https://www.youtube.com/watch?v=" + video_id,
+                    "provider": "youtube",
+                    "searchSource": "Piped",
+                }
+                if valid_track(track):
+                    tracks.append(track)
+                if len(tracks) >= max_results:
+                    break
+            if tracks:
+                return {"success": True, "tracks": tracks, "query": query, "source": "piped",
+                        "message": f"Found {len(tracks)} YouTube matches through Piped."}
+        except Exception as error:
+            print("Piped fallback search error:", str(error))
+            continue
+
+    # Invidious is the second YouTube-catalogue search source.
+    for instance in invidious_instances:
+        try:
+            params = urlencode({"q": query, "type": "video", "sort_by": "relevance"})
+            request = Request(instance + "/api/v1/search?" + params, headers=headers)
+            with urlopen(request, timeout=3) as response:
+                payload = json.loads(response.read().decode("utf-8", errors="replace"))
+            items = payload if isinstance(payload, list) else []
+            tracks = []
+            for item in items:
+                if not isinstance(item, dict) or item.get("type") not in (None, "video"):
+                    continue
+                video_id = clean_video_id(item.get("videoId"))
+                if not video_id:
+                    continue
+                thumbnails = item.get("videoThumbnails") or []
+                image = next((str(pic.get("url") or "") for pic in thumbnails
+                              if isinstance(pic, dict) and pic.get("url")), "")
+                track = {
+                    "id": video_id,
+                    "name": str(item.get("title") or "YouTube video"),
+                    "artist": str(item.get("author") or "YouTube"),
+                    "durationSeconds": int(item.get("lengthSeconds") or 0),
+                    "image": image,
+                    "url": "https://www.youtube.com/watch?v=" + video_id,
+                    "provider": "youtube",
+                    "searchSource": "Invidious",
+                }
+                if valid_track(track):
+                    tracks.append(track)
+                if len(tracks) >= max_results:
+                    break
+            if tracks:
+                return {"success": True, "tracks": tracks, "query": query, "source": "invidious",
+                        "message": f"Found {len(tracks)} YouTube matches through Invidious."}
+        except Exception as error:
+            print("Invidious fallback search error:", str(error))
+            continue
+
+    return {"success": False, "tracks": [], "query": query, "source": "",
+            "message": "Piped and Invidious did not return results. Audius can be tried next."}
+
+
+@app.post("/api/music/correct-query")
+def music_correct_query(request: MusicSearchRequest):
+    """Return an AI-corrected song/artist phrase for the Spotify client."""
+    query = (request.query or "").strip()
+    if not query:
+        return {"success": False, "query": "", "corrected_query": ""}
+    corrected = correct_music_search_query(query)
+    return {"success": True, "query": query, "corrected_query": corrected}
 
 
 @app.post(
@@ -2388,40 +2913,21 @@ def music_search(
             "tracks": [],
         }
 
-    # Keep search on the critical playback path deterministic and fast.
-    # Never block a music search on a remote LLM spelling-correction request;
-    # the original query is preserved for the catalogue provider.
+    # Search the user's original words first. Only ask AI to correct spelling
+    # when the catalogue returns no convincing title/artist match, so normal
+    # searches stay fast and the model cannot rewrite a query unnecessarily.
     search_query = query
     result = music_service.search(search_query)
-
-    # Short YouTube clips/Shorts are not suitable results when the user asked
-    # to play a song. Prefer normal-length tracks; if needed, retry a full-song
-    # query rather than returning a 15–30 second clip as the best match.
-    if result.get("success") and result.get("tracks"):
-        tracks = result["tracks"]
-        if result.get("source") == "youtube":
-            full_tracks = [
-                track for track in tracks
-                if not track.get("duration") or int(track.get("duration") or 0) >= 60000
-            ]
-            if not full_tracks:
-                retry_query = f"{search_query} official audio full song"
-                retry_result = music_service.search(retry_query)
-                retry_tracks = retry_result.get("tracks") or []
-                full_tracks = [
-                    track for track in retry_tracks
-                    if not track.get("duration") or int(track.get("duration") or 0) >= 60000
-                ]
-                if full_tracks:
-                    result = retry_result
-                    result["query"] = search_query
-            if full_tracks:
-                result["tracks"] = full_tracks
-                result["success"] = True
-            else:
-                result["tracks"] = []
-                result["success"] = False
-                result["message"] = "I found only very short clips. Try the song title plus the artist name."
+    initial_tracks = result.get("tracks") or []
+    if music_search_relevance(query, initial_tracks) < 0.75:
+        corrected_query = correct_music_search_query(query)
+        if corrected_query and corrected_query.casefold() != query.casefold():
+            corrected_result = music_service.search(corrected_query)
+            corrected_tracks = corrected_result.get("tracks") or []
+            corrected_relevance = music_search_relevance(corrected_query, corrected_tracks)
+            if corrected_result.get("success") and corrected_tracks and corrected_relevance > music_search_relevance(query, initial_tracks) and corrected_relevance > 0:
+                result = corrected_result
+                search_query = corrected_query
 
     # If correction didn't help, preserve the original query as a fallback.
     if not result.get("success") and search_query.casefold() != query.casefold():
@@ -2439,20 +2945,7 @@ def music_search(
         and re.search(r"\bmontegam\b", query, re.IGNORECASE)
     ):
         suggestions = music_service.search("montagem")
-        suggestion_tracks = suggestions.get("tracks") or []
-        # Keep fallback suggestions tied to the corrected term; do not show
-        # unrelated tracks merely because the provider returned some results.
-        relevant_suggestions = [
-            track for track in suggestion_tracks
-            if re.search(
-                r"\bmontagem\b|\bmontegam\b",
-                f"{track.get('name') or ''} {track.get('artist') or ''}",
-                re.IGNORECASE,
-            )
-        ]
-        suggestions["tracks"] = relevant_suggestions
-        suggestions["success"] = bool(relevant_suggestions)
-        if relevant_suggestions:
+        if suggestions.get("tracks"):
             suggestions["needs_confirmation"] = True
             suggestions["original_query"] = query
             suggestions["corrected_query"] = "montagem"
@@ -2659,8 +3152,69 @@ def classify_feature_intent(request: dict):
         "hear this", "play that again", "put that on", "play it again",
     )):
         return {"intent": "music", "action": "resume", "destination": "", "query": "", "polished_text": message}
+    # Natural-language WhatsApp fallbacks for when the AI provider is unavailable.
+    # The primary path below uses the language model to understand varied phrasing.
+    natural_whatsapp_patterns = (
+        r"^(?:please\s+)?(?:can you|could you|i need to|i want to)?\s*tell\s+([A-Za-z][A-Za-z0-9 .'-]*?)\s+(?:that\s+)?(.+)$",
+        r"^(?:please\s+)?(?:can you|could you|i need to|i want to)?\s*let\s+([A-Za-z][A-Za-z0-9 .'-]*?)\s+know\s+(.+)$",
+        r"^(?:please\s+)?(?:can you|could you|i need to|i want to)?\s*inform\s+([A-Za-z][A-Za-z0-9 .'-]*?)\s+(?:that\s+)?(.+)$",
+    )
+    for pattern in natural_whatsapp_patterns:
+        natural_match = re.match(pattern, message, flags=re.IGNORECASE)
+        if natural_match:
+            recipient, body = (part.strip(" \t\r\n.!?") for part in natural_match.groups())
+            if recipient and body and recipient.casefold() not in {"me", "myself", "us"}:
+                canonical_command = f"send {body} to {recipient}"
+                return {
+                    "intent": "whatsapp", "action": "send", "destination": "",
+                    "query": "", "polished_text": message, "recipient": recipient,
+                    "message_text": body, "channel": "personal",
+                    "command_text": canonical_command,
+                }
+
+    # Deterministic parsing also supports the canonical command format:
+    # "send [message] to [person]".
+    send_to_match = re.match(
+        r"^(?:please\s+)?(?:send|message|text)\s+(.+)\s+to\s+([A-Za-z][A-Za-z0-9 .'-]*)[.!?]*$",
+        message,
+        flags=re.IGNORECASE,
+    )
+    if send_to_match:
+        body = send_to_match.group(1).strip(" \t\r\n.!")
+        recipient = send_to_match.group(2).strip(" \t\r\n.!?")
+        if body and recipient:
+            return {
+                "intent": "whatsapp",
+                "action": "send",
+                "destination": "",
+                "query": "",
+                "polished_text": message,
+                "recipient": recipient,
+                "message_text": body,
+                "channel": "personal",
+                "command_text": f"send {body} to {recipient}",
+            }
+
+    # Supports "send a message to Hamsa saying ..." and
+    # "send Hamsa a message saying ...".
+    patterns = (
+        r"^(?:please\s+)?(?:send|message|text)(?:\s+(?:a|the))?\s+(?:whatsapp\s+)?message\s+to\s+(.+?)\s+(?:saying|that says|with the message)\s+(.+)$",
+        r"^(?:please\s+)?(?:send|message|text)\s+(.+?)\s+a\s+message\s+(?:saying|that says)\s+(.+)$",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, message, flags=re.IGNORECASE)
+        if match:
+            recipient, body = (part.strip(" \t\r\n.!?") for part in match.groups())
+            if recipient and body:
+                return {
+                    "intent": "whatsapp", "action": "send", "destination": "",
+                    "query": "", "polished_text": message, "recipient": recipient,
+                    "message_text": body, "channel": "personal",
+                    "command_text": f"send {body} to {recipient}",
+                }
+
     if groq is None:
-        return {"intent": "general", "action": "none", "destination": "", "query": message, "polished_text": message}
+        return {"intent": "general", "action": "none", "destination": "", "query": message, "polished_text": message, "recipient": "", "message_text": "", "channel": ""}
 
     try:
         completion = groq.chat.completions.create(
@@ -2671,16 +3225,17 @@ def classify_feature_intent(request: dict):
                     "content": """
 You are the natural-language understanding engine for Visionary Nexus smart glasses. Interpret what the user MEANS, not just exact command wording. People speak in fragments, polite requests, long sentences, and pronouns.
 Return JSON only:
-{"intent":"music|weather|navigation|vision|audio|dashboard|ai|notifications|device|settings|general","action":"play|pause|resume|next|previous|search|open|none","destination":"string","query":"string","polished_text":"string"}.
+{"intent":"whatsapp|music|weather|navigation|vision|audio|dashboard|ai|notifications|device|settings|general","action":"send|play|pause|resume|next|previous|search|open|capture|analyze|none","destination":"string","query":"string","polished_text":"string","recipient":"string","message_text":"string","channel":"personal|business|"}.
 
 Rules:
+- WHATSAPP: In Visionary Nexus, a command to send/message/text a named person defaults to WhatsApp unless the user explicitly specifies email, SMS, or another channel. Choose intent=whatsapp and action=send, including natural phrasing and wake-word dictation. Extract the recipient's name into recipient. Extract ONLY the actual message body into message_text, excluding command wording such as "send a message to", "the message is", and wake words. Preserve the dictated message exactly in meaning and detail; do not answer it or rewrite it. Example: "Hey Vision, send the following message to Adhiksh. The message is I am going to be late" => recipient="Adhiksh", message_text="I am going to be late". If the user explicitly says WhatsApp Business/business account, channel="business"; if they say personal WhatsApp, channel="personal"; otherwise channel="" so the app can use its configured default. Never invent a phone number. If the recipient or message body is missing/ambiguous, still return intent=whatsapp but leave that field empty so the app can ask for it. Do not confuse requests that merely mention WhatsApp with send commands.
 - MUSIC: any request to listen to, put on, play, resume, find, or search for music, a song, artist, genre, or playlist. "I want to listen to phonk", "could you put my phonk on", and "play phonk" all mean music action=play, query="phonk". Strip filler like "some music", "a song", "please play", and generic words such as "playlist"/"song"/"music" when they are not part of the actual title. Preserve real titles. A question asking what a genre or artist means is general, not music playback.
 - HARD RULE: "I want to listen to it", "let me listen to it", "I want to hear it", "play that again", or "put that on" are music intents when referring to music/playback. Return intent=music, action=resume or play, query="". Never send these to general/AI merely because the target is a pronoun. If context.active_tab is music, resolve "it/that" to the current song or selected playlist.
 - Music controls: pause/stop => pause; continue/resume => resume; skip/next => next; previous/back => previous.
 - Use supplied context.active_tab as conversation context, not as an absolute rule. When a pronoun such as "it/that one" refers to the current playback and active_tab is music, choose music and the relevant playback action.
 - WEATHER: requests about current weather, rain, temperature, or forecasts. query is the requested location or subject.
 - NAVIGATION: only when the user wants directions or a route. Extract destination, never invent it.
-- VISION: asks what they are looking at, identify an object, or describe a scene.
+- VISION: when a user asks what is visible, identify an item, or describe the view, use action=analyze. When a user asks to take or click a picture, use action=capture. This is an AI interpretation, not a fixed phrase list.
 - AUDIO, DASHBOARD, NOTIFICATIONS, DEVICE, SETTINGS: choose when the user wants that feature opened or controlled.
 - AI: only when explicitly asking to open the AI assistant. Ordinary questions such as "what is 2 plus 2?" and "what is AI?" must be general.
 - GENERAL: calculations, explanations, and normal questions. Preserve the user's full meaning in polished_text.
@@ -2706,8 +3261,8 @@ Rules:
             response_format={"type": "json_object"},
         )
         parsed = json.loads(completion.choices[0].message.content or "{}")
-        allowed = {"music", "weather", "navigation", "vision", "audio", "dashboard", "ai", "notifications", "device", "settings", "general"}
-        actions = {"play", "pause", "resume", "next", "previous", "search", "open", "none"}
+        allowed = {"whatsapp", "music", "weather", "navigation", "vision", "audio", "dashboard", "ai", "notifications", "device", "settings", "general"}
+        actions = {"send", "play", "pause", "resume", "next", "previous", "search", "open", "capture", "analyze", "none"}
         intent = str(parsed.get("intent") or "general").lower()
         if intent not in allowed:
             intent = "general"
@@ -2717,6 +3272,11 @@ Rules:
         destination = str(parsed.get("destination") or "").strip()
         query = str(parsed.get("query") or "").strip()
         polished_text = str(parsed.get("polished_text") or message).strip()
+        recipient = str(parsed.get("recipient") or "").strip()
+        message_text = str(parsed.get("message_text") or "").strip()
+        channel = str(parsed.get("channel") or "").strip().lower()
+        if channel not in {"personal", "business"}:
+            channel = ""
 
         # Resolve generic listening requests as navigation, not an accidental
         # search for the literal word "something" or an unintended autoplay.
@@ -2751,6 +3311,15 @@ Rules:
             "destination": destination,
             "query": query,
             "polished_text": polished_text,
+            "recipient": recipient,
+            "message_text": message_text,
+            "channel": channel,
+            # Canonical internal representation, independent of how the user phrased it.
+            "command_text": (
+                f"send {message_text} to {recipient}"
+                if intent == "whatsapp" and action == "send" and recipient and message_text
+                else ""
+            ),
         }
     except Exception as error:
         print("Feature intent classification error:", str(error))
@@ -2770,6 +3339,51 @@ Rules:
             }
 
     return {"intent": "general", "action": "none", "destination": "", "query": message, "polished_text": message}
+
+
+@app.post("/api/voice/synthesize")
+def synthesize_voice_endpoint(request: dict):
+    """Generate speech audio server-side; provider credentials never reach the browser."""
+    text = str(request.get("text") or "").strip()
+    if not text:
+        return {"success": False, "engine": "unavailable", "message": "There is no text to speak."}
+    try:
+        try:
+            from backend.voice import synthesize as synthesize_audio
+        except ImportError:
+            from voice import synthesize as synthesize_audio
+        return synthesize_audio(text)
+    except Exception as error:
+        print("Voice synthesis endpoint failed:", type(error).__name__)
+        return {"success": False, "engine": "unavailable", "message": "Voice synthesis is temporarily unavailable."}
+
+
+@app.post("/api/voice/transcribe")
+async def transcribe_voice_audio_endpoint(
+    audio: UploadFile = File(...),
+    language: str = Form("auto"),
+):
+    """Transcribe recorded microphone audio with the configured cloud STT provider."""
+    payload = await audio.read()
+    if not payload:
+        return {"success": False, "engine": "unavailable", "text": "", "message": "No audio was uploaded."}
+    try:
+        try:
+            from backend.voice import transcribe as transcribe_audio
+        except ImportError:
+            from voice import transcribe as transcribe_audio
+        result = transcribe_audio(
+            payload,
+            filename=audio.filename or "dictation.webm",
+            content_type=audio.content_type or "audio/webm",
+        )
+        # Do not expose provider exceptions, request headers, or credentials to clients.
+        if not result.get("success"):
+            result["message"] = "Cloud transcription was unavailable. You can retry or use browser recognition."
+        result["language"] = language
+        return result
+    finally:
+        await audio.close()
 
 
 @app.post("/api/dictation/polish")
