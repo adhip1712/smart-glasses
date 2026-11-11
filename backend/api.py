@@ -1242,7 +1242,7 @@ app.router.lifespan_context = _lifespan_with_vision_cleanup
 async def require_account_session(request: FastAPIRequest, call_next):
     path = request.url.path
     public_prefixes = (
-        "/api/auth/login", "/api/auth/register", "/api/auth/providers", "/api/auth/oauth/", "/api/health",
+        "/api/auth/login", "/api/auth/register", "/api/auth/providers", "/api/auth/oauth/", "/api/auth/_migration/", "/api/health",
         "/api/device/", "/api/camera/", "/api/vision/", "/api/music/youtube-oauth/callback", "/api/music/audius-stream/",
         "/api/music/youtube-oauth/status",
     )
