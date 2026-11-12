@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { apiFetch, readJson } from '../services/api'
+import { APP_DIRECTORY, getStoredBirthday, saveBirthday, openApp } from '../services/universalApps'
 
 function Toggle({
   value,
@@ -155,6 +156,8 @@ export default function Settings({ onSignOut }: { onSignOut?: () => void } = {})
   // AI
   // =========================
 
+  const [birthday, setBirthday] = useState(getStoredBirthday)
+  const [birthdaySaved, setBirthdaySaved] = useState(false)
   const [aiProvider, setAiProvider] = useState('Groq')
   const [aiModel, setAiModel] = useState('Llama')
   const [aiTemp, setAiTemp] = useState(72)
@@ -292,6 +295,30 @@ export default function Settings({ onSignOut }: { onSignOut?: () => void } = {})
           System Configuration — SG-OS v2.4.1
         </div>
       </div>
+
+      <Section title="Personal Details & App Integrations">
+        <div className="space-y-2">
+          <label htmlFor="vn-birthday" className="block font-mono text-xs text-white/80">Birthday</label>
+          <p className="font-mono text-[10px] text-white/35">Saved on this browser for date questions and countdowns. Calendar account access requires a separate authorised connection.</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <input id="vn-birthday" type="date" value={birthday} onChange={event => { setBirthday(event.target.value); setBirthdaySaved(false) }} className="rounded-lg border border-cyan-400/20 bg-slate-950 px-3 py-2 font-mono text-xs text-cyan-100 outline-none" />
+            <button type="button" onClick={() => { saveBirthday(birthday); setBirthdaySaved(true) }} className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 font-mono text-xs text-cyan-200 hover:bg-cyan-400/20">Save birthday</button>
+            {birthdaySaved && <span role="status" className="font-mono text-xs text-emerald-300">Saved on this browser</span>}
+          </div>
+        </div>
+        <div className="border-t border-white/10 pt-4">
+          <p className="mb-3 font-mono text-xs text-white/80">Open apps without connecting private accounts</p>
+          <p className="mb-3 font-mono text-[10px] text-white/35">Universal links may open an installed app; otherwise the website opens. Reading private data or changing accounts needs separate permissions.</p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {APP_DIRECTORY.map(app => (
+              <button key={app.id} type="button" onClick={() => openApp(app)} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-left hover:bg-white/[0.07]">
+                <span><span className="block font-mono text-xs text-white/85">{app.name}</span><span className="mt-1 block font-mono text-[10px] text-white/35">{app.description}</span></span>
+                <span className="font-mono text-[10px] text-cyan-300">OPEN ↗</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </Section>
 
       {/* =========================
           AI CONFIGURATION
