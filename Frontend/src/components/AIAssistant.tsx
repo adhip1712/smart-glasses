@@ -9,6 +9,7 @@ import remarkGfm from "remark-gfm"
 import { apiFetch } from "../services/api"
 import { parseWhatsAppMessageIntent } from "../services/whatsappIntent"
 import { parseCallIntent } from "../services/callIntent"
+import { answerBirthdayQuestion, matchAppLaunchCommand, openApp } from "../services/universalApps"
 
 // =========================================================
 // BROWSER SPEECH RECOGNITION TYPES
@@ -1914,6 +1915,25 @@ const AIAssistant: React.FC<{
     const whatsappDraft = parseWhatsAppMessageIntent(message)
     if (whatsappDraft) {
       onWhatsAppDraft?.(whatsappDraft)
+      return
+    }
+
+    // Handle personal-date questions and simple app launches locally.
+    const birthdayAnswer = answerBirthdayQuestion(message)
+    if (birthdayAnswer) {
+      addLocalMessage(birthdayAnswer)
+      return
+    }
+    const appToOpen = matchAppLaunchCommand(message)
+    if (appToOpen) {
+      const appWindow = window.open('about:blank', '_blank')
+      try {
+        openApp(appToOpen, appWindow)
+        addLocalMessage('Opening ' + appToOpen.name + '. Your device may launch its installed app; otherwise its website will load.')
+      } catch {
+        if (appWindow && !appWindow.closed) appWindow.close()
+        addLocalMessage('I could not open ' + appToOpen.name + '. Check your browser pop-up settings.')
+      }
       return
     }
 
