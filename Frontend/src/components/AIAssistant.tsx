@@ -7,9 +7,8 @@ import React, {
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { apiFetch } from "../services/api"
-import { parseWhatsAppMessageIntent } from "../services/whatsappIntent"
 import { parseCallIntent } from "../services/callIntent"
-import { answerBirthdayQuestion, matchAppLaunchCommand, matchGmailConversationCommand, openApp, openGmailSearch } from "../services/universalApps"
+import { answerBirthdayQuestion, matchAppLaunchCommand, matchGmailConversationCommand, openApp, openGmailSearch, executeAppAction } from "../services/universalApps"
 
 // =========================================================
 // BROWSER SPEECH RECOGNITION TYPES
@@ -1912,12 +1911,6 @@ const AIAssistant: React.FC<{
       return
     }
 
-    const whatsappDraft = parseWhatsAppMessageIntent(message)
-    if (whatsappDraft) {
-      onWhatsAppDraft?.(whatsappDraft)
-      return
-    }
-
     // Open Gmail's own search UI in a new tab. This uses the user's
     // existing browser Google session and never reads inbox data in Visionary Nexus.
     const gmailSearch = matchGmailConversationCommand(message)
@@ -1956,8 +1949,15 @@ const AIAssistant: React.FC<{
     const isTabCommand = handleTabCommand(message)
     if (isTabCommand) return
 
-    // Start intent detection/polishing while conversation routing runs. These
-    // requests are independent, so awaiting them sequentially added avoidable latency.
+    // Reserve a tab before asynchronous AI planning for requests likely to
+    // require an external app. Close it again when the planner decides this is
+    // an ordinary question or an existing in-app action.
+    const appActionWindow = !navigationTab && /\\b(?:send|message|email|mail|write|compose|schedule|create|find|search|open|launch|book|add)\\b/i.test(message)
+      ? window.open('about:blank', '_blank')
+      : null
+
+    // AI plans the intent before ordinary chat fallback. This is semantic
+    // routing, not a growing collection of phrase-specific command patterns.
     const intentPromise = apiFetch(`/api/intent/classify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2029,34 +2029,56 @@ const AIAssistant: React.FC<{
     setMessages(previous => [...previous, userMessage])
     setInput("")
 
-    // Ask the AI to decide whether this message is a navigation action or
-    // ordinary conversation. Place mentions alone must not switch screens.
+    // Ask the AI to decide whether this is an app action, feature command,
+    // or ordinary conversation. App actions are executed before /api/ask.
+    let featureIntent: any = null
     try {
       const intentResponse = await intentPromise
-      if (intentResponse?.ok) {
-        const featureIntent = await intentResponse.json()
-        if (featureIntent?.intent === "navigation" && featureIntent.destination) {
-          onNavigate?.(String(featureIntent.destination), navigationTab)
-          return
-        }
-
-        // Reuse the intent-classification call to polish typed paragraphs and
-        // voice transcripts without adding another slow AI request. Never
-        // replace a long original with a suspiciously short result.
-        const polished = typeof featureIntent?.polished_text === "string"
-          ? featureIntent.polished_text.trim()
-          : ""
-        const isCommandIntent = featureIntent?.intent && featureIntent.intent !== "general"
-        const preservesLongInput = message.length < 160 || polished.length >= message.length * 0.72
-        if (!isCommandIntent && polished && preservesLongInput && polished !== message) {
-          message = polished
-          setMessages(previous => previous.map(item =>
-            item.id === userMessage.id ? { ...item, content: polished } : item
-          ))
-        }
-      }
+      if (intentResponse?.ok) featureIntent = await intentResponse.json()
     } catch (error) {
       console.warn("AI feature intent routing unavailable; using normal command handling.", error)
+    }
+
+    if (featureIntent?.intent === "navigation" && featureIntent.destination) {
+      onNavigate?.(String(featureIntent.destination), navigationTab)
+      return
+    }
+
+    if (featureIntent?.intent === "app_action") {
+      const result = executeAppAction({
+        destination: String(featureIntent.destination || ""),
+        action: String(featureIntent.action || "open"),
+        recipient: String(featureIntent.recipient || ""),
+        message_text: String(featureIntent.message_text || ""),
+        query: String(featureIntent.query || ""),
+      }, appActionWindow)
+      addLocalMessage(result.message)
+      return
+    }
+
+    if (featureIntent?.intent === "whatsapp") {
+      if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
+      onWhatsAppDraft?.({
+        recipient: String(featureIntent.recipient || ""),
+        message: String(featureIntent.message_text || ""),
+      })
+      return
+    }
+
+    if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
+
+    // Reuse the intent-classification call to polish typed paragraphs and
+    // voice transcripts without adding another slow AI request.
+    const polished = typeof featureIntent?.polished_text === "string"
+      ? featureIntent.polished_text.trim()
+      : ""
+    const isCommandIntent = featureIntent?.intent && featureIntent.intent !== "general"
+    const preservesLongInput = message.length < 160 || polished.length >= message.length * 0.72
+    if (!isCommandIntent && polished && preservesLongInput && polished !== message) {
+      message = polished
+      setMessages(previous => previous.map(item =>
+        item.id === userMessage.id ? { ...item, content: polished } : item
+      ))
     }
 
     // Keep existing handlers for explicit music/weather/device commands.
