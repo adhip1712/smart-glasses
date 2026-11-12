@@ -8,6 +8,30 @@ export interface AppEntry {
   capability: 'launch' | 'launch-and-existing-controls'
 }
 
+export type AppCapabilityProfile = {
+  /** Actions Visionary Nexus can complete without a new account integration. */
+  supportedActions: string[]
+  /** Actions that require a dedicated, user-authorised API connection. */
+  requiresConnection: string[]
+}
+
+/**
+ * Central capability registry. The AI chooses the app and action; this table
+ * decides whether the executor can perform it, needs authorisation, or must
+ * open the app and explain the limitation.
+ */
+export const APP_CAPABILITIES: Record<AppId, AppCapabilityProfile> = {
+  calendar: { supportedActions: ['open'], requiresConnection: ['create_event', 'find_event', 'update_event', 'delete_event'] },
+  gmail: { supportedActions: ['open', 'search', 'open_chat', 'find_conversation', 'compose_email'], requiresConnection: ['read_email', 'send_email', 'archive_email', 'delete_email'] },
+  youtube: { supportedActions: ['open'], requiresConnection: ['search_video', 'play_video', 'manage_playlist'] },
+  maps: { supportedActions: ['open'], requiresConnection: ['save_place', 'manage_saved_places'] },
+  whatsapp: { supportedActions: ['open'], requiresConnection: ['send_message', 'read_messages', 'search_contacts'] },
+  spotify: { supportedActions: ['open'], requiresConnection: ['play_music', 'manage_playlist'] },
+  outlook: { supportedActions: ['open'], requiresConnection: ['read_email', 'send_email', 'manage_calendar'] },
+  drive: { supportedActions: ['open'], requiresConnection: ['read_files', 'create_file', 'edit_file', 'share_file'] },
+  github: { supportedActions: ['open'], requiresConnection: ['read_repositories', 'create_issue', 'manage_pull_request'] },
+}
+
 export const APP_DIRECTORY: AppEntry[] = [
   { id: 'calendar', name: 'Google Calendar', description: 'Open calendar and events', url: 'https://calendar.google.com', capability: 'launch' },
   { id: 'gmail', name: 'Gmail', description: 'Open your inbox', url: 'https://www.gmail.com', capability: 'launch' },
@@ -179,6 +203,17 @@ export function executeAppAction(plan: AppActionPlan, reservedWindow?: Window | 
   }
 
   const action = (plan.action || 'open').toLowerCase()
+  const capability = APP_CAPABILITIES[app.id]
+  const actionSupported = capability.supportedActions.includes(action)
+  if (!actionSupported && capability.requiresConnection.includes(action)) {
+    if (reservedWindow && !reservedWindow.closed) reservedWindow.location.href = app.url
+    else window.open(app.url, '_blank', 'noopener,noreferrer')
+    return {
+      handled: true,
+      message: "I opened **" + app.name + "**. I can't " + action.replace(/_/g, ' ') + " from Visionary Nexus until you connect and authorise your " + app.name + " account. The required integration is not connected, so nothing was changed or sent."
+    }
+  }
+
   if (app.id === 'gmail' && action === 'compose_email') {
     const params = new URLSearchParams()
     if (plan.recipient) params.set('to', plan.recipient)
