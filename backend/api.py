@@ -3297,12 +3297,12 @@ def classify_feature_intent(request: dict):
                     "command_text": f"send {body} to {recipient}",
                 }
 
-    email_recipient = re.search(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}", message, flags=re.IGNORECASE)
-    email_action = bool(re.search(r"\\b(?:send|email|mail|write|compose)\\b", message, flags=re.IGNORECASE))
+    email_recipient = re.search(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", message, flags=re.IGNORECASE)
+    email_action = bool(re.search(r"\b(?:send|email|mail|write|compose)\b", message, flags=re.IGNORECASE))
     if email_recipient and email_action:
         before_recipient = message[:email_recipient.start()]
-        body_match = re.search(r"\\b(?:send|email|mail|write|compose)\\s+(.+?)\\s+(?:to|for)\\s*$", before_recipient, flags=re.IGNORECASE)
-        body = body_match.group(1).strip(" \\t\\r\\n,.:;!?") if body_match else ""
+        body_match = re.search(r"\b(?:send|email|mail|write|compose)\s+(.+?)\s+(?:to|for)\s*$", before_recipient, flags=re.IGNORECASE)
+        body = body_match.group(1).strip(" \t\r\n,.:;!?") if body_match else ""
         if body:
             return {
                 "intent": "app_action", "action": "compose_email", "destination": "gmail",
