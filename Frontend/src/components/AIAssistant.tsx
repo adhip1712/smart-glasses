@@ -9,7 +9,7 @@ import remarkGfm from "remark-gfm"
 import { apiFetch } from "../services/api"
 import { parseWhatsAppMessageIntent } from "../services/whatsappIntent"
 import { parseCallIntent } from "../services/callIntent"
-import { answerBirthdayQuestion, matchAppLaunchCommand, openApp } from "../services/universalApps"
+import { answerBirthdayQuestion, matchAppLaunchCommand, matchGmailConversationCommand, openApp, openGmailSearch } from "../services/universalApps"
 
 // =========================================================
 // BROWSER SPEECH RECOGNITION TYPES
@@ -1915,6 +1915,21 @@ const AIAssistant: React.FC<{
     const whatsappDraft = parseWhatsAppMessageIntent(message)
     if (whatsappDraft) {
       onWhatsAppDraft?.(whatsappDraft)
+      return
+    }
+
+    // Open Gmail's own search UI in a new tab. This uses the user's
+    // existing browser Google session and never reads inbox data in Visionary Nexus.
+    const gmailSearch = matchGmailConversationCommand(message)
+    if (gmailSearch) {
+      const gmailWindow = window.open('about:blank', '_blank')
+      try {
+        openGmailSearch(gmailSearch, gmailWindow)
+        addLocalMessage('Opening Gmail search for **' + gmailSearch.replace(/^from:\\((.*)\\)$/, '$1') + '** in a new tab. If you are signed in to Google in this browser, Gmail will use that session.')
+      } catch {
+        if (gmailWindow && !gmailWindow.closed) gmailWindow.close()
+        addLocalMessage('I could not open Gmail. Check your browser pop-up settings.')
+      }
       return
     }
 
