@@ -183,7 +183,8 @@ export function executeAppAction(plan: AppActionPlan, reservedWindow?: Window | 
     const params = new URLSearchParams()
     if (plan.recipient) params.set('to', plan.recipient)
     if (plan.message_text) params.set('body', plan.message_text)
-    const url = 'https://mail.google.com/mail/u/0/?view=cm&fs=1' + (params.size ? '&' + params.toString() : '')
+    const encoded = params.toString()
+    const url = 'https://mail.google.com/mail/u/0/?view=cm&fs=1' + (encoded ? '&' + encoded : '')
     if (reservedWindow && !reservedWindow.closed) reservedWindow.location.href = url
     else window.open(url, '_blank', 'noopener,noreferrer')
     return {
@@ -206,6 +207,6 @@ export function executeAppAction(plan: AppActionPlan, reservedWindow?: Window | 
   const actionLabel = action.replace(/_/g, ' ')
   return {
     handled: true,
-    message: "I opened **" + app.name + "**. I understood that you wanted to " + actionLabel + ", but that action is not currently supported through this app connection. You can use the app directly; if it requires private account access, Visionary Nexus will need an authorised integration first."
+    message: "I opened **" + app.name + "**. I understood that you wanted to " + actionLabel + ", but I can't complete that action inside Visionary Nexus yet because the " + app.name + " integration is not connected. You can continue manually in the app. To let Visionary Nexus perform it directly, an authorised " + app.name + " integration must be added and connected in Settings."
   }
 }
