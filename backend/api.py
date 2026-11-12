@@ -1,4 +1,4 @@
-﻿# =========================================================
+# =========================================================
 # VISIONARY NEXUS - BACKEND API
 # =========================================================
 
@@ -3581,7 +3581,7 @@ def ask(
                 first_forecast = forecast[0] if forecast else {}
                 response = (
                     f"Weather forecast for {result.get('location', city)}: "
-                    f"{result.get('condition', 'Unknown')} with a high of {first_forecast.get('max_c', result.get('temperature_c', 'unknown'))}Â°C."
+                    f"{result.get('condition', 'Unknown')} with a high of {first_forecast.get('max_c', result.get('temperature_c', 'unknown'))}°C."
                     if forecast
                     else f"Forecast for {city} is not available right now."
                 )
@@ -3592,8 +3592,8 @@ def ask(
         result = weather_service.get_current(city)
         if result.get("success"):
             response = (
-                f"Weather in {result.get('location', city)}: {result.get('condition', 'Unknown')} at {result.get('temperature_c', 'unknown')}Â°C. "
-                f"Feels like {result.get('feels_like_c', 'unknown')}Â°C with {result.get('humidity', 'unknown')}% humidity."
+                f"Weather in {result.get('location', city)}: {result.get('condition', 'Unknown')} at {result.get('temperature_c', 'unknown')}°C. "
+                f"Feels like {result.get('feels_like_c', 'unknown')}°C with {result.get('humidity', 'unknown')}% humidity."
             )
         else:
             response = result.get("message", "I couldn't get the weather for that location.")
