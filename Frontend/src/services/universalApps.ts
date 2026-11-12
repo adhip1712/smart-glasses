@@ -9,8 +9,8 @@ export interface AppEntry {
 }
 
 export const APP_DIRECTORY: AppEntry[] = [
-  { id: 'calendar', name: 'Google Calendar', description: 'Open calendar and events', url: 'https://calendar.google.com/calendar/u/0/r', capability: 'launch' },
-  { id: 'gmail', name: 'Gmail', description: 'Open your inbox', url: 'https://mail.google.com/mail/u/0/#inbox', capability: 'launch' },
+  { id: 'calendar', name: 'Google Calendar', description: 'Open calendar and events', url: 'https://calendar.google.com', capability: 'launch' },
+  { id: 'gmail', name: 'Gmail', description: 'Open your inbox', url: 'https://www.gmail.com', capability: 'launch' },
   { id: 'youtube', name: 'YouTube', description: 'Open videos and playlists', url: 'https://www.youtube.com', capability: 'launch-and-existing-controls' },
   { id: 'maps', name: 'Google Maps', description: 'Open maps and places', url: 'https://maps.google.com', capability: 'launch-and-existing-controls' },
   { id: 'whatsapp', name: 'WhatsApp', description: 'Open your chats', url: 'https://web.whatsapp.com', capability: 'launch-and-existing-controls' },
@@ -75,7 +75,7 @@ export function matchAppLaunchCommand(message: string): AppEntry | null {
     .replace(/^(?:please |can you |could you )+/, '')
   const match = normalized.match(/^(?:open|launch|start|go to|switch to) (?:the )?(?:my )?(.+?)(?: app| website)?$/)
   if (!match) return null
-  const target = match[1].trim()
+  const target = match[1].trim().replace(/\\/$/, '')
   const aliases: Record<AppId, string[]> = {
     calendar: ['calendar', 'google calendar', 'my calendar'],
     gmail: ['gmail', 'email', 'inbox'],
@@ -87,7 +87,14 @@ export function matchAppLaunchCommand(message: string): AppEntry | null {
     drive: ['drive', 'google drive'],
     github: ['github'],
   }
-  return APP_DIRECTORY.find(app => aliases[app.id].includes(target)) || null
+  const knownApp = APP_DIRECTORY.find(app => aliases[app.id].includes(target) || app.url.replace(/^https?:\\/\\//, '').replace(/\\/$/, '') === target)
+  if (knownApp) return knownApp
+  // Support direct website commands such as "open www.gmail.com" or "go to example.com".
+  const domain = target.replace(/^https?:\\/\\//, '').split('/')[0]
+  if (/^(?:www\\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i.test(domain)) {
+    return { id: 'github', name: domain, description: 'Website', url: 'https://' + target.replace(/^https?:\\/\\//, ''), capability: 'launch' }
+  }
+  return null
 }
 
 export function openApp(entry: AppEntry, reservedWindow?: Window | null): void {
