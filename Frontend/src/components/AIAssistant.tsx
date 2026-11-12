@@ -6,6 +6,7 @@ import React, {
 
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import { apiFetch } from "../services/api"
 
 // =========================================================
 // BROWSER SPEECH RECOGNITION TYPES
@@ -76,13 +77,6 @@ type NavigationResult = {
 // =========================================================
 // API
 // =========================================================
-
-// Relative by default: the Vite dev/preview server proxies /api to the
-// backend (see vite.config.ts), which also keeps the app usable when the
-// browser is not running inside the sandbox.
-const API_URL =
-  (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_API_URL ??
-  ""
 
 // =========================================================
 // COMPONENT
@@ -279,8 +273,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
     try {
       setTabsLoading(true)
 
-      const response = await fetch(
-        `${API_URL}/api/conversations`
+      const response = await apiFetch(
+        `/api/conversations`
       )
 
       if (!response.ok) {
@@ -348,8 +342,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
 
   const createNewTab = async () => {
     try {
-      const response = await fetch(
-        `${API_URL}/api/conversations`,
+      const response = await apiFetch(
+        `/api/conversations`,
         {
           method: "POST",
           headers: {
@@ -418,8 +412,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
     conversationId: number
   ) => {
     try {
-      const response = await fetch(
-        `${API_URL}/api/conversations/${conversationId}/messages`
+      const response = await apiFetch(
+        `/api/conversations/${conversationId}/messages`
       )
 
       if (!response.ok) {
@@ -491,8 +485,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
     conversationId: number
   ) => {
     try {
-      const response = await fetch(
-        `${API_URL}/api/conversations/${conversationId}`,
+      const response = await apiFetch(
+        `/api/conversations/${conversationId}`,
         {
           method: "DELETE",
         }
@@ -1011,7 +1005,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
 
   const checkYoutubeConfig = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/music/config`)
+      const response = await apiFetch(`/api/music/config`)
       const data = await response.json()
 
       if (!response.ok || !data.success || !data.configured) {
@@ -1080,8 +1074,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
   const searchMusic = async (
     query: string
   ): Promise<MusicSearchResult> => {
-    const response = await fetch(
-      `${API_URL}/api/music/search`,
+    const response = await apiFetch(
+      `/api/music/search`,
       {
         method: "POST",
         headers: {
@@ -1573,8 +1567,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
     setIsThinking(true)
 
     try {
-      const response = await fetch(
-        `${API_URL}/api/navigation/route`,
+      const response = await apiFetch(
+        `/api/navigation/route`,
         {
           method: "POST",
           headers: {
@@ -1631,8 +1625,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
     setIsThinking(true)
 
     try {
-      const response = await fetch(
-        `${API_URL}/api/weather/${encodeURIComponent(
+      const response = await apiFetch(
+        `/api/weather/${encodeURIComponent(
           city
         )}`
       )
@@ -1903,7 +1897,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
 
     // Start intent detection/polishing while conversation routing runs. These
     // requests are independent, so awaiting them sequentially added avoidable latency.
-    const intentPromise = fetch(`${API_URL}/api/intent/classify`, {
+    const intentPromise = apiFetch(`/api/intent/classify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message }),
@@ -1926,7 +1920,7 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
 
     if (conversationId !== null) {
       try {
-        const routeResponse = await fetch(`${API_URL}/api/conversations/route`, {
+        const routeResponse = await apiFetch(`/api/conversations/route`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -2015,8 +2009,8 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
     setIsThinking(true)
 
     try {
-      const response = await fetch(
-        `${API_URL}/api/ask`,
+      const response = await apiFetch(
+        `/api/ask`,
         {
           method: "POST",
           headers: {
