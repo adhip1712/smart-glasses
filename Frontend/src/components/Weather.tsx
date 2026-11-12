@@ -24,6 +24,65 @@ interface RecentLocation {
   created_at: string
 }
 
+async function getDirectOpenMeteoWeather(city: string): Promise<WeatherResult> {
+  const geoUrl = 'https://geocoding-api.open-meteo.com/v1/search?' + new URLSearchParams({
+    name: city, count: '1', language: 'en', format: 'json',
+  }).toString()
+  const geoResponse = await fetch(geoUrl)
+  if (!geoResponse.ok) throw new Error('Weather location lookup failed (HTTP ' + geoResponse.status + ').')
+  const geoData = await geoResponse.json() as { results?: { name?: string; admin1?: string; country?: string; latitude: number; longitude: number }[] }
+  const place = geoData.results?.[0]
+  if (!place) throw new Error('Could not find weather for "' + city + '".')
+
+  const forecastUrl = 'https://api.open-meteo.com/v1/forecast?' + new URLSearchParams({
+    latitude: String(place.latitude),
+    longitude: String(place.longitude),
+    current: 'temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code',
+    daily: 'weather_code,temperature_2m_max,temperature_2m_min',
+    timezone: 'auto',
+    forecast_days: '7',
+  }).toString()
+  const weatherResponse = await fetch(forecastUrl)
+  if (!weatherResponse.ok) throw new Error('Weather provider failed (HTTP ' + weatherResponse.status + ').')
+  const weatherData = await weatherResponse.json() as {
+    current?: { temperature_2m?: number; apparent_temperature?: number; relative_humidity_2m?: number; wind_speed_10m?: number; weather_code?: number; time?: string }
+    daily?: { time?: string[]; weather_code?: number[]; temperature_2m_max?: number[]; temperature_2m_min?: number[] }
+  }
+  const current = weatherData.current || {}
+  const daily = weatherData.daily || {}
+  const describe = (code: number) => ({
+    0: 'Clear sky', 1: 'Mostly clear', 2: 'Partly cloudy', 3: 'Overcast',
+    45: 'Foggy', 48: 'Rime fog', 51: 'Light drizzle', 53: 'Drizzle', 55: 'Dense drizzle',
+    61: 'Light rain', 63: 'Moderate rain', 65: 'Heavy rain', 71: 'Light snow', 73: 'Snow',
+    75: 'Heavy snow', 80: 'Rain showers', 81: 'Heavy rain showers', 82: 'Violent rain showers',
+    95: 'Thunderstorm', 96: 'Thunderstorm with hail', 99: 'Severe thunderstorm',
+  } as Record<number, string>)[code] || 'Unknown'
+  const dates = daily.time || []
+  const highs = daily.temperature_2m_max || []
+  const lows = daily.temperature_2m_min || []
+  const codes = daily.weather_code || []
+
+  return {
+    success: true,
+    location: place.name || city,
+    region: place.admin1 || '',
+    country: place.country || '',
+    temperature_c: current.temperature_2m,
+    feels_like_c: current.apparent_temperature,
+    humidity: current.relative_humidity_2m,
+    wind_kph: current.wind_speed_10m,
+    condition: describe(current.weather_code ?? -1),
+    last_updated: current.time,
+    source: 'Open-Meteo direct fallback',
+    forecast: dates.map((date, index) => ({
+      date,
+      condition: describe(codes[index] ?? -1),
+      temperature_c: highs[index] != null && lows[index] != null ? (highs[index] + lows[index]) / 2 : undefined,
+      max_c: highs[index],
+    })),
+  }
+}
+
 export default function Weather() {
   const [city, setCity] = useState('')
   const [activeCity, setActiveCity] = useState('Bengaluru')
@@ -42,18 +101,26 @@ export default function Weather() {
     setBusy(true)
     setStatus('')
     try {
-      const response = await apiFetch(`/api/weather/${encodeURIComponent(target)}`)
-      const data = await readJson<WeatherResult>(response)
-      if (response.ok && data && data.success !== false) {
+      let data: WeatherResult | null = null
+      try {
+        const response = await apiFetch('/api/weather/' + encodeURIComponent(target))
+        const payload = await readJson<WeatherResult>(response)
+        if (response.ok && payload?.success !== false) data = payload
+      } catch {
+        // Browser-side fallback avoids depending on backend outbound weather access.
+      }
+      if (!data) data = await getDirectOpenMeteoWeather(target)
+      if (data && data.success !== false) {
         setCurrent(data)
         setActiveCity(data.location || target)
       } else {
         setCurrent(null)
-        setStatus(data?.message || (response.status === 401 ? 'Weather service needs a fresh sign-in. Please sign in again.' : 'Weather for ' + target + ' is unavailable (HTTP ' + response.status + ').'))
+        setStatus(data?.message || 'Weather for ' + target + ' is unavailable.')
       }
       void loadRecent()
     } catch (error) {
-      setStatus(`Weather request failed: ${error instanceof Error ? error.message : 'unknown error'}`)
+      setCurrent(null)
+      setStatus(error instanceof Error ? error.message : 'Weather request failed. Please retry.')
     } finally {
       setBusy(false)
     }
