@@ -56,7 +56,7 @@ export function getNextBirthday(value: string, now = new Date()): Date | null {
 
 export function answerBirthdayQuestion(message: string, now = new Date()): string | null {
   const normalized = message.toLowerCase().replace(/[’']/g, '').replace(/[?!.,]/g, ' ').replace(/\s+/g, ' ').trim()
-  const asksDate = /^(?:when is|when s|whats|what is) my birthday$/.test(normalized) ||
+  const asksDate = /^(?:when is|when s|whens|whats|what is) my birthday$/.test(normalized) ||
     /^(?:how many days until|days until|countdown to) my birthday$/.test(normalized)
   if (!asksDate) return null
   const saved = getStoredBirthday()
