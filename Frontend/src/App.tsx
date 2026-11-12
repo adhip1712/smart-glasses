@@ -118,17 +118,17 @@ export default function App() {
   const consumeWhatsAppDraft = useCallback(() => setPendingWhatsAppDraft(null), [])
   const [pendingCallRequest, setPendingCallRequest] = useState<{ recipient: string; channel: 'phone' | 'whatsapp' } | null>(null)
   const consumeCallRequest = useCallback(() => setPendingCallRequest(null), [])
-  const openMapForDestination = useCallback((destination: string) => {
+  const openMapForDestination = useCallback((destination: string, openedWindow?: Window | null) => {
     const place = destination.trim()
     if (!place) return
     const encoded = encodeURIComponent(place)
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
     const url = isIOS
-      ? 'https://maps.apple.com/?daddr=' + encoded
-      : 'https://www.google.com/maps/dir/?api=1&destination=' + encoded
-    const opened = window.open(url, '_blank', 'noopener,noreferrer')
-    if (!opened) window.location.assign(url)
+      ? 'https://maps.apple.com/?daddr=' + encoded + '&dirflg=d'
+      : 'https://www.google.com/maps/dir/?api=1&destination=' + encoded + '&travelmode=driving&dir_action=navigate'
+    if (openedWindow && !openedWindow.closed) openedWindow.location.href = url
+    else window.open(url, '_blank', 'noopener,noreferrer')
   }, [])
   const [status, setStatus] = useState<SystemStatus>({ backend: false, aiProvider: '\\u2014', glassesOnline: 0, wifiLabel: 'UNKNOWN' })
   const [authReady, setAuthReady] = useState(false)
@@ -461,7 +461,7 @@ export default function App() {
         <div className="page-content animate-slide-in vn-content">
           {activeTab === 'dashboard' && <SpatialDashboard setActiveTab={setActiveTab} displayName={displayName} backendOnline={status.backend} glassesOnline={status.glassesOnline} />}
           {activeTab === 'ai' && <AIAssistant
-            onNavigate={(destination) => { setNavigationDestination(destination); setActiveTab('nav'); openMapForDestination(destination) }}
+            onNavigate={(destination, openedWindow) => { setNavigationDestination(destination); setActiveTab('nav'); openMapForDestination(destination, openedWindow) }}
             onMusic={() => setActiveTab('music')}
             onWhatsAppDraft={(draft) => { setPendingWhatsAppDraft(draft); setActiveTab('whatsapp') }}
             onCallRequest={(request) => { setPendingCallRequest(request); setActiveTab('calling') }}

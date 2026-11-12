@@ -61,7 +61,13 @@ export default function Navigation({ initialDestination = '' }: { initialDestina
     void loadRecent()
   }, [loadRecent])
 
-  const calculateRoute = async (target: string) => {
+  const getExternalNavigationUrl = (target: string) => {
+    const encoded = encodeURIComponent(target.trim())
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    return isIOS ? 'https://maps.apple.com/?daddr=' + encoded + '&dirflg=d' : 'https://www.google.com/maps/dir/?api=1&destination=' + encoded + '&travelmode=driving&dir_action=navigate'
+  }
+
+  const calculateRoute = async (target: string, mapsTab: Window | null = null) => {
     if (!target.trim()) return
     setBusy(true)
     setStatus('')
@@ -77,6 +83,7 @@ export default function Navigation({ initialDestination = '' }: { initialDestina
       const data = await readJson<RouteResult>(response)
       if (data && data.success) {
         setRoute(data)
+        if (mapsTab && !mapsTab.closed) mapsTab.location.href = getExternalNavigationUrl(target)
       } else {
         setRoute(null)
         setStatus(data?.message || `No route was found for "${target}".`)
@@ -98,7 +105,9 @@ export default function Navigation({ initialDestination = '' }: { initialDestina
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
-    void calculateRoute(destination)
+    if (!destination.trim()) return
+    const mapsTab = window.open('about:blank', '_blank')
+    void calculateRoute(destination, mapsTab)
   }
 
   const isMock = route?.source === 'mock'
@@ -198,7 +207,7 @@ export default function Navigation({ initialDestination = '' }: { initialDestina
             {recent.map(item => (
               <button
                 key={`${item.query}-${item.created_at}`}
-                onClick={() => { setDestination(item.query); void calculateRoute(item.query) }}
+                onClick={() => { setDestination(item.query); const mapsTab = window.open('about:blank', '_blank'); void calculateRoute(item.query, mapsTab) }}
                 className="px-3 py-1.5 rounded-full border border-white/15 bg-white/5 text-xs text-white/70 hover:border-cyan-400/40 hover:text-cyan-200 transition-all"
               >
                 {item.query}

@@ -85,7 +85,7 @@ type NavigationResult = {
 // =========================================================
 
 const AIAssistant: React.FC<{
-  onNavigate?: (destination: string) => void
+  onNavigate?: (destination: string, openedWindow?: Window | null) => void
   onMusic?: () => void
   onWhatsAppDraft?: (draft: { recipient: string; message: string }) => void
   onCallRequest?: (request: { recipient: string; channel: 'phone' | 'whatsapp' }) => void
@@ -1898,6 +1898,11 @@ const AIAssistant: React.FC<{
       return
     }
 
+    // Reserve a browser tab synchronously for explicit navigation commands.
+    const navigationTab = /\b(navigate|navigation|directions|route|take me to|take me|go to|how do i get to|find directions to)\b/i.test(message)
+      ? window.open('about:blank', '_blank')
+      : null
+
     // Route contact actions before conversation creation or AI classification.
     // This keeps typed commands consistent with the voice command router.
     const callRequest = parseCallIntent(message)
@@ -1996,7 +2001,7 @@ const AIAssistant: React.FC<{
       if (intentResponse?.ok) {
         const featureIntent = await intentResponse.json()
         if (featureIntent?.intent === "navigation" && featureIntent.destination) {
-          onNavigate?.(String(featureIntent.destination))
+          onNavigate?.(String(featureIntent.destination), navigationTab)
           return
         }
 
