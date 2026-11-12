@@ -87,12 +87,12 @@ export function matchAppLaunchCommand(message: string): AppEntry | null {
     drive: ['drive', 'google drive'],
     github: ['github'],
   }
-  const knownApp = APP_DIRECTORY.find(app => aliases[app.id].includes(target) || app.url.replace(/^https?:\/\//, '').replace(/\\/$/, '') === target)
+  const knownApp = APP_DIRECTORY.find(app => aliases[app.id].includes(target) || app.url.replace(/^https?:\/\//, '').replace(/\/$/, '') === target)
   if (knownApp) return knownApp
   // Support direct website commands such as "open www.gmail.com" or "go to example.com".
-  const domain = target.replace(/^https?:\\/\\//, '').split('/')[0]
-  if (/^(?:www\\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i.test(domain)) {
-    return { id: 'github', name: domain, description: 'Website', url: 'https://' + target.replace(/^https?:\\/\\//, ''), capability: 'launch' }
+  const domain = target.replace(/^https?:\/\//, '').split('/')[0]
+  if (/^(?:www\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i.test(domain)) {
+    return { id: 'github', name: domain, description: 'Website', url: 'https://' + target.replace(/^https?:\/\//, ''), capability: 'launch' }
   }
   return null
 }
