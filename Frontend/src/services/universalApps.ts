@@ -110,7 +110,7 @@ export function openApp(entry: AppEntry, reservedWindow?: Window | null): void {
 export function matchGmailConversationCommand(message: string): string | null {
   const cleaned = message
     .replace(/[’']/g, "'")
-    .replace(/[?!.,]+/g, " ")
+    .replace(/[?!,]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
 
@@ -123,7 +123,7 @@ export function matchGmailConversationCommand(message: string): string | null {
 
   for (const { pattern, prefix = "" } of patterns) {
     const match = cleaned.match(pattern)
-    const person = match?.[1]?.trim().replace(/[.?!]+$/, "")
+    const person = match?.[1]?.trim().replace(/[?!,]+$/, "")
     if (person) return prefix ? `${prefix}${person})` : person
   }
   return null
