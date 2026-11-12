@@ -139,3 +139,73 @@ export function openGmailSearch(query: string, reservedWindow?: Window | null): 
     window.open(url, "_blank", "noopener,noreferrer")
   }
 }
+
+
+export type AppActionPlan = {
+  destination: string
+  action: string
+  recipient?: string
+  message_text?: string
+  query?: string
+  details?: string
+}
+
+export type AppActionExecution = {
+  handled: boolean
+  message: string
+}
+
+/**
+ * Execute only capabilities that Visionary Nexus can safely perform in the
+ * user's existing browser session. Unsupported tasks still open the intended
+ * app and explain the missing capability instead of falling back to chat.
+ */
+export function executeAppAction(plan: AppActionPlan, reservedWindow?: Window | null): AppActionExecution {
+  const target = (plan.destination || '').toLowerCase()
+  const aliases: Record<string, AppId> = {
+    gmail: 'gmail', email: 'gmail', mail: 'gmail', 'google mail': 'gmail',
+    outlook: 'outlook', 'microsoft outlook': 'outlook',
+    whatsapp: 'whatsapp', 'whatsapp business': 'whatsapp',
+    calendar: 'calendar', 'google calendar': 'calendar',
+    youtube: 'youtube', 'you tube': 'youtube',
+    maps: 'maps', 'google maps': 'maps',
+    spotify: 'spotify', drive: 'drive', 'google drive': 'drive', github: 'github',
+  }
+  const appId = aliases[target]
+  const app = APP_DIRECTORY.find(item => item.id === appId)
+  if (!app) {
+    if (reservedWindow && !reservedWindow.closed) reservedWindow.close()
+    return { handled: true, message: "I understood that you want me to use " + (plan.destination || "an app") + ", but I don't have a verified destination for it yet. No action was taken." }
+  }
+
+  const action = (plan.action || 'open').toLowerCase()
+  if (app.id === 'gmail' && action === 'compose_email') {
+    const params = new URLSearchParams()
+    if (plan.recipient) params.set('to', plan.recipient)
+    if (plan.message_text) params.set('body', plan.message_text)
+    const url = 'https://mail.google.com/mail/u/0/?view=cm&fs=1' + (params.size ? '&' + params.toString() : '')
+    if (reservedWindow && !reservedWindow.closed) reservedWindow.location.href = url
+    else window.open(url, '_blank', 'noopener,noreferrer')
+    return {
+      handled: true,
+      message: "I opened a new Gmail draft" + (plan.recipient ? " addressed to **" + plan.recipient + "**" : "") + (plan.message_text ? " with your message filled in" : "") + ". Review it and press Send yourself. I haven't sent anything."
+    }
+  }
+
+  if (app.id === 'gmail' && (action === 'search' || action === 'open_chat' || action === 'find_conversation')) {
+    const query = (action === 'open_chat' ? 'in:chats ' : '') + (plan.query || plan.recipient || '')
+    const url = 'https://mail.google.com/mail/u/0/#search/' + encodeURIComponent(query)
+    if (reservedWindow && !reservedWindow.closed) reservedWindow.location.href = url
+    else window.open(url, '_blank', 'noopener,noreferrer')
+    return { handled: true, message: "I opened Gmail with your requested search. Gmail will use your existing browser sign-in; Visionary Nexus does not read your private messages." }
+  }
+
+  if (reservedWindow && !reservedWindow.closed) reservedWindow.location.href = app.url
+  else window.open(app.url, '_blank', 'noopener,noreferrer')
+
+  const actionLabel = action.replace(/_/g, ' ')
+  return {
+    handled: true,
+    message: "I opened **" + app.name + "**. I understood that you wanted to " + actionLabel + ", but that action is not currently supported through this app connection. You can use the app directly; if it requires private account access, Visionary Nexus will need an authorised integration first."
+  }
+}
