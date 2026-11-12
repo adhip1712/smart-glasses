@@ -1,0 +1,670 @@
+﻿:root{color-scheme:dark}
+html,body,#root{width:100%;min-height:100%;margin:0;background:#050505!important}
+body{overflow-x:hidden!important}
+#root{min-height:100vh}
+.vn-content,.page-content{width:100%!important;max-width:none!important;min-width:0!important;min-height:calc(100vh - 28px)!important;height:auto!important;overflow:visible!important;padding:28px 30px 34px!important;box-sizing:border-box!important}
+.vn-content>*{width:100%;max-width:1440px;margin-left:auto!important;margin-right:auto!important}
+.vn-ai-figma-layout{display:grid!important;grid-template-columns:minmax(0,1fr) 300px!important;gap:24px!important;align-items:stretch!important;width:100%!important;max-width:1440px!important;margin:0 auto!important}
+.vn-ai-figma-layout>.assistant-panel{min-width:0!important;min-height:calc(100vh - 100px)!important;height:auto!important;max-height:none!important;overflow:visible!important;padding:28px!important;border:1px solid rgba(225,230,235,.19)!important;border-radius:30px!important;background:radial-gradient(ellipse at 50% 40%,rgba(255,255,255,.09),transparent 42%),linear-gradient(150deg,#202020,#101010 55%,#080808)!important;box-shadow:0 30px 90px #000b,inset 0 1px #ffffff20!important}
+.vn-ai-figma-layout .vn-ai-header{background:transparent!important;background-image:none!important;border-bottom:1px solid #ffffff20!important;padding:0 0 20px!important;min-height:70px!important}
+.vn-ai-figma-layout .vn-ai-header *{color:#f2f2f2!important}
+.vn-ai-figma-layout .vn-ai-tabs{padding:16px 0!important}
+.vn-ai-figma-layout .vn-ai-tabs button{background:linear-gradient(145deg,#252525,#111)!important;color:#eee!important;border:1px solid #ffffff24!important;box-shadow:0 8px 20px #0008!important}
+.vn-ai-figma-layout .vn-ai-messages{min-height:350px!important;max-height:none!important;overflow-y:auto!important;padding:24px 18px!important}
+.vn-ai-figma-layout .assistant-intro{min-height:310px!important;justify-content:center!important}
+.vn-ai-figma-layout .vn-ai-welcome-orb{width:250px!important;height:250px!important;margin:0 auto 18px!important}
+.vn-ai-figma-layout .vn-ai-welcome-orb img,.vn-ai-figma-layout .vn-ai-context-orb img{display:block!important;width:100%!important;height:100%!important;object-fit:contain!important}
+.vn-ai-figma-layout .vn-ai-composer{margin-top:16px!important;padding:16px!important;border:1px solid #ffffff25!important;border-radius:24px!important;background:linear-gradient(145deg,#202020,#0b0b0b)!important;box-shadow:0 18px 42px #0009,inset 0 1px #ffffff12!important}
+.vn-ai-figma-layout .vn-ai-composer textarea,.vn-ai-figma-layout .vn-ai-composer input{background:#111!important;color:#fff!important;border:1px solid #ffffff20!important;border-radius:12px!important}
+.vn-ai-figma-layout>.vn-ai-context{display:flex!important;flex-direction:column!important;gap:16px!important;min-width:0!important}
+.vn-ai-figma-layout .vn-ai-context .context-card{padding:20px!important;border:1px solid #ffffff20!important;border-radius:24px!important;background:linear-gradient(145deg,#202020,#0a0a0a)!important;box-shadow:0 20px 50px #0009,inset 0 1px #ffffff10!important}
+.vn-ai-figma-layout .vn-ai-context-orb{height:170px!important;display:grid!important;place-items:center!important}
+.vn-ai-figma-layout .vn-ai-context-orb img{max-width:100%!important;filter:drop-shadow(0 18px 30px #fff2)!important}
+.vn-figma-vision{width:100%!important;max-width:1440px!important;margin:0 auto!important;min-height:calc(100vh - 90px)!important}
+.vn-figma-vision>.panel-toolbar{background:transparent!important;border:0!important;border-bottom:1px solid #ffffff20!important}
+.vn-figma-vision>.vision-layout{display:grid!important;grid-template-columns:minmax(0,1.8fr) minmax(300px,.85fr)!important;gap:22px!important;align-items:start!important}
+.vn-figma-vision .camera-panel{min-width:0!important;padding:20px!important;border:1px solid #ffffff20!important;border-radius:26px!important;background:linear-gradient(145deg,#202020,#090909)!important;box-shadow:0 24px 60px #0009!important}
+.vn-figma-vision .camera-scene{width:100%!important;min-height:0!important;height:auto!important;aspect-ratio:16/10!important;border-radius:20px!important;overflow:hidden!important;background:#080808!important}
+.vn-figma-vision .context-column{display:flex!important;flex-direction:column!important;gap:16px!important}
+.vn-figma-vision .context-column>.glass{padding:20px!important;border:1px solid #ffffff20!important;border-radius:22px!important;background:linear-gradient(145deg,#202020,#0a0a0a)!important;box-shadow:0 18px 44px #0008!important}
+.vn-figma-vision .camera-actions button{border-radius:14px!important}
+.vn-spotify-page{width:100%!important;max-width:1440px!important;margin:0 auto!important}
+.vn-spotify-content.music-layout{display:grid!important;grid-template-columns:1fr!important;gap:20px!important;min-height:calc(100vh - 90px)!important}
+.vn-spotify-content>header{grid-column:1/-1!important;background:transparent!important;border-bottom:1px solid #ffffff20!important;padding:8px 4px 20px!important}
+.vn-spotify-content>section{grid-column:1/-1!important;display:grid!important;grid-template-columns:minmax(0,1.35fr) minmax(320px,.85fr)!important;gap:22px!important}
+.vn-spotify-page .music-player,.vn-spotify-page .music-library,.vn-spotify-page .search-results{border:1px solid #ffffff20!important;border-radius:26px!important;background:linear-gradient(145deg,#202020,#090909)!important;box-shadow:0 24px 60px #0009,inset 0 1px #ffffff10!important}
+.vn-spotify-page .music-player{min-height:560px!important;padding:30px!important}
+.vn-spotify-page .music-library{min-height:560px!important;padding:26px!important}
+.vn-spotify-page button{border-radius:14px!important}
+.vn-spotify-page button[class*="bg-"],.vn-spotify-page [class*="1ed760"]{filter:grayscale(1)!important}
+@media(max-width:1050px){.vn-ai-figma-layout{grid-template-columns:1fr!important}.vn-ai-figma-layout>.vn-ai-context{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important}.vn-figma-vision>.vision-layout,.vn-spotify-content>section{grid-template-columns:1fr!important}}
+@media(max-width:700px){.vn-content,.page-content{padding:16px!important}.vn-ai-figma-layout>.vn-ai-context{grid-template-columns:1fr!important}.vn-ai-figma-layout>.assistant-panel{padding:18px!important}.vn-spotify-page .music-player,.vn-spotify-page .music-library{min-height:0!important;padding:18px!important}}
+:root{--primary:#fff!important;--accent:#fff!important;--accent-color:#fff!important;--brand:#fff!important;--blue:#fff!important;--cyan:#fff!important;--indigo:#fff!important}
+html,body,#root,.app,.app-shell,.main-content,.content-area{background:#050505!important;color:#f5f5f5!important}
+.vn-ai-figma-layout .vn-ai-header,.vn-ai-figma-layout .vn-ai-header *{background-color:transparent!important;background-image:none!important;color:#f5f5f5!important}
+.vn-ai-figma-layout button,.vn-figma-vision button,.vn-spotify-page button,[role=button]{filter:grayscale(1)!important}
+.vn-ai-figma-layout .vn-ai-tabs button,.vn-ai-figma-layout .vn-ai-composer button,.vn-figma-vision .camera-actions button{background:linear-gradient(145deg,#303030,#111)!important;color:#fff!important;border-color:#ffffff35!important}
+.vn-ai-figma-layout .vn-ai-context .context-card,.vn-ai-figma-layout>.assistant-panel,.vn-figma-vision .camera-panel,.vn-figma-vision .context-column>.glass,.vn-spotify-page .music-player,.vn-spotify-page .music-library,.vn-spotify-page .search-results{background:linear-gradient(145deg,#202020,#090909)!important;color:#f5f5f5!important}
+.vn-ai-figma-layout .vn-ai-context .context-card *,.vn-ai-figma-layout>.assistant-panel *,.vn-figma-vision .camera-panel *,.vn-figma-vision .context-column *,.vn-spotify-page .music-player *,.vn-spotify-page .music-library *{border-color:rgba(255,255,255,.18)}
+.vn-ai-figma-layout .vn-ai-context-orb img,.vn-ai-figma-layout .vn-ai-welcome-orb img{display:block!important;object-fit:contain!important}
+/* Final targeted neutralization of remaining blue AI-chat controls and bubbles. */
+.vn-ai-figma-layout .vn-ai-header button,
+.vn-ai-figma-layout .vn-ai-header button *,
+.vn-ai-figma-layout .vn-ai-context-action,
+.vn-ai-figma-layout .vn-ai-context-action *,
+.vn-ai-figma-layout .vn-ai-tabs button,
+.vn-ai-figma-layout .vn-ai-tabs button *,
+.vn-ai-figma-layout .vn-ai-tabs>div>div,
+.vn-ai-figma-layout .vn-ai-tabs>div>div button,
+.vn-ai-figma-layout .vn-ai-tabs>div>div button *,
+.vn-ai-figma-layout .vn-ai-composer button{
+  background-color:#242424!important;
+  background-image:linear-gradient(145deg,#303030,#141414)!important;
+  color:#f5f5f5!important;
+  border-color:rgba(255,255,255,.22)!important;
+  box-shadow:0 5px 16px rgba(0,0,0,.38),inset 0 1px rgba(255,255,255,.08)!important;
+  filter:none!important;
+}
+.vn-ai-figma-layout .vn-ai-tabs>div>div{
+  border:1px solid rgba(255,255,255,.2)!important;
+  border-radius:14px!important;
+}
+.vn-ai-figma-layout .vn-ai-tabs button[title="Delete this chat"]{
+  background:#171717!important;
+  color:#d8d8d8!important;
+  border:0!important;
+  box-shadow:none!important;
+}
+.vn-ai-figma-layout .vn-ai-tabs button[title="Delete this chat"]:hover{
+  background:#3a2020!important;color:#fff!important;
+}
+.vn-ai-figma-layout .vn-ai-messages .space-y-5>div>div{
+  background:#1b1b1b!important;
+  background-image:linear-gradient(145deg,#242424,#151515)!important;
+  color:#f4f4f4!important;
+  border:1px solid rgba(255,255,255,.16)!important;
+  box-shadow:0 10px 26px rgba(0,0,0,.3)!important;
+}
+.vn-ai-figma-layout .vn-ai-messages .space-y-5>div>div *{
+  color:inherit;
+}
+.vn-ai-figma-layout .vn-ai-messages .space-y-5>div>div .ai-markdown,
+.vn-ai-figma-layout .vn-ai-messages .space-y-5>div>div .ai-markdown p,
+.vn-ai-figma-layout .vn-ai-messages .space-y-5>div>div .ai-markdown li{
+  color:#f2f2f2!important;
+}
+.vn-ai-figma-layout .vn-ai-messages .space-y-5>div>div .ai-markdown a{
+  color:#fff!important;text-decoration:underline;
+}
+.vn-ai-figma-layout .vn-ai-messages .space-y-5>div>div .ai-markdown code,
+.vn-ai-figma-layout .vn-ai-messages .space-y-5>div>div .ai-markdown pre{
+  background:#090909!important;color:#fff!important;border-color:#444!important;
+}
+.vn-ai-figma-layout .vn-ai-header button:hover,
+.vn-ai-figma-layout .vn-ai-tabs button:hover,
+.vn-ai-figma-layout .vn-ai-context-action:hover{
+  background-color:#3a3a3a!important;
+  background-image:linear-gradient(145deg,#3a3a3a,#1b1b1b)!important;
+}
+.vn-ai-figma-layout .vn-ai-header button:focus-visible,
+.vn-ai-figma-layout .vn-ai-tabs button:focus-visible{
+  outline:2px solid #aaa!important;outline-offset:2px!important;
+}
+.vn-ai-figma-layout .vn-music-status{background:linear-gradient(145deg,#252525,#101010)!important;background-color:#181818!important;border:1px solid rgba(255,255,255,.22)!important;color:#fff!important;box-shadow:0 10px 24px #0008,inset 0 1px #ffffff12!important}
+.vn-ai-figma-layout .vn-music-status *{color:#f5f5f5!important}
+.vn-ai-figma-layout .vn-music-status .vn-check-youtube{background:linear-gradient(145deg,#353535,#171717)!important;background-color:#222!important;color:#fff!important;border:1px solid rgba(255,255,255,.28)!important;box-shadow:0 5px 14px #0008!important}
+.vn-ai-figma-layout .vn-music-status .vn-check-youtube:hover{background:#444!important}
+.vn-ai-figma-layout .vn-chat-bubble{background:linear-gradient(145deg,#242424,#111)!important;background-color:#181818!important;color:#fff!important;border:1px solid rgba(255,255,255,.2)!important;box-shadow:0 10px 28px #0008!important}
+.vn-ai-figma-layout .vn-chat-bubble *,.vn-ai-figma-layout .vn-chat-bubble .ai-markdown,.vn-ai-figma-layout .vn-chat-bubble .ai-markdown p,.vn-ai-figma-layout .vn-chat-bubble .ai-markdown span,.vn-ai-figma-layout .vn-chat-bubble .ai-markdown strong,.vn-ai-figma-layout .vn-chat-bubble .ai-markdown li,.vn-ai-figma-layout .vn-chat-bubble .ai-markdown h1,.vn-ai-figma-layout .vn-chat-bubble .ai-markdown h2,.vn-ai-figma-layout .vn-chat-bubble .ai-markdown h3{color:#f5f5f5!important}
+/* Hard override: white UI surfaces, black text, no blue gradients in AI header/chat. */
+.vn-ai-figma-layout .assistant-panel .panel-toolbar,
+.vn-ai-figma-layout .assistant-panel .panel-toolbar *,
+.vn-ai-figma-layout .assistant-panel .vn-ai-header{
+  background:#080808!important;
+  background-image:none!important;
+  color:#f5f5f5!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-music-status{
+  background:#f1f1f1!important;
+  background-image:none!important;
+  border:1px solid #fff!important;
+  color:#080808!important;
+  box-shadow:0 8px 22px #0009!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-music-status *{
+  color:#080808!important;
+  background-image:none!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-music-status .vn-check-youtube{
+  background:#fff!important;
+  color:#050505!important;
+  border:1px solid #111!important;
+  box-shadow:none!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-music-status .vn-check-youtube:hover{
+  background:#dcdcdc!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble{
+  background:#171717!important;
+  background-image:none!important;
+  border:1px solid #555!important;
+  color:#fff!important;
+  box-shadow:0 8px 22px #0008!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble:has(.whitespace-pre-wrap){
+  background:#f1f1f1!important;
+  background-image:none!important;
+  border:1px solid #fff!important;
+  color:#050505!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble:has(.whitespace-pre-wrap) *{
+  color:#050505!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown,
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown p,
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown span,
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown strong,
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown li,
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown h1,
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown h2,
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown h3{
+  color:#fff!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble:has(.whitespace-pre-wrap) .ai-markdown,
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble:has(.whitespace-pre-wrap) .ai-markdown *{
+  color:#050505!important;
+}
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown code,
+.vn-ai-figma-layout .assistant-panel .vn-chat-bubble .ai-markdown pre{
+  background:#050505!important;color:#fff!important;border-color:#555!important;
+}
+
+/* Cascade fix: Tailwind important utilities outrank unlayered !important rules.
+   Put the final monochrome AI styles in the earliest Tailwind layer. */
+@layer theme {
+  .vn-ai-figma-layout .assistant-panel .vn-ai-header,
+  .vn-ai-figma-layout .assistant-panel .vn-ai-header * {
+    background-color: transparent !important;
+    background-image: none !important;
+    color: #f5f5f5 !important;
+    border-color: rgba(255,255,255,.18) !important;
+  }
+  .vn-ai-figma-layout .assistant-panel .vn-music-status {
+    background: #202020 !important;
+    background-image: none !important;
+    border: 1px solid #555 !important;
+    color: #fff !important;
+    box-shadow: 0 10px 28px #0009 !important;
+  }
+  .vn-ai-figma-layout .assistant-panel .vn-music-status * {
+    color: #fff !important;
+    background-image: none !important;
+  }
+  .vn-ai-figma-layout .assistant-panel .vn-music-status .vn-check-youtube {
+    background: #f4f4f4 !important;
+    background-image: none !important;
+    color: #080808 !important;
+    border: 1px solid #fff !important;
+    box-shadow: none !important;
+  }
+  .vn-ai-figma-layout .assistant-panel .vn-music-status .vn-check-youtube * {
+    color: #080808 !important;
+  }
+  .vn-ai-figma-layout .assistant-panel .vn-chat-bubble {
+    background: #191919 !important;
+    background-image: none !important;
+    border: 1px solid #555 !important;
+    color: #fff !important;
+    box-shadow: 0 8px 22px #0008 !important;
+  }
+  .vn-ai-figma-layout .assistant-panel .vn-chat-bubble * {
+    color: #fff !important;
+  }
+  .vn-ai-figma-layout .assistant-panel .vn-chat-bubble:has(.whitespace-pre-wrap) {
+    background: #f2f2f2 !important;
+    background-image: none !important;
+    border: 1px solid #fff !important;
+    color: #050505 !important;
+  }
+  .vn-ai-figma-layout .assistant-panel .vn-chat-bubble:has(.whitespace-pre-wrap) * {
+    color: #050505 !important;
+  }
+  .vn-ai-figma-layout .vn-ai-tabs button,
+  .vn-ai-figma-layout .vn-ai-tabs button *,
+  .vn-ai-figma-layout .vn-ai-header button,
+  .vn-ai-figma-layout .vn-ai-header button * {
+    background-color: #242424 !important;
+    background-image: linear-gradient(145deg,#303030,#141414) !important;
+    color: #f5f5f5 !important;
+    border-color: #555 !important;
+  }
+}
+
+/* Quick action icons: replace broken placeholder glyphs with crisp vector icons. */
+.vn-ai-context-action{display:flex!important;align-items:center!important;gap:12px!important;text-align:left!important}
+.vn-quick-action-icon{width:19px!important;height:19px!important;flex:0 0 19px!important;opacity:.9}
+.vn-quick-action-label{flex:1!important}
+.vn-quick-action-arrow{width:16px!important;height:16px!important;flex:0 0 16px!important;opacity:.65}
+
+
+/* AI composer: keep microphone and Send controls strictly monochrome. */
+.vn-ai-figma-layout .vn-ai-composer button,
+.vn-ai-figma-layout .vn-ai-composer button:hover,
+.vn-ai-figma-layout .vn-ai-composer button:active {
+  border-color: rgba(255,255,255,.22) !important;
+  outline-color: rgba(255,255,255,.75) !important;
+  box-shadow: 0 5px 0 #111, 0 10px 18px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.16) !important;
+}
+.vn-ai-figma-layout .vn-ai-composer button:focus,
+.vn-ai-figma-layout .vn-ai-composer button:focus-visible {
+  outline: 1px solid rgba(255,255,255,.8) !important;
+  outline-offset: 2px !important;
+}
+
+/* Final monochrome override for the entire AI message composer shell. */
+.vn-ai-spatial > .vn-ai-composer > div:first-child {
+  border: 1px solid rgba(255,255,255,.2) !important;
+  background: linear-gradient(145deg,#202020,#090909) !important;
+  box-shadow: 0 7px 0 #050505, 0 18px 34px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.09) !important;
+  backdrop-filter: blur(18px) !important;
+}
+.vn-ai-spatial > .vn-ai-composer textarea {
+  border: 1px solid rgba(255,255,255,.16) !important;
+  background: linear-gradient(145deg,#101010,#191919) !important;
+  color: #f5f5f5 !important;
+  box-shadow: inset 0 3px 8px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.05) !important;
+}
+.vn-ai-spatial > .vn-ai-composer button,
+.vn-ai-spatial > .vn-ai-composer button:hover,
+.vn-ai-spatial > .vn-ai-composer button:active {
+  border: 1px solid rgba(255,255,255,.22) !important;
+  background: linear-gradient(145deg,#343434,#171717) !important;
+  color: #fff !important;
+  box-shadow: 0 4px 0 #080808, 0 9px 14px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.16) !important;
+}
+.vn-ai-spatial > .vn-ai-composer button:hover {
+  border-color: rgba(255,255,255,.95) !important;
+}
+.vn-ai-spatial > .vn-ai-composer button:focus-visible,
+.vn-ai-spatial > .vn-ai-composer textarea:focus-visible {
+  outline: 1px solid #fff !important;
+  outline-offset: 3px !important;
+}
+
+/* Composer hover: override Tailwind's important utilities without adding motion. */
+@layer theme {
+  .vn-ai-figma-layout .assistant-panel .vn-ai-composer button:hover {
+    border-color: #fff !important;
+    transform: none !important;
+    transition: border-color 180ms ease !important;
+  }
+}
+
+/* AI composer: animate the existing shared wrapper border to white on control hover.
+   No extra outline, lift, scale, or movement is introduced. */
+.vn-ai-spatial > .vn-ai-composer > div:first-child {
+  border-color: rgba(255,255,255,.22) !important;
+  transition: border-color 220ms ease !important;
+}
+.vn-ai-spatial > .vn-ai-composer > div:first-child:has(button:hover),
+.vn-ai-spatial > .vn-ai-composer > div:first-child:has(button:focus-visible) {
+  border-color: #fff !important;
+}
+.vn-ai-spatial > .vn-ai-composer button {
+  transition: border-color 220ms ease, background-color 220ms ease !important;
+}
+.vn-ai-spatial > .vn-ai-composer button:hover {
+  border-color: #fff !important;
+  transform: none !important;
+  filter: none !important;
+}
+
+/* Animated white perimeter highlight for every AI Assistant control. */
+@property --vn-ai-border-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes vn-ai-border-travel {
+  to { --vn-ai-border-angle: 360deg; }
+}
+.vn-ai-figma-layout .assistant-panel button,
+.vn-ai-figma-layout .assistant-panel .vn-ai-tabs > div > div {
+  position:relative !important;
+  isolation:isolate;
+}
+.vn-ai-figma-layout .assistant-panel button::after,
+.vn-ai-figma-layout .assistant-panel .vn-ai-tabs > div > div::after {
+  content:"";
+  position:absolute;
+  inset:-1px;
+  padding:1.5px;
+  border-radius:inherit;
+  background:conic-gradient(from var(--vn-ai-border-angle), transparent 0deg 285deg, rgba(255,255,255,.12) 315deg, #fff 342deg, rgba(255,255,255,.35) 352deg, transparent 360deg);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;
+  mask-composite:exclude;
+  opacity:0;
+  pointer-events:none;
+  z-index:2;
+}
+.vn-ai-figma-layout .assistant-panel button:hover::after,
+.vn-ai-figma-layout .assistant-panel .vn-ai-tabs > div > div:hover::after,
+.vn-ai-figma-layout .assistant-panel button:focus-visible::after {
+  opacity:1;
+  animation:vn-ai-border-travel 1.8s linear infinite;
+}
+.vn-ai-figma-layout .assistant-panel button:hover,
+.vn-ai-figma-layout .assistant-panel .vn-ai-tabs > div > div:hover {
+  transform:none !important;
+  filter:none !important;
+}
+@media (prefers-reduced-motion:reduce) {
+  .vn-ai-figma-layout .assistant-panel button:hover::after,
+  .vn-ai-figma-layout .assistant-panel .vn-ai-tabs > div > div:hover::after,
+  .vn-ai-figma-layout .assistant-panel button:focus-visible::after {
+    animation:none;
+    opacity:1;
+  }
+}
+
+
+/* Visionary Nexus mobile workspace: compact bottom navigation instead of a squeezed desktop rail. */
+@media (max-width: 800px) {
+  html, body, #root { width:100%; min-width:0; min-height:100%; overflow-x:hidden; }
+  .app-shell { display:flex !important; flex-direction:column !important; gap:0 !important; width:100% !important; min-height:100dvh !important; padding:0 !important; overflow-x:hidden !important; }
+  .workspace { order:0 !important; flex:1 1 auto !important; width:100% !important; max-width:none !important; min-width:0 !important; min-height:0 !important; margin:0 !important; padding:0 0 calc(76px + env(safe-area-inset-bottom)) !important; overflow-x:hidden !important; }
+  .sidebar { position:fixed !important; z-index:100 !important; inset:auto 0 0 0 !important; display:flex !important; flex-direction:row !important; align-items:center !important; width:100% !important; height:calc(64px + env(safe-area-inset-bottom)) !important; min-height:64px !important; max-height:calc(64px + env(safe-area-inset-bottom)) !important; padding:5px 4px calc(5px + env(safe-area-inset-bottom)) !important; margin:0 !important; overflow:hidden !important; border-radius:16px 16px 0 0 !important; border:1px solid rgba(255,255,255,.14) !important; border-bottom:0 !important; background:#080808 !important; box-shadow:0 -8px 28px rgba(0,0,0,.55) !important; transform:none !important; }
+  .sidebar > .brand, .sidebar > .sidebar-footer { display:none !important; }
+  .sidebar > nav { display:flex !important; flex:1 1 100% !important; flex-direction:row !important; align-items:center !important; justify-content:flex-start !important; gap:4px !important; width:100% !important; height:100% !important; min-width:0 !important; margin:0 !important; padding:0 2px !important; overflow-x:auto !important; overflow-y:hidden !important; scrollbar-width:none !important; white-space:nowrap !important; }
+  .sidebar > nav::-webkit-scrollbar { display:none !important; }
+  .sidebar > nav button { display:flex !important; flex:0 0 48px !important; justify-content:center !important; align-items:center !important; width:48px !important; min-width:48px !important; height:48px !important; min-height:48px !important; padding:0 !important; margin:0 !important; border-radius:12px !important; transform:none !important; }
+  .sidebar > nav button > span { display:none !important; }
+  .sidebar > nav button > span:first-child { display:flex !important; flex:0 0 20px !important; }
+  .sidebar > nav button > div { display:none !important; }
+  .topbar { min-height:58px !important; padding:9px 14px !important; gap:8px !important; }
+  .topbar > div:first-child { min-width:0 !important; }
+  .eyebrow { font-size:8px !important; letter-spacing:1px !important; }
+  .page-title { margin-top:3px !important; }
+  .page-title h1 { font-size:18px !important; }
+  .system-controls { gap:8px !important; }
+  .page-content, .vn-content { width:100% !important; max-width:100% !important; min-width:0 !important; margin:8px 0 0 !important; padding:12px !important; box-sizing:border-box !important; overflow-x:hidden !important; }
+  .page-content > *, .vn-content > * { min-width:0 !important; max-width:100% !important; }
+  .hero-panel, .camera-panel, .map-panel { min-height:0 !important; }
+  .camera-scene, .map-canvas { min-height:340px !important; }
+}
+@media (max-width: 420px) {
+  .page-content, .vn-content { padding:10px !important; }
+  .topbar { padding-inline:12px !important; }
+  .sidebar > nav { gap:2px !important; }
+  .sidebar > nav button { flex-basis:44px !important; width:44px !important; min-width:44px !important; }
+}
+
+/* AI Assistant mobile alignment: compact YouTube status and keep controls inside the panel. */
+@media (max-width: 800px) {
+  .assistant-grid {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    gap: 12px !important;
+  }
+  .assistant-panel {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+  }
+  .vn-ai-header {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    gap: 10px !important;
+    padding: 14px !important;
+  }
+  .vn-ai-header > div:first-child {
+    flex: 1 1 100% !important;
+    min-width: 0 !important;
+  }
+  .vn-ai-header > div:last-child {
+    display: flex !important;
+    flex: 1 1 100% !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .vn-ai-header > div:last-child > div:first-child {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    align-items: flex-start !important;
+  }
+  .vn-ai-header > div:last-child > div:first-child button {
+    min-height: 34px !important;
+    padding: 7px 11px !important;
+    white-space: nowrap !important;
+  }
+  .vn-ai-header .vn-music-status {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    grid-template-rows: auto auto !important;
+    align-items: center !important;
+    gap: 2px 10px !important;
+    flex: 1 1 100% !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    padding: 8px 10px !important;
+    text-align: left !important;
+    border-radius: 12px !important;
+    box-sizing: border-box !important;
+  }
+  .vn-ai-header .vn-music-status > div:first-child {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    min-width: 0 !important;
+    font-size: 11px !important;
+  }
+  .vn-ai-header .vn-music-status > div:nth-child(2) {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    font-size: 10px !important;
+    text-align: left !important;
+  }
+  .vn-ai-header .vn-music-status .vn-check-youtube {
+    grid-column: 2 / -1 !important;
+    grid-row: 1 / span 2 !important;
+    justify-self: end !important;
+    align-self: center !important;
+    min-height: 30px !important;
+    margin: 0 !important;
+    padding: 6px 9px !important;
+    font-size: 10px !important;
+    line-height: 1.1 !important;
+    white-space: nowrap !important;
+  }
+  .vn-ai-header > div:last-child > div:last-child {
+    flex: 0 0 auto !important;
+    margin-left: auto !important;
+    padding: 3px 0 !important;
+  }
+  .vn-ai-messages { min-width: 0 !important; padding: 14px !important; }
+  .vn-ai-messages .vn-chat-bubble { max-width: 92% !important; overflow-wrap: anywhere !important; }
+  .vn-ai-spatial > .vn-ai-composer { padding: 12px !important; min-width: 0 !important; }
+  .vn-ai-spatial > .vn-ai-composer > div:first-child { gap: 6px !important; min-width: 0 !important; padding: 6px !important; }
+  .vn-ai-spatial > .vn-ai-composer textarea { flex: 1 1 0% !important; width: 0 !important; min-width: 0 !important; max-width: 100% !important; font-size: 13px !important; }
+  .vn-ai-spatial > .vn-ai-composer button { flex: 0 0 auto !important; min-width: 38px !important; min-height: 38px !important; }
+  .vn-ai-spatial > .vn-ai-composer button:last-of-type { padding: 8px 11px !important; }
+  .vn-ai-spatial > .vn-ai-composer > div:last-child { padding: 0 2px !important; line-height: 1.4 !important; overflow-wrap: anywhere !important; }
+  .vn-ai-spatial > .vn-ai-composer > div:last-child span { display: inline-block !important; max-width: 100% !important; }
+  .vn-ai-context { min-width: 0 !important; max-width: 100% !important; }
+  .vn-ai-context-action { width: 100% !important; min-width: 0 !important; box-sizing: border-box !important; }
+}
+@media (max-width: 420px) {
+  .vn-ai-header { padding: 12px !important; }
+  .vn-ai-header > div:last-child { gap: 6px !important; }
+  .vn-ai-header .vn-music-status { padding: 7px 8px !important; }
+  .vn-ai-header .vn-music-status .vn-check-youtube { padding: 6px 7px !important; }
+  .vn-ai-spatial > .vn-ai-composer { padding: 10px !important; }
+  .vn-ai-spatial > .vn-ai-composer > div:first-child { gap: 5px !important; }
+}
+
+/* Mobile navigation: show complete tab names rather than icon-only abbreviations. */
+@media (max-width: 800px) {
+  .sidebar > nav { gap: 5px !important; padding-inline: 5px !important; }
+  .sidebar > nav button {
+    display: flex !important;
+    flex: 0 0 auto !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: center !important;
+    gap: 3px !important;
+    width: auto !important;
+    min-width: 76px !important;
+    max-width: 108px !important;
+    height: 54px !important;
+    min-height: 54px !important;
+    padding: 4px 7px !important;
+    white-space: nowrap !important;
+  }
+  .sidebar > nav button > span:first-child {
+    display: flex !important;
+    flex: 0 0 19px !important;
+    width: 19px !important;
+    height: 19px !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  .sidebar > nav button > span:nth-child(2) {
+    display: block !important;
+    width: auto !important;
+    max-width: none !important;
+    overflow: visible !important;
+    font-size: 8px !important;
+    line-height: 1.1 !important;
+    letter-spacing: .02em !important;
+    white-space: nowrap !important;
+  }
+  .sidebar > nav button > div { display: none !important; }
+
+  .vn-figma-navigation form { width: 100% !important; min-width: 0 !important; gap: 7px !important; align-items: stretch !important; }
+  .vn-figma-navigation form input { flex: 1 1 auto !important; width: 0 !important; min-width: 0 !important; padding: 11px 10px !important; font-size: 13px !important; }
+  .vn-figma-navigation form button {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 116px !important;
+    padding: 9px 10px !important;
+    font-size: 9px !important;
+    line-height: 1.2 !important;
+    letter-spacing: .03em !important;
+    white-space: normal !important;
+    overflow-wrap: normal !important;
+  }
+
+  .vn-figma-calling { width: 100% !important; max-width: none !important; min-width: 0 !important; }
+  .vn-figma-calling > div { width: 100% !important; max-width: none !important; box-sizing: border-box !important; }
+  .vn-figma-calling input, .vn-figma-calling select { width: 100% !important; min-width: 0 !important; box-sizing: border-box !important; }
+}
+@media (max-width: 420px) {
+  .sidebar > nav button { min-width: 72px !important; padding-inline: 5px !important; }
+  .sidebar > nav button > span:nth-child(2) { font-size: 7.5px !important; }
+  .vn-figma-navigation form button { max-width: 104px !important; padding-inline: 8px !important; }
+}
+
+/* Visionary Nexus mobile density and readable input sizing. */
+@media (max-width: 700px) {
+  .vn-content,.page-content { padding: 10px !important; }
+  .vn-figma-communications { padding: 10px !important; gap: 12px !important; }
+  .vn-figma-whatsapp > div,
+  .vn-figma-whatsapp > section,
+  .vn-figma-whatsapp .rounded-2xl,
+  .vn-figma-whatsapp .rounded-xl { padding: 12px !important; }
+  .vn-figma-whatsapp h1 { font-size: 22px !important; line-height: 1.2 !important; }
+  .vn-figma-whatsapp h2 { font-size: 15px !important; }
+  .vn-figma-whatsapp p,
+  .vn-figma-whatsapp label,
+  .vn-figma-whatsapp button { font-size: 12px !important; line-height: 1.4 !important; }
+  .vn-figma-whatsapp input,
+  .vn-figma-whatsapp textarea,
+  .vn-figma-whatsapp select { font-size: 13px !important; line-height: 1.35 !important; padding: 9px 10px !important; min-width: 0 !important; box-sizing: border-box !important; }
+  .vn-figma-whatsapp textarea { min-height: 76px !important; }
+  .vn-figma-whatsapp .grid { min-width: 0 !important; }
+  .vn-figma-whatsapp .flex { min-width: 0; }
+  .vn-ai-spatial > .vn-ai-composer { padding: 10px !important; margin-top: 10px !important; }
+  .vn-ai-spatial > .vn-ai-composer > div:first-child { padding: 5px !important; gap: 5px !important; }
+  .vn-ai-spatial > .vn-ai-composer textarea,
+  .vn-ai-figma-layout .vn-ai-composer textarea { font-size: 13px !important; line-height: 1.35 !important; min-height: 38px !important; max-height: 90px !important; padding: 7px 5px !important; }
+  .vn-ai-messages .vn-chat-bubble { font-size: 13px !important; line-height: 1.45 !important; padding: 9px 11px !important; }
+  .vn-ai-spatial { gap: 10px !important; }
+}
+
+/* WhatsApp contact cards: keep names clear of action buttons on narrow screens. */
+@media (max-width: 700px) {
+  .vn-figma-whatsapp .vn-whatsapp-contact-row {
+    display: grid !important;
+    grid-template-columns: 40px repeat(3, minmax(0, 1fr)) !important;
+    align-items: center !important;
+    column-gap: 10px !important;
+    row-gap: 9px !important;
+    padding: 11px !important;
+  }
+  .vn-figma-whatsapp .vn-whatsapp-contact-row > div:nth-child(2) {
+    grid-column: 2 / -1 !important;
+    grid-row: 1 !important;
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+  .vn-figma-whatsapp .vn-whatsapp-contact-row > div:nth-child(2) > div:first-child {
+    overflow: visible !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    font-size: 13px !important;
+    line-height: 1.35 !important;
+  }
+  .vn-figma-whatsapp .vn-whatsapp-contact-row > button {
+    grid-row: 2 !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    padding: 8px 6px !important;
+    font-size: 10px !important;
+    white-space: nowrap !important;
+  }
+  .vn-figma-whatsapp .vn-whatsapp-contact-row > button:nth-of-type(1) { grid-column: 2 !important; }
+  .vn-figma-whatsapp .vn-whatsapp-contact-row > button:nth-of-type(2) { grid-column: 3 !important; }
+  .vn-figma-whatsapp .vn-whatsapp-contact-row > button:nth-of-type(3) { grid-column: 4 !important; }
+  .vn-figma-whatsapp textarea {
+    font-size: 12px !important;
+    line-height: 1.4 !important;
+    min-height: 68px !important;
+    padding: 8px 10px !important;
+  }
+}
+
+/* Keep Nexus AI as the only 3D scene; center it cleanly without covering content. */
+.vn-nexus-ai-art { position:relative!important; display:grid!important; place-items:center!important; min-height:360px!important; overflow:visible!important; }
+.vn-nexus-ai-art > .vn-ai-3d-scene { position:relative!important; inset:auto!important; left:auto!important; top:auto!important; width:min(38vw,390px)!important; height:340px!important; min-width:0!important; min-height:0!important; transform:none!important; margin:0 auto!important; z-index:1!important; opacity:1!important; }
+.vn-nexus-ai-art > .vn-ai-3d-scene canvas { display:block!important; width:100%!important; height:100%!important; }
+.vn-ai-spatial > .vn-ai-3d-scene { top:190px!important; left:50%!important; width:min(34vw,350px)!important; height:300px!important; min-width:0!important; min-height:0!important; transform:translateX(-50%)!important; opacity:.9!important; z-index:0!important; }
+.vn-ai-spatial > .vn-ai-header { position:relative!important; z-index:3!important; }
+.vn-ai-spatial > .vn-ai-tabs { position:relative!important; z-index:3!important; }
+.vn-ai-spatial > .vn-ai-messages { position:relative!important; z-index:2!important; }
+.vn-ai-spatial > .vn-ai-composer { position:relative!important; z-index:3!important; }
+@media(max-width:760px) {
+  .vn-nexus-ai-art { min-height:250px!important; }
+  .vn-nexus-ai-art > .vn-ai-3d-scene { width:250px!important; height:240px!important; }
+  .vn-ai-spatial > .vn-ai-3d-scene { top:155px!important; width:250px!important; height:230px!important; }
+}
+
+/* Dashboard Nexus AI placement: below the welcome copy and above quick actions. */
+.dashboard-hero { position:relative!important; display:flex!important; flex-direction:column!important; }
+.dashboard-hero > .vn-ai-3d-scene { position:relative!important; top:auto!important; left:auto!important; right:auto!important; bottom:auto!important; transform:none!important; width:min(34vw,330px)!important; height:270px!important; min-width:0!important; min-height:0!important; margin:155px auto 0!important; flex:0 0 270px!important; z-index:1!important; }
+.dashboard-hero > .quick-row { position:relative!important; z-index:2!important; margin-top:auto!important; }
+@media(max-width:680px) {
+  .dashboard-hero > .vn-ai-3d-scene { width:250px!important; height:220px!important; flex-basis:220px!important; margin-top:145px!important; }
+}

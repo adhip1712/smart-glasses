@@ -1,18 +1,26 @@
-import { useEffect, useState } from 'react'
-import Dashboard from './components/Dashboard'
+import { useCallback, useEffect, useState } from 'react'
+import SpatialDashboard from './components/SpatialDashboard'
 import AIAssistant from './components/AIAssistant'
 import Vision from './components/Vision'
-import AudioPanel from './components/AudioPanel'
 import Music from './components/Music'
 import Weather from './components/Weather'
 import Navigation from './components/Navigation'
 import Notifications from './components/Notifications'
 import Device from './components/Device'
 import Settings from './components/Settings'
+import WhatsApp from './components/WhatsApp'
+import Calling from './components/Calling'
 import { apiFetch, readJson } from './services/api'
 import VoiceControl from './components/VoiceControl'
+import { speakText } from './services/speech'
+import { parseMusicCommand, publishMusicCommand, type MusicCommandAction } from './services/voiceMusic'
+import { parseCallIntent } from './services/callIntent'
+import { parseWhatsAppMessageIntent } from './services/whatsappIntent'
+import IntroSplash from './components/IntroSplash'
+import AuthScreen from './components/AuthScreen'
+import { getToken, getStoredUser, setSession } from './services/api'
 
-export type Tab = 'dashboard' | 'ai' | 'vision' | 'audio' | 'music' | 'weather' | 'nav' | 'notifications' | 'device' | 'settings'
+export type Tab = 'dashboard' | 'ai' | 'vision' | 'music' | 'weather' | 'nav' | 'notifications' | 'whatsapp' | 'calling' | 'device' | 'settings'
 
 const DashIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
@@ -31,11 +39,6 @@ const EyeIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
     <circle cx="12" cy="12" r="3" />
-  </svg>
-)
-const WaveIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
-    <path d="M2 12h2M20 12h2M6 8v8M10 5v14M14 7v10M18 9v6" strokeLinecap="round" />
   </svg>
 )
 const ChipIcon = () => (
@@ -64,6 +67,17 @@ const BellIcon = () => (
     <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" />
   </svg>
 )
+const WhatsAppIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
+    <path d="M20.5 11.5a8.5 8.5 0 0 1-12.6 7.4L3 20l1.2-4.7A8.5 8.5 0 1 1 20.5 11.5Z" />
+    <path d="M8.5 8.5c.5 2.8 2.2 4.5 5 5l1.2-1.2 2 1c-.2 1.3-1.1 2-2.4 2-3.8-.5-6.6-3.3-7.1-7.1 0-1.3.7-2.2 2-2.4l1 2-1.7 1.7Z" />
+  </svg>
+)
+const PhoneIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
+    <path d="M5 3h4l2 5-3 2a15 15 0 0 0 6 6l2-3 5 2v4a2 2 0 0 1-2 2C10 21 3 14 3 5a2 2 0 0 1 2-2Z" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
 const GearIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
     <circle cx="12" cy="12" r="3" />
@@ -75,11 +89,12 @@ const tabs = [
   { id: 'dashboard' as Tab, label: 'Dashboard', Icon: DashIcon },
   { id: 'ai' as Tab, label: 'AI Assistant', Icon: AIIcon },
   { id: 'vision' as Tab, label: 'Vision', Icon: EyeIcon },
-  { id: 'audio' as Tab, label: 'Audio', Icon: WaveIcon },
   { id: 'music' as Tab, label: 'Music', Icon: MusicIcon },
   { id: 'weather' as Tab, label: 'Weather', Icon: WeatherIcon },
   { id: 'nav' as Tab, label: 'Navigation', Icon: NavIcon },
   { id: 'notifications' as Tab, label: 'Notifications', Icon: BellIcon },
+  { id: 'whatsapp' as Tab, label: 'WhatsApp', Icon: WhatsAppIcon },
+  { id: 'calling' as Tab, label: 'Calling', Icon: PhoneIcon },
   { id: 'device' as Tab, label: 'Device', Icon: ChipIcon },
   { id: 'settings' as Tab, label: 'Settings', Icon: GearIcon },
 ]
@@ -95,12 +110,96 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard')
   const [navigationDestination, setNavigationDestination] = useState('')
   const [pendingVoiceCommand, setPendingVoiceCommand] = useState('')
-  const [status, setStatus] = useState<SystemStatus>({ backend: false, aiProvider: '—', glassesOnline: 0, wifiLabel: 'UNKNOWN' })
+  const [pendingWhatsAppDraft, setPendingWhatsAppDraft] = useState<{ recipient: string; message: string } | null>(null)
+  const consumeWhatsAppDraft = useCallback(() => setPendingWhatsAppDraft(null), [])
+  const [pendingCallRequest, setPendingCallRequest] = useState<{ recipient: string; channel: 'phone' | 'whatsapp' } | null>(null)
+  const consumeCallRequest = useCallback(() => setPendingCallRequest(null), [])
+  const [status, setStatus] = useState<SystemStatus>({ backend: false, aiProvider: '\\u2014', glassesOnline: 0, wifiLabel: 'UNKNOWN' })
+  const [authReady, setAuthReady] = useState(false)
+  const [authenticated, setAuthenticated] = useState(false)
+  const storedUser = getStoredUser()
+  const displayName = storedUser?.display_name?.trim() || storedUser?.email?.split('@')[0] || 'My Workspace'
+  const userInitialsText = displayName.trim().split(/\s+/).slice(0, 2).map(part => part[0]?.toUpperCase() || '').join('') || 'VN'
+  const avatarUrl = (storedUser as (typeof storedUser & { avatar_url?: string | null }) | null)?.avatar_url || null
+
+  useEffect(() => {
+    document.title = authenticated && storedUser
+      ? displayName + ' | VN-' + storedUser.id
+      : 'Visionary Nexus'
+  }, [authenticated, displayName, storedUser?.id])
+
+  // Play the intro once when a browser tab session starts. Ordinary refreshes
+  // keep the session marker; a hard-refresh shortcut clears it before reload.
+  const [showIntro, setShowIntro] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    const isOAuthReturn = params.has('oauth_ticket') || params.has('oauth_error')
+    try {
+      if (sessionStorage.getItem('vn_intro_seen_v2') === '1') return false
+      sessionStorage.setItem('vn_intro_seen_v2', '1')
+    } catch {
+      // If session storage is unavailable, keep the intro for this page load.
+    }
+    return !isOAuthReturn
+  })
+
+  useEffect(() => {
+    const allowIntroOnReload = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase()
+      const hardRefresh = (event.ctrlKey && event.shiftKey && key === 'r') ||
+        (event.ctrlKey && key === 'f5')
+      if (hardRefresh) {
+        try { sessionStorage.removeItem('vn_intro_seen_v2') } catch { /* storage unavailable */ }
+      }
+    }
+    window.addEventListener('keydown', allowIntroOnReload)
+    return () => window.removeEventListener('keydown', allowIntroOnReload)
+  }, [])
+
+  useEffect(() => {
+    let mounted = true
+    const restoreSession = async () => {
+      const oauthTicket = new URLSearchParams(window.location.search).get('oauth_ticket')
+      if (oauthTicket) {
+        try {
+          const exchange = await apiFetch('/api/auth/oauth/exchange', { method: 'POST', body: JSON.stringify({ ticket: oauthTicket }) })
+          const data = await readJson<{ access_token?: string; user?: { id:number; email:string; display_name:string|null } }>(exchange)
+          if (!exchange.ok || !data?.access_token || !data.user) throw new Error('Social sign-in could not be completed.')
+          setSession(data.access_token, data.user)
+          window.history.replaceState({}, document.title, '/')
+          if (mounted) { setAuthenticated(true); setShowIntro(false) }
+        } catch {
+          setSession(null, null)
+          window.history.replaceState({}, document.title, '/?oauth_error=failed')
+          if (mounted) setAuthenticated(false)
+        } finally {
+          if (mounted) setAuthReady(true)
+        }
+        return
+      }
+      const token = getToken()
+      if (!token) {
+        if (mounted) setAuthReady(true)
+        return
+      }
+      try {
+        const response = await apiFetch('/api/auth/session')
+        if (!response.ok) throw new Error('Session expired')
+        if (mounted) setAuthenticated(true)
+      } catch {
+        setSession(null, null)
+        if (mounted) setAuthenticated(false)
+      } finally {
+        if (mounted) setAuthReady(true)
+      }
+    }
+    void restoreSession()
+    return () => { mounted = false }
+  }, [])
 
   useEffect(() => {
     let mounted = true
     const load = async () => {
-      const next: SystemStatus = { backend: false, aiProvider: '—', glassesOnline: 0, wifiLabel: 'UNKNOWN' }
+      const next: SystemStatus = { backend: false, aiProvider: '\\u2014', glassesOnline: 0, wifiLabel: 'UNKNOWN' }
       try {
         const response = await apiFetch('/api/health')
         const data = await readJson<{ ai?: { provider: string | null; configured: boolean } }>(response)
@@ -136,71 +235,42 @@ export default function App() {
     setPendingVoiceCommand('')
   }, [activeTab, pendingVoiceCommand])
 
+  // Spotify redirects back to this SPA route; mount the Music tab so
+  // SpotifyMusic can validate the OAuth state and exchange the PKCE code.
+  useEffect(() => {
+    if (window.location.pathname === '/spotify/callback') setActiveTab('music')
+  }, [])
+
+  if (!authReady) {
+    return <div className="min-h-screen bg-[#030b20]" aria-label="Restoring session" />
+  }
+
+  if (showIntro) {
+    return <IntroSplash onComplete={() => setShowIntro(false)} userName={authenticated ? displayName : undefined} userId={authenticated ? storedUser?.id : undefined} avatarUrl={authenticated ? avatarUrl : null} />
+  }
+
+  if (!authenticated) {
+    return <AuthScreen onAuthenticated={() => {
+      setAuthenticated(true)
+      setShowIntro(false)
+    }} />
+  }
+
   return (
-    <div className="min-h-screen bg-[#030712] text-white flex flex-row relative overflow-hidden">
-      {/* Background grid */}
-      <div className="fixed inset-0 bg-grid-pattern pointer-events-none z-0" />
+    <div className="app-shell">
+      {/* Figma spatial navigation shell */}
 
-      {/* Background ambient orbs */}
-      <div
-        className="fixed w-[600px] h-[600px] rounded-full pointer-events-none z-0 animate-orb"
-        style={{
-          top: '-10%', left: '-10%',
-          background: 'radial-gradient(circle, rgba(0,229,255,0.06) 0%, transparent 70%)',
-        }}
-      />
-      <div
-        className="fixed w-[500px] h-[500px] rounded-full pointer-events-none z-0"
-        style={{
-          bottom: '-5%', right: '-5%',
-          background: 'radial-gradient(circle, rgba(168,85,247,0.08) 0%, transparent 70%)',
-          animation: 'orb-drift 16s ease-in-out infinite reverse',
-        }}
-      />
-      <div
-        className="fixed w-[400px] h-[400px] rounded-full pointer-events-none z-0"
-        style={{
-          top: '40%', left: '40%',
-          background: 'radial-gradient(circle, rgba(77,158,255,0.04) 0%, transparent 70%)',
-          animation: 'orb-drift 20s ease-in-out infinite',
-        }}
-      />
-
-      {/* Vertical tab rail — always visible so the content keeps full width */}
-      <aside className="flex flex-col w-[68px] md:w-64 min-h-screen relative z-10 flex-shrink-0"
-        style={{
-          background: 'rgba(3, 7, 18, 0.8)',
-          backdropFilter: 'blur(24px)',
-          borderRight: '1px solid rgba(0, 229, 255, 0.1)',
-          boxShadow: '4px 0 40px rgba(0, 0, 0, 0.5)',
-        }}>
-        {/* Logo */}
-        <div className="px-3 md:px-6 py-6 md:py-8 border-b border-white/5">
-          <div className="flex items-center gap-3">
-            <div className="relative w-10 h-10 flex-shrink-0">
-              <div className="absolute inset-0 rounded-full border border-cyan-400/60" style={{ animation: 'ring-spin 8s linear infinite' }} />
-              <div className="absolute inset-1 rounded-full border border-purple-500/40" style={{ animation: 'ring-spin-reverse 12s linear infinite' }} />
-              <div className="absolute inset-2.5 rounded-full bg-cyan-400/20 border border-cyan-400/80"
-                style={{ boxShadow: '0 0 12px rgba(0,229,255,0.6), inset 0 0 8px rgba(0,229,255,0.3)' }} />
-            </div>
-            <div className="hidden md:block">
-              <div className="font-display text-xs font-bold tracking-[0.2em] text-white/90">VISIONARY</div>
-              <div className="font-display text-xs font-bold tracking-[0.2em] text-cyan-400" style={{ textShadow: '0 0 12px rgba(0,229,255,0.7)' }}>NEXUS</div>
-            </div>
-            <div className="md:hidden font-display text-[10px] font-bold tracking-[0.15em] text-cyan-400" style={{ textShadow: '0 0 12px rgba(0,229,255,0.7)' }}>VN</div>
-          </div>
-          <div className="mt-3 flex items-center gap-2">
-            <div
-              className="w-1.5 h-1.5 rounded-full animate-status-blink"
-              style={{ backgroundColor: status.backend ? '#4ade80' : '#ef4444', color: '#4ade80' }}
-            />
-            <span className="hidden md:inline font-mono text-[10px] text-white/40 tracking-widest uppercase">
-              {status.backend ? 'BACKEND ONLINE' : 'BACKEND OFFLINE'}
-            </span>
-          </div>
-        </div>
+      <aside className="sidebar">
+        <button className="brand identity-brand" type="button" onClick={() => setActiveTab('settings')}>
+          {avatarUrl ? <img className="avatar brand-avatar" src={avatarUrl} alt="" /> : <span className="avatar brand-avatar">{userInitialsText}</span>}
+          <span>
+            <b>{displayName.toUpperCase()}</b>
+            <small>ID / VN-{storedUser?.id ?? 'GUEST'}</small>
+          </span>
+        </button>
 
         {/* Navigation (vertical tabs) */}
+
         <nav className="flex-1 px-2 md:px-3 py-4 space-y-1 overflow-y-auto">
           {tabs.map(({ id, label, Icon }) => {
             const isActive = activeTab === id
@@ -210,7 +280,7 @@ export default function App() {
                 onClick={() => setActiveTab(id)}
                 title={label}
                 className={`w-full flex items-center justify-center md:justify-start gap-3 px-2 md:px-4 py-3 rounded-lg transition-all duration-300 group ${
-                  isActive ? 'nav-item-active' : 'hover:bg-white/5'
+                  isActive ? 'active' : ''
                 }`}
               >
                 <span className={`transition-colors duration-300 ${isActive ? 'text-cyan-400' : 'text-white/40 group-hover:text-white/70'}`}>
@@ -230,58 +300,65 @@ export default function App() {
           })}
         </nav>
 
-        {/* Sidebar bottom status (live from the backend) */}
-        <div className="hidden md:block px-4 py-4 border-t border-white/5 space-y-2">
-          <div className="glass rounded-lg px-3 py-2 flex items-center justify-between">
-            <span className="font-mono text-[10px] text-white/40 uppercase tracking-widest">AI</span>
-            <span
-              className="font-mono text-[10px] text-glow-cyan"
-              style={{ color: status.aiProvider === 'NOT CONFIGURED' ? '#f59e0b' : '#00e5ff' }}
-            >
-              {status.aiProvider.toUpperCase()}
+        <div className="sidebar-footer">
+          <p><span className="sidebar-trust-mark">N</span> Your world. Only yours.</p>
+          <button type="button" onClick={() => setActiveTab('settings')}>
+            {avatarUrl ? <img className="avatar" src={avatarUrl} alt="" /> : <span className="avatar">{userInitialsText}</span>}
+            <span>
+              <b>{displayName}</b>
+              <small>Personal workspace / VN-{storedUser?.id ?? 'GUEST'}</small>
             </span>
-          </div>
-          <div className="glass rounded-lg px-3 py-2 flex items-center justify-between">
-            <span className="font-mono text-[10px] text-white/40 uppercase tracking-widest">Glasses</span>
-            <span className="font-mono text-[10px] text-cyan-400 text-glow-cyan">
-              {status.glassesOnline} ONLINE
-            </span>
-          </div>
-          <div className="glass rounded-lg px-3 py-2 flex items-center justify-between">
-            <span className="font-mono text-[10px] text-white/40 uppercase tracking-widest">Link</span>
-            <span className="font-mono text-[10px] text-cyan-400 text-glow-cyan">{status.wifiLabel}</span>
-          </div>
+            <span className="profile-arrow">?</span>
+          </button>
         </div>
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 relative z-10 overflow-auto" style={{ minHeight: '100vh' }}>
+      <section className="workspace">
+        <header className="topbar drift-soft">
+          <div>
+            <p className="eyebrow">Your spatial workspace</p>
+            <div className="page-title">
+              <h1>{tabs.find(tab => tab.id === activeTab)?.label || 'Workspace'}</h1>
+              <span>VN-{storedUser?.id ?? 'GUEST'}</span>
+            </div>
+            <p className="page-description">Personal intelligence - Smart glasses interface</p>
+          </div>
+          <div className="system-controls">
+            <span className="online"><i />{status.backend ? 'System connected' : 'Backend unavailable'}</span>
+            <span className="divider" />
+            <span className="clock">{new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
+            <button className="round-button" type="button" aria-label="Notifications" onClick={() => setActiveTab('notifications')}><BellIcon /></button>
+          </div>
+        </header>
         <VoiceControl onCommand={async (spoken) => {
-          // Route obvious playback commands locally first. Voice playback must
-          // never wait for a remote LLM round-trip; the backend AI remains the
-          // fallback for ambiguous, multi-feature requests.
-          const raw = spoken.trim();
-          const normalized = raw.toLowerCase().replace(/[.!?,]+/g, ' ').replace(/\s+/g, ' ').trim();
-          const genericListen = /\b(?:i want to|i would like to|let me|can i|could i)?\s*(?:listen to|hear)\s+(?:something|anything|some music|music|a song|some songs)\b/.test(normalized);
-          const pronounPlayback = /\b(?:listen to|hear)\s+(?:it|that|this)\b|\bplay\s+(?:it|that|this)\s+again\b|\bput\s+(?:it|that|this)\s+on\b|\bresume\s+(?:the )?(?:music|song|track)?\s*$/.test(normalized);
-          const musicVerb = /\b(?:play|listen to|put on|start playing|resume|pause|skip|next song|previous song|find me|search for)\b/.test(normalized);
-          if (genericListen || pronounPlayback || musicVerb) {
-            const action = /\b(?:pause|stop)\b/.test(normalized) ? 'pause'
-              : /\b(?:skip|next song)\b/.test(normalized) ? 'next'
-              : /\bprevious song\b/.test(normalized) ? 'previous'
-              : pronounPlayback || /\b(?:resume|continue)\b/.test(normalized) ? 'resume'
-              : genericListen ? 'open'
-              : /\b(?:find me|search for)\b/.test(normalized) ? 'search' : 'play';
-            let query = raw
-              .replace(/^\s*(?:hey\s+)?(?:visionary|nexus)?[,:-]?\s*/i, '')
-              .replace(/^\s*(?:please\s+)?(?:i want to listen to|i would like to listen to|let me listen to|can you play|could you play|please play|play|put on|listen to|start playing|find me|search for|resume|continue)\s*/i, '')
-              .replace(/\b(?:please|for me|right now|on my music|music|song|track|playlist)\b/gi, ' ')
-              .replace(/\s+/g, ' ').trim();
-            if (genericListen || pronounPlayback || /^(?:it|that|this|again|something|anything)$/i.test(query)) query = '';
-            setActiveTab('music');
-            window.dispatchEvent(new CustomEvent('visionary:voice-command', {
-              detail: { activeTab: 'music', intent: 'music', action, query, text: raw },
-            }));
+          const callIntent = parseCallIntent(spoken)
+          if (callIntent) {
+            setPendingCallRequest(callIntent)
+            setActiveTab('calling')
+            speakText(`Opening the ${callIntent.channel === 'whatsapp' ? 'WhatsApp' : 'phone'} calling flow for ${callIntent.recipient}.`)
+            return
+          }
+          const whatsappMessage = parseWhatsAppMessageIntent(spoken)
+          if (whatsappMessage) {
+            setPendingWhatsAppDraft(whatsappMessage)
+            setActiveTab('whatsapp')
+            speakText(whatsappMessage.message
+              ? 'Opening WhatsApp for ' + whatsappMessage.recipient + '. Review the message and press Send.'
+              : 'Opening the WhatsApp chat for ' + whatsappMessage.recipient + '.')
+            return
+          }          const musicCommand = parseMusicCommand(spoken)
+          if (musicCommand) {
+            setActiveTab('music')
+            publishMusicCommand({
+              activeTab: 'music',
+              provider: 'youtube',
+              source: 'voice',
+              intent: 'music',
+              action: musicCommand.action,
+              query: musicCommand.query,
+              text: spoken,
+            })
             return;
           }
           try {
@@ -298,23 +375,32 @@ export default function App() {
               destination?: string
               query?: string
               polished_text?: string
+              recipient?: string
+              message_text?: string
             }>(response)
             const routedIntent = (intent?.intent || 'general').toLowerCase()
             const polished = intent?.polished_text?.trim() || spoken
             if (routedIntent === 'music') {
               setActiveTab('music')
-              window.dispatchEvent(new CustomEvent('visionary:voice-command', {
-                detail: {
-                  activeTab: 'music',
-                  intent: 'music',
-                  action: intent?.action || 'play',
-                  query: intent?.query || '',
-                  text: polished,
-                },
-              }))
+              publishMusicCommand({
+                activeTab: 'music', provider: 'youtube', source: 'voice', intent: 'music',
+                action: (['play', 'search', 'open', 'pause', 'stop', 'resume', 'next', 'previous'].includes(String(intent?.action))
+                  ? intent?.action as MusicCommandAction
+                  : 'play'),
+                query: intent?.query || '', text: polished,
+              })
+              return
+            }
+            if (routedIntent === 'whatsapp') {
+              setPendingWhatsAppDraft({ recipient: intent?.recipient || '', message: intent?.message_text || '' })
+              setActiveTab('whatsapp')
+              speakText(intent?.recipient && intent?.message_text
+                ? `Preparing a WhatsApp message to ${intent.recipient}. Review it and open WhatsApp to send.`
+                : 'Open WhatsApp to choose the recipient and complete the message.')
               return
             }
             if (routedIntent === 'navigation' && intent?.destination) {
+              speakText(`Getting directions to ${intent.destination}.`)
               setNavigationDestination(intent.destination)
               setActiveTab('nav')
               window.dispatchEvent(new CustomEvent('visionary:navigate', { detail: { destination: intent.destination } }))
@@ -323,7 +409,7 @@ export default function App() {
             const intentTabs: Partial<Record<string, Tab>> = {
               weather: 'weather',
               vision: 'vision',
-              audio: 'audio',
+              audio: 'ai',
               dashboard: 'dashboard',
               ai: 'ai',
               notifications: 'notifications',
@@ -332,9 +418,10 @@ export default function App() {
             }
             const destinationTab = intentTabs[routedIntent]
             if (destinationTab && routedIntent !== 'general') {
+              speakText(`Opening ${routedIntent}.`)
               setActiveTab(destinationTab)
               if (routedIntent === 'vision') {
-                window.dispatchEvent(new CustomEvent('visionary:vision-command', { detail: { text: polished } }))
+                window.dispatchEvent(new CustomEvent('visionary:vision-command', { detail: { text: polished, action: intent?.action || 'analyze' } }))
               }
               return
             }
@@ -342,15 +429,20 @@ export default function App() {
             setActiveTab('ai')
           } catch (error) {
             console.warn('AI voice understanding unavailable; forwarding speech to the AI Assistant.', error)
+            speakText('I could not classify that request yet. Opening the AI Assistant.')
             setPendingVoiceCommand(spoken)
             setActiveTab('ai')
           }
         }} />
-        <div className="animate-slide-in">
-          {activeTab === 'dashboard' && <Dashboard setActiveTab={setActiveTab} />}
-          {activeTab === 'ai' && <AIAssistant onNavigate={(destination) => { setNavigationDestination(destination); setActiveTab('nav') }} />}
+        <div className="page-content animate-slide-in vn-content">
+          {activeTab === 'dashboard' && <SpatialDashboard setActiveTab={setActiveTab} displayName={displayName} backendOnline={status.backend} glassesOnline={status.glassesOnline} />}
+          {activeTab === 'ai' && <AIAssistant
+            onNavigate={(destination) => { setNavigationDestination(destination); setActiveTab('nav') }}
+            onMusic={() => setActiveTab('music')}
+            onWhatsAppDraft={(draft) => { setPendingWhatsAppDraft(draft); setActiveTab('whatsapp') }}
+            onCallRequest={(request) => { setPendingCallRequest(request); setActiveTab('calling') }}
+          />}
           {activeTab === 'vision' && <Vision />}
-          {activeTab === 'audio' && <AudioPanel />}
           {/* Keep Music mounted while other tabs are open so playback and playlist editing continue. */}
           <div style={{ display: activeTab === 'music' ? 'block' : 'none' }} aria-hidden={activeTab !== 'music'}>
             <Music />
@@ -358,10 +450,16 @@ export default function App() {
           {activeTab === 'weather' && <Weather />}
           {activeTab === 'nav' && <Navigation initialDestination={navigationDestination} />}
           {activeTab === 'notifications' && <Notifications />}
+          {activeTab === 'whatsapp' && <WhatsApp initialDraft={pendingWhatsAppDraft} onDraftConsumed={consumeWhatsAppDraft} />}
+          {activeTab === 'calling' && <Calling initialRequest={pendingCallRequest} onRequestConsumed={consumeCallRequest} />}
           {activeTab === 'device' && <Device />}
-          {activeTab === 'settings' && <Settings />}
+          {activeTab === 'settings' && <Settings onSignOut={() => {
+            setAuthenticated(false)
+            setShowIntro(false)
+            setActiveTab('dashboard')
+          }} />}
         </div>
-      </main>
+      </section>
 
     </div>
   )
