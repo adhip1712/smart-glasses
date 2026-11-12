@@ -1952,7 +1952,7 @@ const AIAssistant: React.FC<{
     // Reserve a tab before asynchronous AI planning for requests likely to
     // require an external app. Close it again when the planner decides this is
     // an ordinary question or an existing in-app action.
-    const appActionWindow = !navigationTab && /\\b(?:send|message|email|mail|write|compose|schedule|create|find|search|open|launch|book|add)\\b/i.test(message)
+    const appActionWindow = !navigationTab && /\b(?:send|message|email|mail|write|compose|schedule|create|find|search|open|launch|book|add)\b/i.test(message)
       ? window.open('about:blank', '_blank')
       : null
 
