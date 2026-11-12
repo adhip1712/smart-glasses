@@ -20,6 +20,10 @@ import IntroSplash from './components/IntroSplash'
 import AuthScreen from './components/AuthScreen'
 import { getToken, getStoredUser, setSession } from './services/api'
 
+// Share the one-time ticket exchange across React StrictMode effect replays.
+let oauthExchangeTicket: string | null = null
+let oauthExchangePromise: Promise<{ ok: boolean; data: { access_token?: string; user?: { id:number; email:string; display_name:string|null } } | null }> | null = null
+
 export type Tab = 'dashboard' | 'ai' | 'vision' | 'music' | 'weather' | 'nav' | 'notifications' | 'whatsapp' | 'calling' | 'device' | 'settings'
 
 const DashIcon = () => (
@@ -161,9 +165,16 @@ export default function App() {
       const oauthTicket = new URLSearchParams(window.location.search).get('oauth_ticket')
       if (oauthTicket) {
         try {
-          const exchange = await apiFetch('/api/auth/oauth/exchange', { method: 'POST', body: JSON.stringify({ ticket: oauthTicket }) })
-          const data = await readJson<{ access_token?: string; user?: { id:number; email:string; display_name:string|null } }>(exchange)
-          if (!exchange.ok || !data?.access_token || !data.user) throw new Error('Social sign-in could not be completed.')
+          if (oauthExchangeTicket !== oauthTicket || !oauthExchangePromise) {
+            oauthExchangeTicket = oauthTicket
+            oauthExchangePromise = (async () => {
+              const response = await apiFetch('/api/auth/oauth/exchange', { method: 'POST', body: JSON.stringify({ ticket: oauthTicket }) })
+              const payload = await readJson<{ access_token?: string; user?: { id:number; email:string; display_name:string|null } }>(response)
+              return { ok: response.ok, data: payload }
+            })()
+          }
+          const { ok, data } = await oauthExchangePromise
+          if (!ok || !data?.access_token || !data.user) throw new Error('Social sign-in could not be completed.')
           setSession(data.access_token, data.user)
           window.history.replaceState({}, document.title, '/')
           if (mounted) { setAuthenticated(true); setShowIntro(false) }
