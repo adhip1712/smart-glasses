@@ -104,7 +104,9 @@ def complete(p,code,state,request):
  try:
   linked=db.query(Identity).filter_by(provider=p,subject=sub).first()
   user=db.query(User).filter(User.id==linked.user_id).first() if linked else db.query(User).filter(User.email==email).first()
-  if user and not linked and p!="github":
+  # Google has already verified the email in get_identity(); allow that verified
+  # Google identity to link to the existing email/password account.
+  if user and not linked and p not in ("github","google"):
    raise HTTPException(409,"An account already uses this email. Sign in with that method first.")
   if not user:
    user=User(email=email,display_name=(name or email.split("@")[0])[:80],password_hash=_hash_password(secrets.token_urlsafe(48)),created_at=datetime.utcnow(),last_login_at=datetime.utcnow()); db.add(user); db.flush()
