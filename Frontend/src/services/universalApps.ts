@@ -75,7 +75,7 @@ export function matchAppLaunchCommand(message: string): AppEntry | null {
     .replace(/^(?:please |can you |could you )+/, '')
   const match = normalized.match(/^(?:open|launch|start|go to|switch to) (?:the )?(?:my )?(.+?)(?: app| website)?$/)
   if (!match) return null
-  const target = match[1].trim().replace(/\\/$/, '')
+  const target = match[1].trim().replace(/\/$/, '')
   const aliases: Record<AppId, string[]> = {
     calendar: ['calendar', 'google calendar', 'my calendar'],
     gmail: ['gmail', 'email', 'inbox'],
@@ -87,7 +87,7 @@ export function matchAppLaunchCommand(message: string): AppEntry | null {
     drive: ['drive', 'google drive'],
     github: ['github'],
   }
-  const knownApp = APP_DIRECTORY.find(app => aliases[app.id].includes(target) || app.url.replace(/^https?:\\/\\//, '').replace(/\\/$/, '') === target)
+  const knownApp = APP_DIRECTORY.find(app => aliases[app.id].includes(target) || app.url.replace(/^https?:\/\//, '').replace(/\\/$/, '') === target)
   if (knownApp) return knownApp
   // Support direct website commands such as "open www.gmail.com" or "go to example.com".
   const domain = target.replace(/^https?:\\/\\//, '').split('/')[0]
