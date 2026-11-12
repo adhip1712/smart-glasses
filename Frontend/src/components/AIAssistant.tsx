@@ -1925,7 +1925,7 @@ const AIAssistant: React.FC<{
       const gmailWindow = window.open('about:blank', '_blank')
       try {
         openGmailSearch(gmailSearch, gmailWindow)
-        addLocalMessage('Opening Gmail search for **' + gmailSearch.replace(/^from:\\((.*)\\)$/, '$1') + '** in a new tab. If you are signed in to Google in this browser, Gmail will use that session.')
+        addLocalMessage('Opening Gmail search for **' + gmailSearch.replace('from:(', '').replace(/\\)$/, '') + '** in a new tab. If you are signed in to Google in this browser, Gmail will use that session.')
       } catch {
         if (gmailWindow && !gmailWindow.closed) gmailWindow.close()
         addLocalMessage('I could not open Gmail. Check your browser pop-up settings.')
