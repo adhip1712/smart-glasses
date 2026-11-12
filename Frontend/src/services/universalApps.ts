@@ -101,3 +101,39 @@ export function openApp(entry: AppEntry, reservedWindow?: Window | null): void {
   if (reservedWindow && !reservedWindow.closed) reservedWindow.location.href = entry.url
   else window.open(entry.url, '_blank', 'noopener,noreferrer')
 }
+
+/**
+ * Convert conversational Gmail navigation requests into Gmail's own search
+ * URL. This only pre-fills Gmail search in the user's existing browser
+ * session; it does not read inbox data or require Gmail API authorization.
+ */
+export function matchGmailConversationCommand(message: string): string | null {
+  const cleaned = message
+    .replace(/[’']/g, "'")
+    .replace(/[?!.,]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  const patterns: Array<{ pattern: RegExp; prefix?: string }> = [
+    { pattern: /^(?:please\s+)?(?:open|show|find)\s+(?:my\s+)?(?:chat|conversation|email thread|message thread)\s+(?:with|from)\s+(.+?)(?:\s+in\s+(?:gmail|my\s+gmail))?$/i },
+    { pattern: /^(?:please\s+)?(?:open|show|find)\s+(?:the\s+)?(?:latest|most recent)\s+(?:email|message|conversation)\s+from\s+(.+?)(?:\s+in\s+gmail)?$/i, prefix: "from:(" },
+    { pattern: /^(?:please\s+)?(?:search|find|look up|look for)\s+(?:my\s+)?(?:gmail|inbox|emails?)\s+(?:for|from)\s+(.+)$/i },
+    { pattern: /^(?:please\s+)?(?:search|find|look up|look for)\s+(?:my\s+)?(?:emails?|messages?)\s+from\s+(.+)$/i, prefix: "from:(" },
+  ]
+
+  for (const { pattern, prefix = "" } of patterns) {
+    const match = cleaned.match(pattern)
+    const person = match?.[1]?.trim().replace(/[.?!]+$/, "")
+    if (person) return prefix ? `${prefix}${person})` : person
+  }
+  return null
+}
+
+export function openGmailSearch(query: string, reservedWindow?: Window | null): void {
+  const url = "https://mail.google.com/mail/u/0/#search/" + encodeURIComponent(query)
+  if (reservedWindow && !reservedWindow.closed) {
+    reservedWindow.location.href = url
+  } else {
+    window.open(url, "_blank", "noopener,noreferrer")
+  }
+}
