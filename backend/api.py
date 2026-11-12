@@ -3463,6 +3463,42 @@ Rules:
                 "polished_text": "Resume the current music.",
             }
 
+        # Apply the same app registry fallback when Groq is configured but
+        # temporarily errors, times out, or returns invalid JSON.
+        app_aliases = (
+            (("gmail", "google mail", "email", "inbox"), "gmail"),
+            (("outlook",), "outlook"),
+            (("whatsapp", "whats app"), "whatsapp"),
+            (("calendar", "google calendar"), "calendar"),
+            (("youtube", "you tube"), "youtube"),
+            (("google maps", "maps"), "maps"),
+            (("spotify",), "spotify"),
+            (("google drive", "drive"), "drive"),
+            (("github",), "github"),
+        )
+        app_destination = next(
+            (app for aliases, app in app_aliases if any(re.search(r"\\b" + re.escape(alias) + r"\\b", normalized_voice_request) for alias in aliases)),
+            "",
+        )
+        if app_destination and re.search(r"\\b(?:open|launch|start|go to|switch to|search|find|create|schedule|add|send|message|write|compose)\\b", normalized_voice_request):
+            app_action = "open"
+            if app_destination == "calendar" and re.search(r"\\b(?:create|schedule|add)\\b", normalized_voice_request):
+                app_action = "create_event"
+            elif app_destination == "calendar" and re.search(r"\\b(?:find|search|show)\\b", normalized_voice_request):
+                app_action = "find_event"
+            elif re.search(r"\\b(?:search|find)\\b", normalized_voice_request):
+                app_action = "search"
+            return {
+                "intent": "app_action",
+                "action": app_action,
+                "destination": app_destination,
+                "query": message,
+                "polished_text": message,
+                "recipient": "",
+                "message_text": "",
+                "channel": "",
+            }
+
     return {"intent": "general", "action": "none", "destination": "", "query": message, "polished_text": message}
 
 
