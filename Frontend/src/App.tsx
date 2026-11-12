@@ -15,10 +15,10 @@ import VoiceControl from './components/VoiceControl'
 import { speakText } from './services/speech'
 import { parseMusicCommand, publishMusicCommand, type MusicCommandAction } from './services/voiceMusic'
 import { parseCallIntent } from './services/callIntent'
-import { parseWhatsAppMessageIntent } from './services/whatsappIntent'
 import IntroSplash from './components/IntroSplash'
 import AuthScreen from './components/AuthScreen'
 import { getToken, getStoredUser, setSession } from './services/api'
+import { executeAppAction } from './services/universalApps'
 
 // Share the one-time ticket exchange across React StrictMode effect replays.
 let oauthExchangeTicket: string | null = null
@@ -373,15 +373,7 @@ export default function App() {
             speakText(`Opening the ${callIntent.channel === 'whatsapp' ? 'WhatsApp' : 'phone'} calling flow for ${callIntent.recipient}.`)
             return
           }
-          const whatsappMessage = parseWhatsAppMessageIntent(spoken)
-          if (whatsappMessage) {
-            setPendingWhatsAppDraft(whatsappMessage)
-            setActiveTab('whatsapp')
-            speakText(whatsappMessage.message
-              ? 'Opening WhatsApp for ' + whatsappMessage.recipient + '. Review the message and press Send.'
-              : 'Opening the WhatsApp chat for ' + whatsappMessage.recipient + '.')
-            return
-          }          const musicCommand = parseMusicCommand(spoken)
+          const musicCommand = parseMusicCommand(spoken)
           if (musicCommand) {
             setActiveTab('music')
             publishMusicCommand({
@@ -395,6 +387,11 @@ export default function App() {
             })
             return;
           }
+          // Reserve a browser tab synchronously so a later AI-planned app
+          // action can navigate it without popup blocking.
+          const appActionWindow = /\b(?:send|message|email|mail|write|compose|schedule|create|find|search|open|launch|book|add)\b/i.test(spoken)
+            ? window.open('about:blank', '_blank')
+            : null
           try {
             const response = await apiFetch('/api/intent/classify', {
               method: 'POST',
@@ -425,6 +422,18 @@ export default function App() {
               })
               return
             }
+            if (routedIntent === 'app_action') {
+              const result = executeAppAction({
+                destination: String(intent?.destination || ''),
+                action: String(intent?.action || 'open'),
+                recipient: String(intent?.recipient || ''),
+                message_text: String(intent?.message_text || ''),
+                query: String(intent?.query || ''),
+              }, appActionWindow)
+              speakText(result.message.replace(/\*\*/g, '').replace(/\*/g, ''))
+              return
+            }
+            if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
             if (routedIntent === 'whatsapp') {
               setPendingWhatsAppDraft({ recipient: intent?.recipient || '', message: intent?.message_text || '' })
               setActiveTab('whatsapp')
