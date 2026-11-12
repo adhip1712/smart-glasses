@@ -750,6 +750,61 @@ class RealWeatherProvider(BaseWeatherProvider):
             "longitude": float(place.get("longitude", 0)),
         }
 
+    @staticmethod
+    def _wttr_fallback(city_name: str):
+        """Use wttr.in as a live fallback when the primary weather APIs reject a request."""
+        url = "https://wttr.in/" + quote(city_name) + "?format=j1"
+        request = Request(url, headers={"User-Agent": "VISIONARY-NEXUS/1.0"})
+        with urlopen(request, timeout=12) as response:
+            data = json.loads(response.read().decode("utf-8"))
+
+        current_rows = data.get("current_condition") or []
+        if not current_rows:
+            return {"success": False, "message": "No live weather data was returned for '" + city_name + "'."}
+        current = current_rows[0]
+        nearest_rows = data.get("nearest_area") or []
+        nearest = nearest_rows[0] if nearest_rows else {}
+        area_name = (nearest.get("areaName") or [{}])[0].get("value", city_name)
+        region = (nearest.get("region") or [{}])[0].get("value", "")
+        country = (nearest.get("country") or [{}])[0].get("value", "")
+        description = (current.get("weatherDesc") or [{}])[0].get("value", "Unknown")
+
+        def number(value):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        forecast = []
+        for day in data.get("weather") or []:
+            hourly = day.get("hourly") or []
+            rain_values = [number(hour.get("chanceofrain")) for hour in hourly]
+            rain_values = [value for value in rain_values if value is not None]
+            forecast.append({
+                "date": day.get("date", ""),
+                "condition": ((hourly[4].get("weatherDesc") or [{}])[0].get("value", "Unknown") if len(hourly) > 4 else description),
+                "temperature_c": number(day.get("avgtempC")),
+                "max_c": number(day.get("maxtempC")),
+                "min_c": number(day.get("mintempC")),
+                "rain_chance": max(rain_values) if rain_values else None,
+            })
+
+        return {
+            "success": True,
+            "location": area_name,
+            "region": region,
+            "country": country,
+            "temperature_c": number(current.get("temp_C")),
+            "feels_like_c": number(current.get("FeelsLikeC")),
+            "humidity": number(current.get("humidity")),
+            "wind_kph": number(current.get("windspeedKmph")),
+            "condition": str(description).strip(),
+            "condition_icon": "",
+            "last_updated": current.get("localObsDateTime") or current.get("observation_time"),
+            "source": "wttr.in fallback",
+            "forecast": forecast,
+        }
+
     def get_current(self, city: str):
         city_name = (city or "Bengaluru").strip() or "Bengaluru"
 
@@ -790,9 +845,12 @@ class RealWeatherProvider(BaseWeatherProvider):
                     "forecast": [],
                 }
 
-        geocode = self._geo_lookup(city_name)
+        try:
+            geocode = self._geo_lookup(city_name)
+        except (HTTPError, URLError):
+            return self._wttr_fallback(city_name)
         if not geocode:
-            return {"success": False, "message": f"Could not find weather for '{city_name}'."}
+            return self._wttr_fallback(city_name)
 
         params = urlencode({
             "latitude": geocode["latitude"],
@@ -804,8 +862,11 @@ class RealWeatherProvider(BaseWeatherProvider):
         url = f"https://api.open-meteo.com/v1/forecast?{params}"
         request = Request(url, headers={"User-Agent": "VISIONARY-NEXUS/1.0"})
 
-        with urlopen(request, timeout=10) as response:
-            data = json.loads(response.read().decode("utf-8"))
+        try:
+            with urlopen(request, timeout=10) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except (HTTPError, URLError):
+            return self._wttr_fallback(city_name)
 
         current = data.get("current", {})
         weather_code = current.get("weather_code", 0)
@@ -860,9 +921,12 @@ class RealWeatherProvider(BaseWeatherProvider):
                 current["source"] = "weatherapi"
                 return current
 
-        geocode = self._geo_lookup(city_name)
+        try:
+            geocode = self._geo_lookup(city_name)
+        except (HTTPError, URLError):
+            return self._wttr_fallback(city_name)
         if not geocode:
-            return {"success": False, "message": f"Could not find weather for '{city_name}'."}
+            return self._wttr_fallback(city_name)
 
         params = urlencode({
             "latitude": geocode["latitude"],
@@ -874,8 +938,11 @@ class RealWeatherProvider(BaseWeatherProvider):
         url = f"https://api.open-meteo.com/v1/forecast?{params}"
         request = Request(url, headers={"User-Agent": "VISIONARY-NEXUS/1.0"})
 
-        with urlopen(request, timeout=10) as response:
-            data = json.loads(response.read().decode("utf-8"))
+        try:
+            with urlopen(request, timeout=10) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except (HTTPError, URLError):
+            return self._wttr_fallback(city_name)
 
         current = self.get_current(city_name)
         daily = data.get("daily", {})
