@@ -115,7 +115,8 @@ export function matchGmailConversationCommand(message: string): string | null {
     .trim()
 
   const patterns: Array<{ pattern: RegExp; prefix?: string }> = [
-    { pattern: /^(?:please\s+)?(?:open|show|find)\s+(?:my\s+)?(?:chat|conversation|email thread|message thread)\s+(?:with|from)\s+(.+?)(?:\s+in\s+(?:gmail|my\s+gmail))?$/i },
+    { pattern: /^(?:please\s+)?(?:open|show|find)\s+(?:my\s+)?chat\s+(?:with|from)\s+(.+?)(?:\s+in\s+(?:gmail|my\s+gmail))?$/i, prefix: "in:chats " },
+    { pattern: /^(?:please\s+)?(?:open|show|find)\s+(?:my\s+)?(?:conversation|email thread|message thread)\s+(?:with|from)\s+(.+?)(?:\s+in\s+(?:gmail|my\s+gmail))?$/i },
     { pattern: /^(?:please\s+)?(?:open|show|find)\s+(?:the\s+)?(?:latest|most recent)\s+(?:email|message|conversation)\s+from\s+(.+?)(?:\s+in\s+gmail)?$/i, prefix: "from:(" },
     { pattern: /^(?:please\s+)?(?:search|find|look up|look for)\s+(?:my\s+)?(?:gmail|inbox|emails?)\s+(?:for|from)\s+(.+)$/i },
     { pattern: /^(?:please\s+)?(?:search|find|look up|look for)\s+(?:my\s+)?(?:emails?|messages?)\s+from\s+(.+)$/i, prefix: "from:(" },
