@@ -52,7 +52,13 @@ try:
     from ml.detector import ModelUnavailableError
     from ml.session import VisionSession
     from ml.webcam_source import SourceUnavailableError
-    from ml import event_analysis as vision_events
+
+    # Event analysis is an optional add-on. Its absence must never disable the
+    # core camera/detection pipeline or mark the whole ML package unavailable.
+    try:
+        from ml import event_analysis as vision_events
+    except ImportError:
+        vision_events = None
 
     ML_IMPORT_ERROR = ""
 except Exception as _error:  # numpy or the ml package missing: degrade, never fail

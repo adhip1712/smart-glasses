@@ -118,6 +118,18 @@ export default function App() {
   const consumeWhatsAppDraft = useCallback(() => setPendingWhatsAppDraft(null), [])
   const [pendingCallRequest, setPendingCallRequest] = useState<{ recipient: string; channel: 'phone' | 'whatsapp' } | null>(null)
   const consumeCallRequest = useCallback(() => setPendingCallRequest(null), [])
+  const openMapForDestination = useCallback((destination: string) => {
+    const place = destination.trim()
+    if (!place) return
+    const encoded = encodeURIComponent(place)
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    const url = isIOS
+      ? 'https://maps.apple.com/?daddr=' + encoded
+      : 'https://www.google.com/maps/dir/?api=1&destination=' + encoded
+    const opened = window.open(url, '_blank', 'noopener,noreferrer')
+    if (!opened) window.location.assign(url)
+  }, [])
   const [status, setStatus] = useState<SystemStatus>({ backend: false, aiProvider: '\\u2014', glassesOnline: 0, wifiLabel: 'UNKNOWN' })
   const [authReady, setAuthReady] = useState(false)
   const [authenticated, setAuthenticated] = useState(false)
@@ -414,6 +426,7 @@ export default function App() {
               speakText(`Getting directions to ${intent.destination}.`)
               setNavigationDestination(intent.destination)
               setActiveTab('nav')
+              openMapForDestination(intent.destination)
               window.dispatchEvent(new CustomEvent('visionary:navigate', { detail: { destination: intent.destination } }))
               return
             }
@@ -448,7 +461,7 @@ export default function App() {
         <div className="page-content animate-slide-in vn-content">
           {activeTab === 'dashboard' && <SpatialDashboard setActiveTab={setActiveTab} displayName={displayName} backendOnline={status.backend} glassesOnline={status.glassesOnline} />}
           {activeTab === 'ai' && <AIAssistant
-            onNavigate={(destination) => { setNavigationDestination(destination); setActiveTab('nav') }}
+            onNavigate={(destination) => { setNavigationDestination(destination); setActiveTab('nav'); openMapForDestination(destination) }}
             onMusic={() => setActiveTab('music')}
             onWhatsAppDraft={(draft) => { setPendingWhatsAppDraft(draft); setActiveTab('whatsapp') }}
             onCallRequest={(request) => { setPendingCallRequest(request); setActiveTab('calling') }}
@@ -465,6 +478,7 @@ export default function App() {
           {activeTab === 'calling' && <Calling initialRequest={pendingCallRequest} onRequestConsumed={consumeCallRequest} />}
           {activeTab === 'device' && <Device />}
           {activeTab === 'settings' && <Settings onSignOut={() => {
+            setSession(null, null)
             setAuthenticated(false)
             setShowIntro(false)
             setActiveTab('dashboard')

@@ -44,12 +44,12 @@ export default function Weather() {
     try {
       const response = await apiFetch(`/api/weather/${encodeURIComponent(target)}`)
       const data = await readJson<WeatherResult>(response)
-      if (data && data.success !== false) {
+      if (response.ok && data && data.success !== false) {
         setCurrent(data)
         setActiveCity(data.location || target)
       } else {
         setCurrent(null)
-        setStatus(data?.message || `Weather for "${target}" is unavailable.`)
+        setStatus(data?.message || (response.status === 401 ? 'Weather service needs a fresh sign-in. Please sign in again.' : 'Weather for ' + target + ' is unavailable (HTTP ' + response.status + ').'))
       }
       void loadRecent()
     } catch (error) {

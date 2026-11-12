@@ -1244,7 +1244,7 @@ async def require_account_session(request: FastAPIRequest, call_next):
     public_prefixes = (
         "/api/auth/login", "/api/auth/register", "/api/auth/providers", "/api/auth/oauth/", "/api/health",
         "/api/device/", "/api/camera/", "/api/vision/", "/api/music/youtube-oauth/callback", "/api/music/audius-stream/",
-        "/api/music/youtube-oauth/status",
+        "/api/music/youtube-oauth/status", "/api/weather/",
     )
     is_public = path == "/" or any(path == prefix or path.startswith(prefix) for prefix in public_prefixes)
     if path.startswith("/api/") and not is_public:
@@ -1879,15 +1879,22 @@ def get_messages(
 def get_weather(
     city: str
 ):
-    result = weather_service.get_current(city)
+    try:
+        result = weather_service.get_current(city)
+    except Exception as exc:
+        return JSONResponse(status_code=503, content={
+            "success": False,
+            "message": "Live weather is temporarily unavailable for '" + city + "'. Please retry shortly.",
+            "error": type(exc).__name__,
+        })
     if result.get("success"):
         return result
 
-    return {
+    return JSONResponse(status_code=503, content={
         "success": False,
         "message": result.get("message", "Could not get weather."),
         "error": result.get("error"),
-    }
+    })
 
 
 @app.get(
@@ -1896,15 +1903,22 @@ def get_weather(
 def get_weather_forecast(
     city: str
 ):
-    result = weather_service.get_forecast(city)
+    try:
+        result = weather_service.get_forecast(city)
+    except Exception as exc:
+        return JSONResponse(status_code=503, content={
+            "success": False,
+            "message": "Live forecast is temporarily unavailable for '" + city + "'. Please retry shortly.",
+            "error": type(exc).__name__,
+        })
     if result.get("success"):
         return result
 
-    return {
+    return JSONResponse(status_code=503, content={
         "success": False,
         "message": result.get("message", "Could not get forecast."),
         "error": result.get("error"),
-    }
+    })
 
 
 # =========================================================

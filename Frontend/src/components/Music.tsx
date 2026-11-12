@@ -168,6 +168,7 @@ export default function Music() {
   const activeTrackIdRef = useRef<string | null>(null)
   const shouldContinuePlaybackRef = useRef(false)
   const youtubePlayerRef = useRef<any>(null)
+  const endedTrackRecoveryRef = useRef<string | null>(null)
   const youtubeContainerRef = useRef<HTMLDivElement | null>(null)
   const failedYouTubeIdsRef = useRef<Set<string>>(new Set())
 
@@ -277,11 +278,26 @@ export default function Music() {
   // This never overrides an explicit user pause.
   useEffect(() => {
     const recoverPlayback = () => {
-      const audio = audioRef.current
       const track = current
-      if (!shouldContinuePlaybackRef.current || !audio || !track?.audio ||
-          (track.provider || '').toLowerCase() === 'youtube' || !audio.paused || document.hidden) return
-      if (activeTrackIdRef.current !== track.id) return
+      if (!shouldContinuePlaybackRef.current || !track || document.hidden) return
+      if ((track.provider || '').toLowerCase() === 'youtube') {
+        const player = youtubePlayerRef.current
+        const playerState = player?.getPlayerState?.()
+        // YouTube's ENDED event can be throttled while Chrome backgrounds this tab.
+        // Re-check the iframe state on return so the queue advances exactly once.
+        if (playerState === 0 && endedTrackRecoveryRef.current !== track.id) {
+          endedTrackRecoveryRef.current = track.id
+          advanceQueueRef.current()
+        } else if (playerState === 2) {
+          endedTrackRecoveryRef.current = null
+          player.playVideo?.()
+        } else if (playerState !== 0) {
+          endedTrackRecoveryRef.current = null
+        }
+        return
+      }
+      const audio = audioRef.current
+      if (!audio || !track.audio || !audio.paused || activeTrackIdRef.current !== track.id) return
       void audio.play().then(() => {
         setPlaying(true)
         setMessage('')

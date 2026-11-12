@@ -150,7 +150,7 @@ function SettingRow({
   )
 }
 
-export default function Settings() {
+export default function Settings({ onSignOut }: { onSignOut?: () => void } = {}) {
   // =========================
   // AI
   // =========================
@@ -757,6 +757,15 @@ export default function Settings() {
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3">
+
+          <button
+            type="button"
+            onClick={() => onSignOut?.()}
+            className="flex-1 py-2.5 rounded-xl font-display text-[11px] tracking-widest transition-all duration-300 hover:scale-[1.01]"
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.2)', color: '#ffffff' }}
+          >
+            SIGN OUT
+          </button>
 
           <button
             className="flex-1 py-2.5 rounded-xl font-display text-[11px] tracking-widest transition-all duration-300 hover:scale-[1.01]"

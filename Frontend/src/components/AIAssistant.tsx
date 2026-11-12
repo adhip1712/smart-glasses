@@ -7,6 +7,8 @@ import React, {
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { apiFetch } from "../services/api"
+import { parseWhatsAppMessageIntent } from "../services/whatsappIntent"
+import { parseCallIntent } from "../services/callIntent"
 
 // =========================================================
 // BROWSER SPEECH RECOGNITION TYPES
@@ -82,7 +84,12 @@ type NavigationResult = {
 // COMPONENT
 // =========================================================
 
-const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({ onNavigate }) => {
+const AIAssistant: React.FC<{
+  onNavigate?: (destination: string) => void
+  onMusic?: () => void
+  onWhatsAppDraft?: (draft: { recipient: string; message: string }) => void
+  onCallRequest?: (request: { recipient: string; channel: 'phone' | 'whatsapp' }) => void
+}> = ({ onNavigate, onMusic, onWhatsAppDraft, onCallRequest }) => {
   // =======================================================
   // CHAT STATE
   // =======================================================
@@ -1888,6 +1895,20 @@ const AIAssistant: React.FC<{ onNavigate?: (destination: string) => void }> = ({
     ).trim()
 
     if (!message) {
+      return
+    }
+
+    // Route contact actions before conversation creation or AI classification.
+    // This keeps typed commands consistent with the voice command router.
+    const callRequest = parseCallIntent(message)
+    if (callRequest) {
+      onCallRequest?.(callRequest)
+      return
+    }
+
+    const whatsappDraft = parseWhatsAppMessageIntent(message)
+    if (whatsappDraft) {
+      onWhatsAppDraft?.(whatsappDraft)
       return
     }
 
