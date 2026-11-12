@@ -1,4 +1,4 @@
-:root{color-scheme:dark}
+﻿:root{color-scheme:dark}
 html,body,#root{width:100%;min-height:100%;margin:0;background:#050505!important}
 body{overflow-x:hidden!important}
 #root{min-height:100vh}
@@ -366,4 +366,305 @@ html,body,#root,.app,.app-shell,.main-content,.content-area{background:#050505!i
     animation:none;
     opacity:1;
   }
+}
+
+
+/* Visionary Nexus mobile workspace: compact bottom navigation instead of a squeezed desktop rail. */
+@media (max-width: 800px) {
+  html, body, #root { width:100%; min-width:0; min-height:100%; overflow-x:hidden; }
+  .app-shell { display:flex !important; flex-direction:column !important; gap:0 !important; width:100% !important; min-height:100dvh !important; padding:0 !important; overflow-x:hidden !important; }
+  .workspace { order:0 !important; flex:1 1 auto !important; width:100% !important; max-width:none !important; min-width:0 !important; min-height:0 !important; margin:0 !important; padding:0 0 calc(76px + env(safe-area-inset-bottom)) !important; overflow-x:hidden !important; }
+  .sidebar { position:fixed !important; z-index:100 !important; inset:auto 0 0 0 !important; display:flex !important; flex-direction:row !important; align-items:center !important; width:100% !important; height:calc(64px + env(safe-area-inset-bottom)) !important; min-height:64px !important; max-height:calc(64px + env(safe-area-inset-bottom)) !important; padding:5px 4px calc(5px + env(safe-area-inset-bottom)) !important; margin:0 !important; overflow:hidden !important; border-radius:16px 16px 0 0 !important; border:1px solid rgba(255,255,255,.14) !important; border-bottom:0 !important; background:#080808 !important; box-shadow:0 -8px 28px rgba(0,0,0,.55) !important; transform:none !important; }
+  .sidebar > .brand, .sidebar > .sidebar-footer { display:none !important; }
+  .sidebar > nav { display:flex !important; flex:1 1 100% !important; flex-direction:row !important; align-items:center !important; justify-content:flex-start !important; gap:4px !important; width:100% !important; height:100% !important; min-width:0 !important; margin:0 !important; padding:0 2px !important; overflow-x:auto !important; overflow-y:hidden !important; scrollbar-width:none !important; white-space:nowrap !important; }
+  .sidebar > nav::-webkit-scrollbar { display:none !important; }
+  .sidebar > nav button { display:flex !important; flex:0 0 48px !important; justify-content:center !important; align-items:center !important; width:48px !important; min-width:48px !important; height:48px !important; min-height:48px !important; padding:0 !important; margin:0 !important; border-radius:12px !important; transform:none !important; }
+  .sidebar > nav button > span { display:none !important; }
+  .sidebar > nav button > span:first-child { display:flex !important; flex:0 0 20px !important; }
+  .sidebar > nav button > div { display:none !important; }
+  .topbar { min-height:58px !important; padding:9px 14px !important; gap:8px !important; }
+  .topbar > div:first-child { min-width:0 !important; }
+  .eyebrow { font-size:8px !important; letter-spacing:1px !important; }
+  .page-title { margin-top:3px !important; }
+  .page-title h1 { font-size:18px !important; }
+  .system-controls { gap:8px !important; }
+  .page-content, .vn-content { width:100% !important; max-width:100% !important; min-width:0 !important; margin:8px 0 0 !important; padding:12px !important; box-sizing:border-box !important; overflow-x:hidden !important; }
+  .page-content > *, .vn-content > * { min-width:0 !important; max-width:100% !important; }
+  .hero-panel, .camera-panel, .map-panel { min-height:0 !important; }
+  .camera-scene, .map-canvas { min-height:340px !important; }
+}
+@media (max-width: 420px) {
+  .page-content, .vn-content { padding:10px !important; }
+  .topbar { padding-inline:12px !important; }
+  .sidebar > nav { gap:2px !important; }
+  .sidebar > nav button { flex-basis:44px !important; width:44px !important; min-width:44px !important; }
+}
+
+/* AI Assistant mobile alignment: compact YouTube status and keep controls inside the panel. */
+@media (max-width: 800px) {
+  .assistant-grid {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    gap: 12px !important;
+  }
+  .assistant-panel {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+  }
+  .vn-ai-header {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    gap: 10px !important;
+    padding: 14px !important;
+  }
+  .vn-ai-header > div:first-child {
+    flex: 1 1 100% !important;
+    min-width: 0 !important;
+  }
+  .vn-ai-header > div:last-child {
+    display: flex !important;
+    flex: 1 1 100% !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .vn-ai-header > div:last-child > div:first-child {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    align-items: flex-start !important;
+  }
+  .vn-ai-header > div:last-child > div:first-child button {
+    min-height: 34px !important;
+    padding: 7px 11px !important;
+    white-space: nowrap !important;
+  }
+  .vn-ai-header .vn-music-status {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    grid-template-rows: auto auto !important;
+    align-items: center !important;
+    gap: 2px 10px !important;
+    flex: 1 1 100% !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    padding: 8px 10px !important;
+    text-align: left !important;
+    border-radius: 12px !important;
+    box-sizing: border-box !important;
+  }
+  .vn-ai-header .vn-music-status > div:first-child {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    min-width: 0 !important;
+    font-size: 11px !important;
+  }
+  .vn-ai-header .vn-music-status > div:nth-child(2) {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    font-size: 10px !important;
+    text-align: left !important;
+  }
+  .vn-ai-header .vn-music-status .vn-check-youtube {
+    grid-column: 2 / -1 !important;
+    grid-row: 1 / span 2 !important;
+    justify-self: end !important;
+    align-self: center !important;
+    min-height: 30px !important;
+    margin: 0 !important;
+    padding: 6px 9px !important;
+    font-size: 10px !important;
+    line-height: 1.1 !important;
+    white-space: nowrap !important;
+  }
+  .vn-ai-header > div:last-child > div:last-child {
+    flex: 0 0 auto !important;
+    margin-left: auto !important;
+    padding: 3px 0 !important;
+  }
+  .vn-ai-messages { min-width: 0 !important; padding: 14px !important; }
+  .vn-ai-messages .vn-chat-bubble { max-width: 92% !important; overflow-wrap: anywhere !important; }
+  .vn-ai-spatial > .vn-ai-composer { padding: 12px !important; min-width: 0 !important; }
+  .vn-ai-spatial > .vn-ai-composer > div:first-child { gap: 6px !important; min-width: 0 !important; padding: 6px !important; }
+  .vn-ai-spatial > .vn-ai-composer textarea { flex: 1 1 0% !important; width: 0 !important; min-width: 0 !important; max-width: 100% !important; font-size: 13px !important; }
+  .vn-ai-spatial > .vn-ai-composer button { flex: 0 0 auto !important; min-width: 38px !important; min-height: 38px !important; }
+  .vn-ai-spatial > .vn-ai-composer button:last-of-type { padding: 8px 11px !important; }
+  .vn-ai-spatial > .vn-ai-composer > div:last-child { padding: 0 2px !important; line-height: 1.4 !important; overflow-wrap: anywhere !important; }
+  .vn-ai-spatial > .vn-ai-composer > div:last-child span { display: inline-block !important; max-width: 100% !important; }
+  .vn-ai-context { min-width: 0 !important; max-width: 100% !important; }
+  .vn-ai-context-action { width: 100% !important; min-width: 0 !important; box-sizing: border-box !important; }
+}
+@media (max-width: 420px) {
+  .vn-ai-header { padding: 12px !important; }
+  .vn-ai-header > div:last-child { gap: 6px !important; }
+  .vn-ai-header .vn-music-status { padding: 7px 8px !important; }
+  .vn-ai-header .vn-music-status .vn-check-youtube { padding: 6px 7px !important; }
+  .vn-ai-spatial > .vn-ai-composer { padding: 10px !important; }
+  .vn-ai-spatial > .vn-ai-composer > div:first-child { gap: 5px !important; }
+}
+
+/* Mobile navigation: show complete tab names rather than icon-only abbreviations. */
+@media (max-width: 800px) {
+  .sidebar > nav { gap: 5px !important; padding-inline: 5px !important; }
+  .sidebar > nav button {
+    display: flex !important;
+    flex: 0 0 auto !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: center !important;
+    gap: 3px !important;
+    width: auto !important;
+    min-width: 76px !important;
+    max-width: 108px !important;
+    height: 54px !important;
+    min-height: 54px !important;
+    padding: 4px 7px !important;
+    white-space: nowrap !important;
+  }
+  .sidebar > nav button > span:first-child {
+    display: flex !important;
+    flex: 0 0 19px !important;
+    width: 19px !important;
+    height: 19px !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  .sidebar > nav button > span:nth-child(2) {
+    display: block !important;
+    width: auto !important;
+    max-width: none !important;
+    overflow: visible !important;
+    font-size: 8px !important;
+    line-height: 1.1 !important;
+    letter-spacing: .02em !important;
+    white-space: nowrap !important;
+  }
+  .sidebar > nav button > div { display: none !important; }
+
+  .vn-figma-navigation form { width: 100% !important; min-width: 0 !important; gap: 7px !important; align-items: stretch !important; }
+  .vn-figma-navigation form input { flex: 1 1 auto !important; width: 0 !important; min-width: 0 !important; padding: 11px 10px !important; font-size: 13px !important; }
+  .vn-figma-navigation form button {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 116px !important;
+    padding: 9px 10px !important;
+    font-size: 9px !important;
+    line-height: 1.2 !important;
+    letter-spacing: .03em !important;
+    white-space: normal !important;
+    overflow-wrap: normal !important;
+  }
+
+  .vn-figma-calling { width: 100% !important; max-width: none !important; min-width: 0 !important; }
+  .vn-figma-calling > div { width: 100% !important; max-width: none !important; box-sizing: border-box !important; }
+  .vn-figma-calling input, .vn-figma-calling select { width: 100% !important; min-width: 0 !important; box-sizing: border-box !important; }
+}
+@media (max-width: 420px) {
+  .sidebar > nav button { min-width: 72px !important; padding-inline: 5px !important; }
+  .sidebar > nav button > span:nth-child(2) { font-size: 7.5px !important; }
+  .vn-figma-navigation form button { max-width: 104px !important; padding-inline: 8px !important; }
+}
+
+/* Visionary Nexus mobile density and readable input sizing. */
+@media (max-width: 700px) {
+  .vn-content,.page-content { padding: 10px !important; }
+  .vn-figma-communications { padding: 10px !important; gap: 12px !important; }
+  .vn-figma-whatsapp > div,
+  .vn-figma-whatsapp > section,
+  .vn-figma-whatsapp .rounded-2xl,
+  .vn-figma-whatsapp .rounded-xl { padding: 12px !important; }
+  .vn-figma-whatsapp h1 { font-size: 22px !important; line-height: 1.2 !important; }
+  .vn-figma-whatsapp h2 { font-size: 15px !important; }
+  .vn-figma-whatsapp p,
+  .vn-figma-whatsapp label,
+  .vn-figma-whatsapp button { font-size: 12px !important; line-height: 1.4 !important; }
+  .vn-figma-whatsapp input,
+  .vn-figma-whatsapp textarea,
+  .vn-figma-whatsapp select { font-size: 13px !important; line-height: 1.35 !important; padding: 9px 10px !important; min-width: 0 !important; box-sizing: border-box !important; }
+  .vn-figma-whatsapp textarea { min-height: 76px !important; }
+  .vn-figma-whatsapp .grid { min-width: 0 !important; }
+  .vn-figma-whatsapp .flex { min-width: 0; }
+  .vn-ai-spatial > .vn-ai-composer { padding: 10px !important; margin-top: 10px !important; }
+  .vn-ai-spatial > .vn-ai-composer > div:first-child { padding: 5px !important; gap: 5px !important; }
+  .vn-ai-spatial > .vn-ai-composer textarea,
+  .vn-ai-figma-layout .vn-ai-composer textarea { font-size: 13px !important; line-height: 1.35 !important; min-height: 38px !important; max-height: 90px !important; padding: 7px 5px !important; }
+  .vn-ai-messages .vn-chat-bubble { font-size: 13px !important; line-height: 1.45 !important; padding: 9px 11px !important; }
+  .vn-ai-spatial { gap: 10px !important; }
+}
+
+/* WhatsApp contact cards: keep names clear of action buttons on narrow screens. */
+@media (max-width: 700px) {
+  .vn-figma-whatsapp .vn-whatsapp-contact-row {
+    display: grid !important;
+    grid-template-columns: 40px repeat(3, minmax(0, 1fr)) !important;
+    align-items: center !important;
+    column-gap: 10px !important;
+    row-gap: 9px !important;
+    padding: 11px !important;
+  }
+  .vn-figma-whatsapp .vn-whatsapp-contact-row > div:nth-child(2) {
+    grid-column: 2 / -1 !important;
+    grid-row: 1 !important;
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+  .vn-figma-whatsapp .vn-whatsapp-contact-row > div:nth-child(2) > div:first-child {
+    overflow: visible !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    font-size: 13px !important;
+    line-height: 1.35 !important;
+  }
+  .vn-figma-whatsapp .vn-whatsapp-contact-row > button {
+    grid-row: 2 !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    padding: 8px 6px !important;
+    font-size: 10px !important;
+    white-space: nowrap !important;
+  }
+  .vn-figma-whatsapp .vn-whatsapp-contact-row > button:nth-of-type(1) { grid-column: 2 !important; }
+  .vn-figma-whatsapp .vn-whatsapp-contact-row > button:nth-of-type(2) { grid-column: 3 !important; }
+  .vn-figma-whatsapp .vn-whatsapp-contact-row > button:nth-of-type(3) { grid-column: 4 !important; }
+  .vn-figma-whatsapp textarea {
+    font-size: 12px !important;
+    line-height: 1.4 !important;
+    min-height: 68px !important;
+    padding: 8px 10px !important;
+  }
+}
+
+/* Keep Nexus AI as the only 3D scene; center it cleanly without covering content. */
+.vn-nexus-ai-art { position:relative!important; display:grid!important; place-items:center!important; min-height:360px!important; overflow:visible!important; }
+.vn-nexus-ai-art > .vn-ai-3d-scene { position:relative!important; inset:auto!important; left:auto!important; top:auto!important; width:min(38vw,390px)!important; height:340px!important; min-width:0!important; min-height:0!important; transform:none!important; margin:0 auto!important; z-index:1!important; opacity:1!important; }
+.vn-nexus-ai-art > .vn-ai-3d-scene canvas { display:block!important; width:100%!important; height:100%!important; }
+.vn-ai-spatial > .vn-ai-3d-scene { top:190px!important; left:50%!important; width:min(34vw,350px)!important; height:300px!important; min-width:0!important; min-height:0!important; transform:translateX(-50%)!important; opacity:.9!important; z-index:0!important; }
+.vn-ai-spatial > .vn-ai-header { position:relative!important; z-index:3!important; }
+.vn-ai-spatial > .vn-ai-tabs { position:relative!important; z-index:3!important; }
+.vn-ai-spatial > .vn-ai-messages { position:relative!important; z-index:2!important; }
+.vn-ai-spatial > .vn-ai-composer { position:relative!important; z-index:3!important; }
+@media(max-width:760px) {
+  .vn-nexus-ai-art { min-height:250px!important; }
+  .vn-nexus-ai-art > .vn-ai-3d-scene { width:250px!important; height:240px!important; }
+  .vn-ai-spatial > .vn-ai-3d-scene { top:155px!important; width:250px!important; height:230px!important; }
+}
+
+/* Dashboard Nexus AI placement: below the welcome copy and above quick actions. */
+.dashboard-hero { position:relative!important; display:flex!important; flex-direction:column!important; }
+.dashboard-hero > .vn-ai-3d-scene { position:relative!important; top:auto!important; left:auto!important; right:auto!important; bottom:auto!important; transform:none!important; width:min(34vw,330px)!important; height:270px!important; min-width:0!important; min-height:0!important; margin:155px auto 0!important; flex:0 0 270px!important; z-index:1!important; }
+.dashboard-hero > .quick-row { position:relative!important; z-index:2!important; margin-top:auto!important; }
+@media(max-width:680px) {
+  .dashboard-hero > .vn-ai-3d-scene { width:250px!important; height:220px!important; flex-basis:220px!important; margin-top:145px!important; }
 }

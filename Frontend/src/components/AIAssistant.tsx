@@ -7,6 +7,8 @@ import React, {
 import { speakText as speakReliableText } from "../services/speech"
 import { apiFetch } from "../services/api"
 import { parseMusicCommand, publishMusicCommand, type MusicCommandAction } from "../services/voiceMusic"
+import { parseCallIntent } from "../services/callIntent"
+import { parseWhatsAppMessageIntent } from "../services/whatsappIntent"
 
 import ReactMarkdown from "react-markdown"
 import AIOrbScene from "./AIOrbScene"
@@ -131,28 +133,7 @@ const AIAssistant: React.FC<{
   const inputRef = useRef<HTMLInputElement>(null)
   const [speechStatus, setSpeechStatus] = useState("Voice not tested")
 
-  // Warm the personal WhatsApp contact map while the AI tab is open. That
-  // allows a typed send command to launch WhatsApp synchronously without
-  // waiting for a network request (which would lose the browser user gesture).
-  useEffect(() => {
-    let active = true
-    apiFetch('/api/whatsapp/contacts')
-      .then(async response => {
-        if (!response.ok) return
-        const data = await response.json()
-        if (!active || !Array.isArray(data?.contacts) || !data.contacts.length) return
-        const contacts: Record<string, string> = {}
-        data.contacts.forEach((contact: { name?: string; phone?: string }) => {
-          if (contact.name && contact.phone) contacts[contact.name] = contact.phone
-        })
-        if (Object.keys(contacts).length) {
-          window.localStorage.setItem('visionary_whatsapp_contacts', JSON.stringify(contacts))
-        }
-      })
-      .catch(() => undefined)
-    return () => { active = false }
-  }, [])
-
+  // Contact matching stays device-local; do not overwrite phone contacts from account sync.
   // Use short sequential utterances to prevent long answers being cut off by Chromium.
   const speakResponse = (value: string) => {
     setSpeechStatus("Starting voice...")
@@ -1950,6 +1931,16 @@ const AIAssistant: React.FC<{
       return
     }
 
+    const parsedWhatsApp = parseWhatsAppMessageIntent(message)
+    if (parsedWhatsApp && onWhatsAppDraft) {
+      setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: 'user', content: message }])
+      setInput('')
+      onWhatsAppDraft(parsedWhatsApp)
+      addLocalMessage(parsedWhatsApp.message
+        ? 'Opening WhatsApp for **' + parsedWhatsApp.recipient + '** with your message ready. Review it and press Send.'
+        : 'Opening the WhatsApp chat for **' + parsedWhatsApp.recipient + '**.')
+      return
+    }
     // Personal WhatsApp message commands are handled synchronously from the
     // submit gesture. This is important: opening a custom protocol after async
     // AI/conversation requests can be blocked by the browser/Electron popup guard.
@@ -1994,19 +1985,14 @@ const AIAssistant: React.FC<{
       }
     }
 
-    // Call commands are routed locally so they work even without an AI provider.
-    const callMatch = message.match(/^(?:hey\s+)?(?:vision[, ]*)?(whatsapp\s+call|call)(?:\s+(?:on\s+)?whatsapp)?\s+(.+)$/i)
-      || message.match(/^(?:hey\s+)?(?:vision[, ]*)?call\s+(.+?)\s+on\s+whatsapp$/i)
-    if (callMatch && onCallRequest) {
-      const whatsappCall = /whatsapp/i.test(callMatch[1] || '') || /whatsapp\s*$/i.test(message)
-      const recipient = (callMatch[2] || callMatch[1] || '').trim()
-      if (recipient) {
-        setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: 'user', content: message }])
-        setInput('')
-        onCallRequest({ recipient, channel: whatsappCall ? 'whatsapp' : 'phone' })
-        addLocalMessage(`${whatsappCall ? 'WhatsApp' : 'Phone'} call prepared for ${recipient}. Review the contact in Calling before continuing.`)
-        return
-      }
+    // Route natural-language phone/WhatsApp call requests before general AI chat.
+    const callIntent = parseCallIntent(message)
+    if (callIntent && onCallRequest) {
+      setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: 'user', content: message }])
+      setInput('')
+      onCallRequest(callIntent)
+      addLocalMessage(`Opening the ${callIntent.channel === 'whatsapp' ? 'WhatsApp' : 'phone'} calling flow for **${callIntent.recipient}**.`)
+      return
     }
 
     // Chat-control commands should not become conversation messages.
@@ -2110,7 +2096,14 @@ const AIAssistant: React.FC<{
       const intentResponse = await intentPromise
       if (intentResponse?.ok) {
         const featureIntent = featureIntentCache || await intentResponse.json()
-        if (featureIntent?.intent === "whatsapp" && featureIntent?.action === "send") {
+        // Only route a typed message to WhatsApp when the user's actual text
+        // clearly contains an explicit send/message instruction and both fields.
+        // A loose AI classification must never move ordinary chat to another tab.
+        const explicitWhatsAppSend =
+          /^(?:hey\s+vision[, ]*)?(?:please\s+)?(?:send|message|text|tell)\b/i.test(message.trim()) &&
+          Boolean(String(featureIntent?.recipient || '').trim()) &&
+          Boolean(String(featureIntent?.message_text || '').trim())
+        if (featureIntent?.intent === "whatsapp" && featureIntent?.action === "send" && explicitWhatsAppSend) {
           if (onWhatsAppDraft) {
             onWhatsAppDraft({
               recipient: String(featureIntent.recipient || ""),

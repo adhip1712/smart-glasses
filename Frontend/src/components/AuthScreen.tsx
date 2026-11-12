@@ -1,5 +1,6 @@
-﻿import { useEffect, useState, type FormEvent } from 'react'
-import { apiFetch, readJson, setSession, type AuthUser } from '../services/api'
+import { useEffect, useState, type FormEvent } from 'react'
+import { Capacitor } from '@capacitor/core'
+import { API_URL, apiFetch, readJson, setSession, type AuthUser } from '../services/api'
 
 type Props = { onAuthenticated: () => void }
 
@@ -10,6 +11,12 @@ export default function AuthScreen({ onAuthenticated }: Props) {
   const [displayName, setDisplayName] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [backendUrl, setBackendUrl] = useState(() => {
+    try { return window.localStorage.getItem('visionary.backend_url') || '' } catch { return '' }
+  })
+  const [providerError, setProviderError] = useState('')
+  const [backendSaveError, setBackendSaveError] = useState('')
+  const isNative = Capacitor.isNativePlatform()
   const [providers, setProviders] = useState<{id:string;name:string;configured:boolean}[]>([
     { id: 'google', name: 'Google', configured: false },
     { id: 'facebook', name: 'Facebook', configured: false },
@@ -17,18 +24,51 @@ export default function AuthScreen({ onAuthenticated }: Props) {
     { id: 'microsoft', name: 'Microsoft', configured: false },
     { id: 'github', name: 'GitHub', configured: false },
   ])
+
   useEffect(() => {
     let active = true
-    apiFetch('/api/auth/providers', { headers: { Accept: 'application/json' } }).then(r => { if (!r.ok) throw new Error('Provider status unavailable'); return r.json() }).then(data => {
-      if (active && Array.isArray(data.providers)) {
-        const status = new Map(data.providers.map((p: {id:string;name:string;configured:boolean}) => [p.id, p]))
-        setProviders(current => current.map(p => ({ ...p, ...(status.get(p.id) || {}) })))
-      }
-    }).catch(() => undefined)
+    apiFetch('/api/auth/providers', { headers: { Accept: 'application/json' } })
+      .then(r => { if (!r.ok) throw new Error('Provider status unavailable'); return r.json() })
+      .then(data => {
+        if (active && Array.isArray(data.providers)) {
+          const status = new Map(data.providers.map((p: {id:string;name:string;configured:boolean}) => [p.id, p]))
+          setProviders(current => current.map(p => ({ ...p, ...(status.get(p.id) || {}) })))
+          setProviderError('')
+        } else if (active) {
+          setProviderError('The backend returned an invalid provider status.')
+        }
+      })
+      .catch(() => {
+        if (active && isNative) setProviderError('The app cannot reach its Visionary Nexus backend. Connect it below to load the real provider status.')
+      })
     const params = new URLSearchParams(window.location.search)
     if (params.get('oauth_error')) setError('Sign-in was cancelled or could not be completed. Please try again.')
     return () => { active = false }
-  }, [])
+  }, [isNative])
+
+  async function connectBackend() {
+    setBackendSaveError('')
+    let candidate = backendUrl.trim()
+    while (candidate.endsWith('/')) candidate = candidate.slice(0, -1)
+    if (!(candidate.startsWith('http://') || candidate.startsWith('https://'))) {
+      setBackendSaveError('Enter a complete API address beginning with http:// or https://.')
+      return
+    }
+    try {
+      const response = await fetch(candidate + '/api/auth/providers', {
+        headers: { Accept: 'application/json' },
+      })
+      if (!response.ok) throw new Error('The backend returned HTTP ' + response.status + '.')
+      const data = await response.json()
+      if (!Array.isArray(data.providers)) throw new Error('This address did not return the Visionary Nexus provider endpoint.')
+      window.localStorage.setItem('visionary.backend_url', candidate)
+      window.location.reload()
+    } catch (err) {
+      setBackendSaveError(err instanceof Error
+        ? err.message + ' Check the address, server status, and that your phone can reach it.'
+        : 'Could not reach this backend address.')
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -87,6 +127,32 @@ export default function AuthScreen({ onAuthenticated }: Props) {
           <p className="mt-5 text-sm text-slate-400">{mode === 'login' ? 'Sign in to continue to your workspace.' : 'Create your Visionary Nexus account.'}</p>
         </div>
 
+        {isNative && (providerError || !API_URL) && (
+          <div className="mb-6 rounded-xl border border-white/15 bg-black/20 p-4">
+            <div className="text-xs font-semibold tracking-widest text-white">CONNECT TO BACKEND</div>
+            <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+              The mobile app needs your Visionary Nexus API address before it can check Google and GitHub sign-in.
+            </p>
+            <input
+              type="url"
+              value={backendUrl}
+              onChange={e => setBackendUrl(e.target.value)}
+              autoCapitalize="none"
+              autoCorrect="off"
+              placeholder="https://your-visionary-api-domain"
+              className="mt-3 w-full rounded-lg border border-white/15 bg-black/30 px-3 py-3 text-xs text-white outline-none focus:border-cyan-400/60"
+            />
+            <button type="button" onClick={connectBackend}
+              className="mt-2 w-full rounded-lg bg-white px-3 py-3 text-xs font-bold tracking-wider text-black transition hover:bg-slate-200">
+              TEST & SAVE BACKEND
+            </button>
+            {backendSaveError && <p role="alert" className="mt-2 text-[11px] text-red-300">{backendSaveError}</p>}
+            <p className="mt-2 text-[10px] leading-relaxed text-slate-500">
+              For temporary testing on the same Wi-Fi, enter your computer's LAN address with port 8001. For use away from your computer, use the deployed cloud API address.
+            </p>
+          </div>
+        )}
+
         <div className="mb-6 grid grid-cols-2 rounded-xl border border-white/10 bg-black/20 p-1">
           <button type="button" onClick={() => { setMode('login'); setError('') }}
             className={`rounded-lg py-2.5 text-xs tracking-widest transition ${mode === 'login' ? 'bg-cyan-400/15 text-cyan-200' : 'text-slate-500 hover:text-white'}`}>SIGN IN</button>
@@ -98,7 +164,7 @@ export default function AuthScreen({ onAuthenticated }: Props) {
           <div className="grid grid-cols-2 gap-2">
             {providers.map(provider => (
               <button key={provider.id} type="button" disabled={!provider.configured}
-                onClick={() => { window.location.href = '/api/auth/oauth/' + provider.id + '/start' }}
+                onClick={() => { window.location.href = API_URL + '/api/auth/oauth/' + provider.id + '/start' }}
                 title={provider.configured ? provider.name : provider.name + ' setup required'}
                 className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-3 text-xs font-semibold text-slate-200 transition hover:border-cyan-400/50 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-40">
                 {provider.name}{!provider.configured && <span className="mt-1 block text-[9px] font-normal text-slate-500">SETUP REQUIRED</span>}

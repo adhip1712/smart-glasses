@@ -2602,3 +2602,23 @@ body { color:#f5f5f5; }
   .vn-figma-weather > :first-child,
   .vn-figma-weather > :nth-child(3) { grid-column:auto; }
 }
+
+/* WhatsApp contacts now mirror the compact Saved Contacts grid in Calling. */
+.vn-figma-whatsapp .vn-whatsapp-contact-row { min-height:58px; gap:8px; }
+.vn-figma-whatsapp .vn-whatsapp-contact-row > div:nth-child(2) { min-width:0; }
+.vn-figma-whatsapp .vn-whatsapp-contact-row button { white-space:nowrap; }
+.vn-figma-whatsapp .vn-whatsapp-contact-row button:hover { transform:translateY(-1px); }
+
+/* Put the live 3D model in the upper visual area on both screens. */
+.vn-ai-3d-scene { position:absolute; z-index:1; top:76px; left:50%; width:230px; height:230px; transform:translateX(-50%); pointer-events:none; opacity:.9; }
+.vn-ai-3d-scene canvas { display:block; width:100% !important; height:100% !important; }
+.vn-ai-figma-layout .assistant-panel { position:relative; }
+.vn-ai-figma-layout .assistant-intro { padding-top:220px; }
+.vn-ai-figma-layout .vn-ai-welcome-orb { display:none; }
+.dashboard-hero .vn-ai-3d-scene { position:relative; top:auto; left:auto; transform:none; width:min(38vw,360px); height:320px; margin:82px auto 0; flex:0 0 320px; }
+.dashboard-hero .dashboard-copy { top:76px; }
+@media(max-width:680px) {
+  .vn-ai-3d-scene { top:72px; width:180px; height:180px; }
+  .vn-ai-figma-layout .assistant-intro { padding-top:190px; }
+  .dashboard-hero .vn-ai-3d-scene { width:240px; height:230px; flex-basis:230px; margin-top:100px; }
+}

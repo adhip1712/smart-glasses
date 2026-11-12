@@ -1,6 +1,6 @@
-﻿import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Tab } from '../App'
-import ThreeScene from './ThreeScene'
+import AIOrbScene from './AIOrbScene'
 
 const activities = [
   { time: '14:23:41', text: 'Scene analyzed — 7 objects detected', type: 'Vision', mark: '◈' },
@@ -39,9 +39,8 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (t: Tab) => 
           <p>Welcome to your Visionary Nexus workspace. Your smart-glasses systems, tools and activity in one place.</p>
           <button className="vn-hero-cta" onClick={() => setActiveTab('vision')}>Explore vision <span>↗</span></button>
         </div>
-        <div className="vn-hero-art vn-real-3d-art">
-          <ThreeScene />
-          <div className="vn-real3d-label"><span /> INTERACTIVE 3D SYSTEM MODEL</div>
+        <div className="vn-hero-art vn-nexus-ai-art" aria-label="Nexus AI visual">
+          <AIOrbScene />
         </div>
         <div className="vn-hero-date"><strong>{time.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })}</strong><span>{time.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}</span></div>
       </section>

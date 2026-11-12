@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import SpatialDashboard from './components/SpatialDashboard'
 import AIAssistant from './components/AIAssistant'
 import Vision from './components/Vision'
@@ -14,6 +14,8 @@ import { apiFetch, readJson } from './services/api'
 import VoiceControl from './components/VoiceControl'
 import { speakText } from './services/speech'
 import { parseMusicCommand, publishMusicCommand, type MusicCommandAction } from './services/voiceMusic'
+import { parseCallIntent } from './services/callIntent'
+import { parseWhatsAppMessageIntent } from './services/whatsappIntent'
 import IntroSplash from './components/IntroSplash'
 import AuthScreen from './components/AuthScreen'
 import { getToken, getStoredUser, setSession } from './services/api'
@@ -112,7 +114,7 @@ export default function App() {
   const consumeWhatsAppDraft = useCallback(() => setPendingWhatsAppDraft(null), [])
   const [pendingCallRequest, setPendingCallRequest] = useState<{ recipient: string; channel: 'phone' | 'whatsapp' } | null>(null)
   const consumeCallRequest = useCallback(() => setPendingCallRequest(null), [])
-  const [status, setStatus] = useState<SystemStatus>({ backend: false, aiProvider: 'â€”', glassesOnline: 0, wifiLabel: 'UNKNOWN' })
+  const [status, setStatus] = useState<SystemStatus>({ backend: false, aiProvider: '\\u2014', glassesOnline: 0, wifiLabel: 'UNKNOWN' })
   const [authReady, setAuthReady] = useState(false)
   const [authenticated, setAuthenticated] = useState(false)
   const storedUser = getStoredUser()
@@ -164,7 +166,7 @@ export default function App() {
           if (!exchange.ok || !data?.access_token || !data.user) throw new Error('Social sign-in could not be completed.')
           setSession(data.access_token, data.user)
           window.history.replaceState({}, document.title, '/')
-          if (mounted) { setAuthenticated(true); setShowIntro(true) }
+          if (mounted) { setAuthenticated(true); setShowIntro(false) }
         } catch {
           setSession(null, null)
           window.history.replaceState({}, document.title, '/?oauth_error=failed')
@@ -197,7 +199,7 @@ export default function App() {
   useEffect(() => {
     let mounted = true
     const load = async () => {
-      const next: SystemStatus = { backend: false, aiProvider: 'â€”', glassesOnline: 0, wifiLabel: 'UNKNOWN' }
+      const next: SystemStatus = { backend: false, aiProvider: '\\u2014', glassesOnline: 0, wifiLabel: 'UNKNOWN' }
       try {
         const response = await apiFetch('/api/health')
         const data = await readJson<{ ai?: { provider: string | null; configured: boolean } }>(response)
@@ -330,15 +332,22 @@ export default function App() {
           </div>
         </header>
         <VoiceControl onCommand={async (spoken) => {
-          const callMatch = spoken.trim().match(/^(?:hey\s+)?(?:vision[, ]*)?(whatsapp\s+call|call)(?:\s+(?:on\s+)?whatsapp)?\s+(.+)$/i)
-          if (callMatch) {
-            const channel = /whatsapp/i.test(callMatch[1]) || /whatsapp/i.test(spoken.split(/\s+/).slice(0, 3).join(' ')) ? 'whatsapp' : 'phone'
-            setPendingCallRequest({ recipient: callMatch[2].trim(), channel })
+          const callIntent = parseCallIntent(spoken)
+          if (callIntent) {
+            setPendingCallRequest(callIntent)
             setActiveTab('calling')
-            speakText(`${channel === 'whatsapp' ? 'WhatsApp' : 'Phone'} call prepared for ${callMatch[2].trim()}.`)
+            speakText(`Opening the ${callIntent.channel === 'whatsapp' ? 'WhatsApp' : 'phone'} calling flow for ${callIntent.recipient}.`)
             return
           }
-          const musicCommand = parseMusicCommand(spoken)
+          const whatsappMessage = parseWhatsAppMessageIntent(spoken)
+          if (whatsappMessage) {
+            setPendingWhatsAppDraft(whatsappMessage)
+            setActiveTab('whatsapp')
+            speakText(whatsappMessage.message
+              ? 'Opening WhatsApp for ' + whatsappMessage.recipient + '. Review the message and press Send.'
+              : 'Opening the WhatsApp chat for ' + whatsappMessage.recipient + '.')
+            return
+          }          const musicCommand = parseMusicCommand(spoken)
           if (musicCommand) {
             setActiveTab('music')
             publishMusicCommand({

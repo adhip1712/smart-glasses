@@ -1,4 +1,5 @@
 import { useState } from "react";
+import AIOrbScene from "./AIOrbScene";
 
 const A = import.meta.env.DEV ? "/src/assets" : "/assets";
 
@@ -94,7 +95,6 @@ function MiniDevice({ connected }: { connected: boolean }) {
           <i /> {connected ? "Connected" : "Not connected"}
         </span>
       </div>
-      <img className="glasses-render" src={`${A}/d2113.png`} alt="Smart glasses" />
       <div className="card-title-row">
         <div>
           <h3>Smart glasses</h3>
@@ -203,7 +203,7 @@ export default function SpatialDashboard({ setActiveTab, displayName, backendOnl
           <h2>Your world is in focus.</h2>
           <p>{glassesOnline > 0 ? "Your glasses are connected. Everything important is within reach." : "Your spatial workspace is ready. Connect your glasses whenever you are ready."}</p>
         </div>
-        <Orb />
+        <AIOrbScene />
         <div className="quick-row">
           <button onClick={() => setActiveTab('ai')}>
             <Icon file="362e6.svg" />
