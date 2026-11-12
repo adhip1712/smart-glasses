@@ -24,6 +24,17 @@ import { getToken, getStoredUser, setSession } from './services/api'
 let oauthExchangeTicket: string | null = null
 let oauthExchangePromise: Promise<{ ok: boolean; data: { access_token?: string; user?: { id:number; email:string; display_name:string|null } } | null }> | null = null
 
+// Never leave the UI on an empty loading screen if the API is slow or unreachable.
+function withTimeout<T>(promise: Promise<T>, timeoutMs = 10000): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error('Session check timed out')), timeoutMs)
+    promise.then(
+      value => { window.clearTimeout(timeout); resolve(value) },
+      error => { window.clearTimeout(timeout); reject(error) },
+    )
+  })
+}
+
 export type Tab = 'dashboard' | 'ai' | 'vision' | 'music' | 'weather' | 'nav' | 'notifications' | 'whatsapp' | 'calling' | 'device' | 'settings'
 
 const DashIcon = () => (
@@ -185,7 +196,7 @@ export default function App() {
               return { ok: response.ok, data: payload }
             })()
           }
-          const { ok, data } = await oauthExchangePromise
+          const { ok, data } = await withTimeout(oauthExchangePromise)
           if (!ok || !data?.access_token || !data.user) throw new Error('Social sign-in could not be completed.')
           setSession(data.access_token, data.user)
           window.history.replaceState({}, document.title, '/')
@@ -205,7 +216,7 @@ export default function App() {
         return
       }
       try {
-        const response = await apiFetch('/api/auth/session')
+        const response = await withTimeout(apiFetch('/api/auth/session'))
         if (!response.ok) throw new Error('Session expired')
         if (mounted) setAuthenticated(true)
       } catch {
@@ -265,7 +276,7 @@ export default function App() {
   }, [])
 
   if (!authReady) {
-    return <div className="min-h-screen bg-[#030b20]" aria-label="Restoring session" />
+    return <div className="min-h-screen bg-black text-white flex items-center justify-center" role="status" aria-label="Restoring session"><div className="text-center"><div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" /><p className="text-sm tracking-widest">RESTORING SESSION…</p></div></div>
   }
 
   if (showIntro) {
