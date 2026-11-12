@@ -239,6 +239,10 @@ export function executeAppAction(plan: AppActionPlan, reservedWindow?: Window | 
   if (reservedWindow && !reservedWindow.closed) reservedWindow.location.href = app.url
   else window.open(app.url, '_blank', 'noopener,noreferrer')
 
+  if (actionSupported) {
+    return { handled: true, message: "I opened **" + app.name + "**." }
+  }
+
   const actionLabel = action.replace(/_/g, ' ')
   return {
     handled: true,
