@@ -3480,13 +3480,13 @@ Rules:
             (app for aliases, app in app_aliases if any(re.search(r"\b" + re.escape(alias) + r"\b", normalized_voice_request) for alias in aliases)),
             "",
         )
-        if app_destination and re.search(r"\b(?:open|launch|start|go to|switch to|search|find|create|schedule|add|send|message|write|compose)\\b", normalized_voice_request):
+        if app_destination and re.search(r"\b(?:open|launch|start|go to|switch to|search|find|create|schedule|add|send|message|write|compose)\b", normalized_voice_request):
             app_action = "open"
-            if app_destination == "calendar" and re.search(r"\b(?:create|schedule|add)\\b", normalized_voice_request):
+            if app_destination == "calendar" and re.search(r"\b(?:create|schedule|add)\b", normalized_voice_request):
                 app_action = "create_event"
-            elif app_destination == "calendar" and re.search(r"\b(?:find|search|show)\\b", normalized_voice_request):
+            elif app_destination == "calendar" and re.search(r"\b(?:find|search|show)\b", normalized_voice_request):
                 app_action = "find_event"
-            elif re.search(r"\b(?:search|find)\\b", normalized_voice_request):
+            elif re.search(r"\b(?:search|find)\b", normalized_voice_request):
                 app_action = "search"
             return {
                 "intent": "app_action",
