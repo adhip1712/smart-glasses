@@ -58,14 +58,21 @@ def set_alarm(request):
     when, alarm_id = parse_time(request), uuid.uuid4().hex[:10]
     script = ALARM_DIR / (alarm_id + ".ps1")
     script.write_text("Add-Type -AssemblyName System.Windows.Forms\nwhile ($true) { [System.Media.SystemSounds]::Alarm.Play(); $null = [System.Windows.Forms.MessageBox]::Show('Your Visionary Nexus alarm is ringing.', 'Visionary Nexus alarm'); break }\n", encoding="utf-8")
-    timer = threading.Timer(max(0.1, (when - dt.datetime.now()).total_seconds()), lambda: subprocess.Popen(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)))
-    timer.daemon = True; timer.start(); TIMERS[alarm_id] = timer
+    def ring():
+        subprocess.Popen(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     fallback = False
-    try:
-        subprocess.run(["schtasks", "/Create", "/SC", "ONCE", "/ST", when.strftime("%H:%M"), "/SD", when.strftime("%m/%d/%Y"), "/TN", "VisionaryNexus_Alarm_" + alarm_id, "/TR", f'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{script}"', "/F", "/IT"], check=True, capture_output=True, timeout=15)
-        fallback = True
-    except (OSError, subprocess.SubprocessError): pass
-    return {"success": True, "alarm_id": alarm_id, "scheduled_for": when.isoformat(timespec="seconds"), "task_scheduler_fallback": fallback, "note": "Second-level precision while companion stays running. Task Scheduler fallback is minute precision. Laptop must be awake and user signed in."}
+    # Task Scheduler is minute-granular. Use it only when the requested time
+    # has no seconds; otherwise use the resident timer to avoid duplicate alerts.
+    if when.second == 0:
+        try:
+            subprocess.run(["schtasks", "/Create", "/SC", "ONCE", "/ST", when.strftime("%H:%M"), "/SD", when.strftime("%m/%d/%Y"), "/TN", "VisionaryNexus_Alarm_" + alarm_id, "/TR", f'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{script}"', "/F", "/IT"], check=True, capture_output=True, timeout=15)
+            fallback = True
+        except (OSError, subprocess.SubprocessError): pass
+    if not fallback:
+        timer = threading.Timer(max(0.1, (when - dt.datetime.now()).total_seconds()), ring)
+        timer.daemon = True; timer.start(); TIMERS[alarm_id] = timer
+    precision = "Windows Task Scheduler (minute precision)" if fallback else "seconds while the companion remains running"
+    return {"success": True, "alarm_id": alarm_id, "scheduled_for": when.isoformat(timespec="seconds"), "task_scheduler_fallback": fallback, "precision": precision, "note": "The laptop must be awake and the user signed in for the interactive alert. Keep the companion running for second-level precision."}
 class Handler(BaseHTTPRequestHandler):
     def reply(self, status, data):
         origin = self.headers.get("Origin", "")
