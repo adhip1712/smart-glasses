@@ -3231,7 +3231,7 @@ def classify_feature_intent(request: dict):
         return {"intent": "general", "action": "none", "destination": "", "query": "", "polished_text": ""}
     normalized_fallback = " ".join(message.lower().split())
     # Deterministic Windows alarm routing: never send alarm requests to ordinary chat.
-    if re.search(r"\\b(?:set|create|make|schedule)\\s+(?:an?\\s+)?alarm\\b|\\bset\\s+(?:an?\\s+)?(?:wake[- ]?up\\s+)?alarm\\b", normalized_fallback):
+    if re.search(r"\\b(?:set|create|make|schedule)\\s+(?:an?\\s+)?alar(?:a)?m\\b|\\bset\\s+(?:an?\\s+)?(?:wake[- ]?up\\s+)?alar(?:a)?m\\b", normalized_fallback):
         return {
             "intent": "app_action", "action": "set_alarm",
             "destination": "clock", "app_name": "Windows Clock",
