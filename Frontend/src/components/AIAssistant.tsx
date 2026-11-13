@@ -9,6 +9,7 @@ import remarkGfm from "remark-gfm"
 import { apiFetch } from "../services/api"
 import { parseCallIntent } from "../services/callIntent"
 import { answerBirthdayQuestion, executeAppAction } from "../services/universalApps"
+import { launchDesktopApp, setDesktopAlarm } from "../services/desktopCompanion"
 import { primeSpeechOutput, speakText } from "../services/speech"
 
 // =========================================================
@@ -2001,6 +2002,40 @@ const AIAssistant: React.FC<{
     }
 
     if (featureIntent?.intent === "app_action") {
+      const actionName = String(featureIntent.action || "open").toLowerCase()
+      const appName = String(featureIntent.app_name || featureIntent.destination || "the requested app")
+      // Native Windows alarms are scheduled by the local companion, not merely by opening Clock.
+      if (actionName === "set_alarm") {
+        try {
+          const alarm = await setDesktopAlarm(message)
+          const when = alarm.scheduled_for ? new Date(alarm.scheduled_for).toLocaleString() : "the requested time"
+          const confirmation = "Alarm set for " + when + ". " + (alarm.note || "")
+          addLocalMessage(confirmation)
+          speakResponse(confirmation)
+        } catch {
+          const notice = "I understood that you want an alarm, but the Windows companion is not connected. Install and start the Visionary Nexus Windows Companion on this laptop; I have not set an alarm."
+          addLocalMessage(notice)
+          speakResponse(notice)
+        }
+        if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
+        return
+      }
+      // Prefer a discovered native Windows application. If it is not installed,
+      // retain the existing verified HTTPS app-opening behaviour below.
+      try {
+        const launched = await launchDesktopApp(appName)
+        if (launched.success) {
+          const nativeMessage = actionName === "open"
+            ? "Opened " + (launched.app || appName) + " on this Windows laptop."
+            : "Opened " + (launched.app || appName) + ". I still need an authorised integration to " + actionName.replace(/_/g, " ") + "; I have not performed that action."
+          addLocalMessage(nativeMessage)
+          speakResponse(nativeMessage)
+          if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
+          return
+        }
+      } catch {
+        // Companion unavailable: use the existing browser-safe app handler.
+      }
       // Start the spoken confirmation before navigating the reserved tab away from this page.
       const result = executeAppAction({
         destination: String(featureIntent.destination || ""),
