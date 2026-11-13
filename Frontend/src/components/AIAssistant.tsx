@@ -1882,8 +1882,8 @@ const AIAssistant: React.FC<{
     // Windows alarms are a local desktop action. Route them before conversation
     // routing, AI classification, or /api/ask so backend availability/auth cannot
     // prevent a real alarm from being scheduled. Accept common speech-to-text typos.
-    if (/\\b(?:set|create|make|schedule)\\b.*\\b(?:alarm|alaram|alram)\\b/i.test(message)
-        || /\\b(?:alarm|alaram|alram)\\b.*\\b(?:at|for)\\b/i.test(message)) {
+    if (/\b(?:set|create|make|schedule)\b.*\b(?:alarm|alaram|alram)\b/i.test(message)
+        || /\b(?:alarm|alaram|alram)\b.*\b(?:at|for)\b/i.test(message)) {
       setInput("")
       setMessages(previous => [...previous, {
         id: Date.now() + Math.random(),
@@ -1908,7 +1908,7 @@ const AIAssistant: React.FC<{
     }
 
     // Basic arithmetic is deterministic and does not need an AI API call.
-    const arithmetic = message.match(/^(?:what is\\s+|calculate\\s+)?(-?\\d+(?:\\.\\d+)?)\\s*([+\\-*/x×÷])\\s*(-?\\d+(?:\\.\\d+)?)\\??$/i)
+    const arithmetic = message.match(/^(?:what is\s+|calculate\s+)?(-?\d+(?:\.\d+)?)\s*([+\-*/x×÷])\s*(-?\d+(?:\.\d+)?)\??$/i)
     if (arithmetic) {
       const left = Number(arithmetic[1])
       const right = Number(arithmetic[3])
