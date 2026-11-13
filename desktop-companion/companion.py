@@ -98,7 +98,7 @@ class Handler(BaseHTTPRequestHandler):
             path = urlparse(self.path).path
             if path == "/launch":
                 result = launch_app(str(data.get("app") or "")); return self.reply(200 if result["success"] else 404, result)
-            if path == "/alarm": return self.reply(200, set_alarm(str(data.get("request") or "")))
+            if path == "/alarm": return self.reply(410, {"success": False, "error": "Built-in alarms have been removed. Use the browser alarm website."})
             self.reply(404, {"success": False, "error": "Not found"})
         except ValueError as e: self.reply(400, {"success": False, "error": str(e)})
         except Exception as e: self.reply(500, {"success": False, "error": type(e).__name__})
