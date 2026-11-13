@@ -1904,7 +1904,7 @@ const AIAssistant: React.FC<{
     // Reserve a tab before asynchronous AI planning for requests likely to
     // require an external app. Close it again when the planner decides this is
     // an ordinary question or an existing in-app action.
-    const appActionWindow = !navigationTab && /\b(?:send|message|email|mail|write|compose|schedule|create|find|search|open|launch|book|add)\b/i.test(message)
+    const appActionWindow = !navigationTab && /\b(?:send|message|email|mail|write|compose|schedule|create|find|search|open|launch|book|add|set|turn on|turn off|alarm|timer|print|scan|record|install|control|play|capture|download|upload|edit|save|delete|share)\b/i.test(message)
       ? window.open('about:blank', '_blank')
       : null
     // Chrome focuses a newly opened tab by default. Restore focus to Visionary Nexus
@@ -2004,6 +2004,8 @@ const AIAssistant: React.FC<{
       // Start the spoken confirmation before navigating the reserved tab away from this page.
       const result = executeAppAction({
         destination: String(featureIntent.destination || ""),
+        app_name: String(featureIntent.app_name || featureIntent.destination || ""),
+        destination_url: String(featureIntent.destination_url || ""),
         action: String(featureIntent.action || "open"),
         recipient: String(featureIntent.recipient || ""),
         message_text: String(featureIntent.message_text || ""),
