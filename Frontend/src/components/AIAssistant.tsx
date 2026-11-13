@@ -1905,14 +1905,16 @@ const AIAssistant: React.FC<{
       setMessages(previous => [...previous,
         { id: Date.now() + Math.random(), role: "user", content: message },
       ])
-      onMusic?.()
       if (typedMusicCommand.action === "open" && !typedMusicCommand.query) {
+        // Stay on the AI Assistant so the follow-up question remains visible.
+        // Switching tabs here would unmount this component and hide the prompt.
         awaitingTypedMusicChoiceRef.current = true
         const prompt = "Sure! Which song would you like to listen to?"
         addLocalMessage(prompt)
         speakResponse(prompt)
         return
       }
+      onMusic?.()
       window.dispatchEvent(new CustomEvent("visionary:voice-command", {
         detail: {
           activeTab: "music",
