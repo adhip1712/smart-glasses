@@ -126,6 +126,7 @@ const AIAssistant: React.FC<{
 
   const inputRef = useRef<HTMLInputElement>(null)
   const awaitingTypedMusicChoiceRef = useRef(false)
+  const awaitingAlarmTimeRef = useRef(false)
   const [speechStatus, setSpeechStatus] = useState("Voice not tested")
 
   // Browser speech uses the laptop's selected audio output and preserves all
@@ -1930,28 +1931,54 @@ const AIAssistant: React.FC<{
       return
     }
 
-    // Windows alarms are a local desktop action. Route them before conversation
-    // routing, AI classification, or /api/ask so backend availability/auth cannot
-    // prevent a real alarm from being scheduled. Accept common speech-to-text typos.
-    if (/\b(?:set|create|make|schedule)\b.*\b(?:alarm|alaram|alram)\b/i.test(message)
-        || /\b(?:alarm|alaram|alram)\b.*\b(?:at|for)\b/i.test(message)) {
+    // Route typed alarm requests locally. If no time was supplied, ask for it
+    // before attempting the desktop alarm or opening the browser fallback.
+    const isAlarmFollowUp = awaitingAlarmTimeRef.current
+    const alarmRequest = isAlarmFollowUp ? "Set an alarm for " + message : message
+    const isAlarmCommand = isAlarmFollowUp
+      || /\b(?:set|create|make|schedule)\b.*\b(?:alarm|alaram|alram)\b/i.test(message)
+      || /\b(?:alarm|alaram|alram)\b.*\b(?:at|for)\b/i.test(message)
+    if (isAlarmCommand) {
+      const hasExplicitTime = /\b(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)\b/i.test(alarmRequest)
+        || /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/.test(alarmRequest)
       setInput("")
       setMessages(previous => [...previous, {
         id: Date.now() + Math.random(),
         role: "user",
         content: message,
       }])
+      if (!hasExplicitTime) {
+        awaitingAlarmTimeRef.current = true
+        const prompt = "What time should I set the alarm for? Please include AM/PM, for example 7:30 AM."
+        addLocalMessage(prompt)
+        speakResponse(prompt)
+        return
+      }
+
+      awaitingAlarmTimeRef.current = false
+      // Reserve a tab during the user's click so the no-sign-in web fallback
+      // can still open after the asynchronous desktop-companion request.
+      const alarmFallbackWindow = window.open("about:blank", "_blank")
       try {
-        const alarm = await setDesktopAlarm(message)
+        const alarm = await setDesktopAlarm(alarmRequest)
         const when = alarm.scheduled_for
           ? new Date(alarm.scheduled_for).toLocaleString()
           : "the requested time"
         const confirmation = "Alarm set for " + when + ". " + (alarm.note || "")
+        if (alarmFallbackWindow && !alarmFallbackWindow.closed) alarmFallbackWindow.close()
         addLocalMessage(confirmation)
         speakResponse(confirmation)
       } catch (error) {
-        console.error("Local Windows alarm failed:", error)
-        const notice = "I couldn't reach the Windows companion, so no alarm was set. Please make sure the Visionary Nexus Companion is running on this laptop."
+        console.error("Local Windows alarm failed; opening the no-sign-in browser alarm.", error)
+        const fallbackUrl = "https://digiclock.net/alarm-clock/"
+        const notice = "I couldn't set the alarm through the Windows Clock companion, so I've opened DigiClock, a free online alarm that doesn't require signing in. Enter " +
+          message.replace(/^.*?\b(?:for|at)\s+/i, "") +
+          " there, then keep the tab open and your device awake so it can ring."
+        if (alarmFallbackWindow && !alarmFallbackWindow.closed) {
+          alarmFallbackWindow.location.href = fallbackUrl
+        } else {
+          addLocalMessage("Open the [DigiClock online alarm](" + fallbackUrl + ") to set it without signing in.")
+        }
         addLocalMessage(notice)
         speakResponse(notice)
       }
