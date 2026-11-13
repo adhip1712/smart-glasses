@@ -85,7 +85,15 @@ export function parseMusicCommand(input: string): MusicCommand | null {
   text = text.replace(/^(?:(?:hey|okay|ok)\s+)?vision(?:ary nexus)?[\s,:.!?-]*/i, '')
   if (!text) return null
 
-  if (/^(?:(?:i want to|i would like to|i'd like to|let me|can i|could i)\s+)?(?:listen(?:\s+to)?|hear)(?:\s+(?:something|anything|some music|music|a song|some songs))?[.!?]*$/i.test(text)) {
+  // A no-current-playback statement is also a request to start choosing music.
+  // Keep this local so it does not fall through to ordinary AI chat.
+  if (/^(?:there(?:'s| is)\s+)?no\s+(?:song|music)\s+(?:is\s+)?playing[.!?]*$/i.test(text) ||
+      /^(?:nothing|no music|no song)\s+(?:is\s+)?playing[.!?]*$/i.test(text) ||
+      /^(?:i have|there is)\s+no\s+(?:music|song)\s+playing[.!?]*$/i.test(text)) {
+    return { action: 'open', query: '' }
+  }
+
+  if (/^(?:(?:i want to|i would like to|i'd like to|let me|can i|could i|i wanna)\s+)?(?:listen(?:\s+to)?|hear)(?:\s+(?:something|anything|some music|music|a song|some songs|a track))?[.!?]*$/i.test(text)) {
     return { action: 'open', query: '' }
   }
 
