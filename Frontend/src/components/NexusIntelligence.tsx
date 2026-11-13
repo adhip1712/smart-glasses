@@ -36,6 +36,7 @@ export default function NexusIntelligence({ onOpenVision, onOpenDevice }: { onOp
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [voiceCount, setVoiceCount] = useState(0)
+  const [alertsEnabled, setAlertsEnabled] = useState(typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -69,6 +70,20 @@ export default function NexusIntelligence({ onOpenVision, onOpenDevice }: { onOp
     return () => { if ('speechSynthesis' in window) window.speechSynthesis.removeEventListener('voiceschanged', refresh) }
   }, [load])
 
+  useEffect(() => {
+    let active = true
+    const refreshDeviceHealth = async () => {
+      try {
+        const response = await apiFetch('/api/assistant/device-health')
+        if (!response.ok) return
+        const data = await readJson<{ devices: DeviceHealth[] }>(response)
+        if (active && data?.devices) setDevices(data.devices)
+      } catch { /* retain last known telemetry during brief disconnects */ }
+    }
+    const timer = window.setInterval(() => { void refreshDeviceHealth() }, 10000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [])
+
   const saveMemory = async () => {
     if (!memoryText.trim() || busy) return
     setBusy(true); setMessage(''); setError('')
@@ -86,6 +101,46 @@ export default function NexusIntelligence({ onOpenVision, onOpenDevice }: { onOp
     setMemories(previous => previous.filter(item => item.id !== id))
   }
 
+  const enableReminderAlerts = async () => {
+    if (!('Notification' in window)) {
+      setError('This browser does not support desktop notifications. Keep the Intelligence workspace open to receive spoken reminders.')
+      return
+    }
+    const permission = await Notification.requestPermission()
+    setAlertsEnabled(permission === 'granted')
+    setMessage(permission === 'granted'
+      ? 'Reminder alerts enabled. Alerts are checked while the Intelligence workspace is open.'
+      : 'Notifications were not enabled. You can change this in your browser site settings.')
+  }
+
+  useEffect(() => {
+    if (!alertsEnabled) return
+    const checkDueReminders = () => {
+      const now = Date.now()
+      reminders.forEach(item => {
+        if (item.completed) return
+        const due = new Date(item.due_at).getTime()
+        if (!Number.isFinite(due) || due > now) return
+        const key = 'visionary-reminder-alerted-' + item.id + '-' + item.due_at
+        try {
+          if (localStorage.getItem(key)) return
+          localStorage.setItem(key, '1')
+        } catch { /* best-effort duplicate prevention */ }
+        try {
+          new Notification('Visionary Nexus reminder', {
+            body: item.title + (item.notes ? '\\n' + item.notes : ''),
+            tag: key,
+          })
+        } catch { /* notification may be blocked by the browser */ }
+        speakText('Reminder: ' + item.title)
+        setMessage('Reminder due: ' + item.title)
+      })
+    }
+    checkDueReminders()
+    const timer = window.setInterval(checkDueReminders, 15000)
+    return () => window.clearInterval(timer)
+  }, [alertsEnabled, reminders])
+
   const saveReminder = async () => {
     if (!reminderTitle.trim() || !reminderDue || busy) return
     setBusy(true); setMessage(''); setError('')
@@ -96,7 +151,7 @@ export default function NexusIntelligence({ onOpenVision, onOpenDevice }: { onOp
       const data = await readJson<{ reminder?: Reminder; detail?: string }>(response)
       if (!response.ok || !data?.reminder) throw new Error(data?.detail || 'Could not save reminder.')
       setReminders(previous => [...previous, data.reminder!].sort((a,b) => a.due_at.localeCompare(b.due_at)))
-      setReminderTitle(''); setReminderDue(''); setReminderNotes(''); setMessage('Reminder saved. Notifications will be added in the scheduling phase.')
+      setReminderTitle(''); setReminderDue(''); setReminderNotes(''); setMessage(alertsEnabled ? 'Reminder saved. Alerts will be checked while this workspace is open.' : 'Reminder saved. Enable browser alerts to be notified while this workspace is open.')
     } catch (cause) { setError((cause as Error).message) } finally { setBusy(false) }
   }
 
@@ -104,6 +159,13 @@ export default function NexusIntelligence({ onOpenVision, onOpenDevice }: { onOp
     const response = await apiFetch('/api/assistant/reminders/' + item.id, { method: 'PATCH', body: JSON.stringify({ completed: !item.completed }) })
     const data = await readJson<{ reminder?: Reminder }>(response)
     if (response.ok && data?.reminder) setReminders(previous => previous.map(row => row.id === item.id ? data.reminder! : row))
+  }
+
+  const deleteReminder = async (item: Reminder) => {
+    const response = await apiFetch('/api/assistant/reminders/' + item.id, { method: 'DELETE' })
+    if (!response.ok) { setError('Could not delete that reminder.'); return }
+    setReminders(previous => previous.filter(row => row.id !== item.id))
+    setMessage('Reminder deleted.')
   }
 
   const saveWorkflow = async () => {
@@ -152,10 +214,11 @@ export default function NexusIntelligence({ onOpenVision, onOpenDevice }: { onOp
     </section>
 
     <section id="vn-reminders" className={panel}>
-      <div className="mb-4"><p className="font-mono text-[10px] tracking-widest text-white/35">04 / PERSONAL ASSISTANT</p><h3 className="mt-1 text-base font-semibold text-white">Reminders</h3><p className="mt-1 text-xs text-white/40">Reminders are saved to your account. Automatic push/voice alerts are not enabled yet.</p></div>
+      <div className="mb-4"><p className="font-mono text-[10px] tracking-widest text-white/35">04 / PERSONAL ASSISTANT</p><h3 className="mt-1 text-base font-semibold text-white">Reminders</h3><p className="mt-1 text-xs text-white/40">Enable browser alerts to receive a desktop notification and spoken reminder while this workspace is open.</p></div>
+      <button className={action + ' mb-3'} onClick={() => void enableReminderAlerts()}>{alertsEnabled ? 'BROWSER ALERTS ENABLED' : 'ENABLE BROWSER ALERTS'}</button>
       <div className="grid gap-2 md:grid-cols-2"><input className={field} value={reminderTitle} onChange={event => setReminderTitle(event.target.value)} maxLength={180} placeholder="Reminder title" /><input className={field} type="datetime-local" value={reminderDue} onChange={event => setReminderDue(event.target.value)} /></div>
       <div className="mt-2 flex flex-col gap-2 md:flex-row"><input className={field} value={reminderNotes} onChange={event => setReminderNotes(event.target.value)} maxLength={1000} placeholder="Notes (optional)" /><button className={action} disabled={!reminderTitle.trim() || !reminderDue || busy} onClick={() => void saveReminder()}>ADD REMINDER</button></div>
-      <div className="mt-4 space-y-2">{reminders.length ? reminders.map(item => <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-black/20 p-3"><label className="flex min-w-0 items-start gap-3"><input type="checkbox" checked={item.completed} onChange={() => void completeReminder(item)} className="mt-1 accent-cyan-300" /><span className="min-w-0"><b className={`block text-xs ${item.completed ? 'text-white/35 line-through' : 'text-white/80'}`}>{item.title}</b><small className="mt-1 block text-[10px] text-white/35">{dueLabel(item.due_at)} · {item.timezone}</small>{item.notes && <small className="mt-1 block text-[10px] text-white/30">{item.notes}</small>}</span></label></div>) : <p className="text-xs text-white/35">No reminders yet.</p>}</div>
+      <div className="mt-4 space-y-2">{reminders.length ? reminders.map(item => <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-black/20 p-3"><label className="flex min-w-0 items-start gap-3"><input type="checkbox" checked={item.completed} onChange={() => void completeReminder(item)} className="mt-1 accent-cyan-300" /><span className="min-w-0"><b className={`block text-xs ${item.completed ? 'text-white/35 line-through' : 'text-white/80'}`}>{item.title}</b><small className="mt-1 block text-[10px] text-white/35">{dueLabel(item.due_at)} · {item.timezone}</small>{item.notes && <small className="mt-1 block text-[10px] text-white/30">{item.notes}</small>}</span></label><button type="button" className="shrink-0 text-[10px] text-red-200/70 hover:text-red-200" onClick={() => void deleteReminder(item)}>DELETE</button></div>) : <p className="text-xs text-white/35">No reminders yet.</p>}</div>
     </section>
 
     <section id="vn-workflows" className={panel}>

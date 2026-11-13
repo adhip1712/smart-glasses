@@ -70,6 +70,11 @@ class ReminderCreate(BaseModel):
     timezone_name: str = Field(default="Asia/Kolkata", max_length=80)
 
 
+class VisionAnalyzeRequest(BaseModel):
+    image_base64: str = Field(min_length=100, max_length=11_200_000)
+    prompt: str = Field(default="Describe the visible scene, important objects, and readable text. Separate observations from guesses.", max_length=500)
+
+
 class ReminderUpdate(BaseModel):
     completed: bool
 
@@ -209,6 +214,30 @@ def delete_reminder(reminder_id: int, request: Request):
         return {"deleted": True}
     finally:
         db.close()
+
+
+@router.post("/vision/analyze")
+def analyze_uploaded_scene(payload: VisionAnalyzeRequest, request: Request):
+    """Analyze one image explicitly supplied by the signed-in user.
+
+    Images are processed in memory and are not written to disk or retained.
+    """
+    _user_id(request)
+    try:
+        from backend.vision import decode_image, image_mime_type, understand_scene
+    except ImportError:  # pragma: no cover
+        from vision import decode_image, image_mime_type, understand_scene
+
+    image = decode_image(payload.image_base64)
+    if not image:
+        raise HTTPException(status_code=422, detail="The uploaded image could not be decoded.")
+    if image_mime_type(image) not in {"image/jpeg", "image/png", "image/webp"}:
+        raise HTTPException(status_code=415, detail="Use a JPEG, PNG, or WebP image.")
+    if len(image) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Images must be 8 MB or smaller.")
+
+    result = understand_scene(image, payload.prompt.strip() or None)
+    return result
 
 
 @router.get("/workflows")

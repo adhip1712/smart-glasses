@@ -96,6 +96,9 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
   const [language, setLanguage] = useState('en-IN')
   const [liveTranscript, setLiveTranscript] = useState('')
   const recognitionRef = useRef<any>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const mediaChunksRef = useRef<Blob[]>([])
+  const mediaStreamRef = useRef<MediaStream | null>(null)
   const wakeRecognitionRef = useRef<any>(null)
   const wakeListeningRef = useRef(false)
   const wakeRestartRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -172,6 +175,9 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
     wakeListeningRef.current = false
     try { recognitionRef.current?.abort() } catch { /* browser may already have closed it */ }
     try { wakeRecognitionRef.current?.abort() } catch { /* browser may already have closed it */ }
+    try { if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop() } catch { /* recorder may already be stopped */ }
+    mediaStreamRef.current?.getTracks().forEach(track => track.stop())
+    mediaStreamRef.current = null
   }, [])
 
   const processTranscript = async (rawTranscript: string, selectedLanguage: string) => {
@@ -292,15 +298,16 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
     if (wakeListeningRef.current) stopWakeListening()
     if (listening) {
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
+      if (mediaRecorderRef.current?.state === 'recording') {
+        mediaRecorderRef.current.stop()
+        mediaStreamRef.current?.getTracks().forEach(track => track.stop())
+        setListening(false)
+        setStatus('Transcribing your recording…')
+        return
+      }
       try { recognitionRef.current?.stop() } catch { /* recognition may already have stopped */ }
       setListening(false)
       setStatus('Finishing your dictation…')
-      return
-    }
-
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SpeechRecognition) {
-      setStatus('Voice input needs a supported browser such as Chrome.')
       return
     }
 
@@ -312,10 +319,65 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
         ? lastTextTargetRef.current
         : null
 
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    const selectedLanguage = languageRef.current
+    if (!SpeechRecognition) {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+          throw new Error('This browser does not support microphone recording. Try Chrome or Edge.')
+        }
+        setStatus('Checking microphone access…')
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        mediaStreamRef.current = stream
+        mediaChunksRef.current = []
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : ''
+        const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+        mediaRecorderRef.current = recorder
+        recorder.ondataavailable = event => { if (event.data.size) mediaChunksRef.current.push(event.data) }
+        recorder.onerror = () => {
+          setListening(false)
+          setStatus('Microphone recording failed. Check browser permissions and try again.')
+          stream.getTracks().forEach(track => track.stop())
+        }
+        recorder.onstop = async () => {
+          const blob = new Blob(mediaChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+          mediaChunksRef.current = []
+          mediaRecorderRef.current = null
+          mediaStreamRef.current?.getTracks().forEach(track => track.stop())
+          mediaStreamRef.current = null
+          if (!blob.size) { setStatus('No audio was recorded. Try again.'); return }
+          setStatus('Transcribing audio…')
+          try {
+            const form = new FormData()
+            const extension = blob.type.includes('mp4') ? 'm4a' : 'webm'
+            form.append('audio', blob, 'dictation.' + extension)
+            form.append('language', selectedLanguage)
+            const response = await apiFetch('/api/voice/transcribe', { method: 'POST', body: form })
+            const data = await readJson<{ success?: boolean; text?: string; message?: string }>(response)
+            if (!response.ok || !data?.success || !data.text?.trim()) throw new Error(data?.message || 'Speech transcription is unavailable. Check the backend STT provider.')
+            await processTranscript(data.text, selectedLanguage)
+          } catch (error) {
+            setStatus(error instanceof Error ? error.message : 'Could not transcribe the recording.')
+          }
+        }
+        recorder.start(250)
+        setListening(true)
+        setStatus(targetRef.current ? 'Recording dictation — press Stop when finished.' : 'Recording voice command — press Stop when finished.')
+      } catch (error) {
+        mediaStreamRef.current?.getTracks().forEach(track => track.stop())
+        mediaStreamRef.current = null
+        setListening(false)
+        const denied = error instanceof DOMException && error.name === 'NotAllowedError'
+        setStatus(denied ? 'Microphone permission is blocked. Allow microphone access for this site.' : (error instanceof Error ? error.message : 'Microphone could not start.'))
+      }
+      return
+    }
+
     transcriptRef.current = ''
     interimRef.current = ''
     setLiveTranscript('')
-    const selectedLanguage = languageRef.current
     const recognition = new SpeechRecognition()
     recognition.lang = selectedLanguage
     recognition.continuous = true

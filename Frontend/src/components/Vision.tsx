@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { apiFetch, readJson } from '../services/api'
 
 import { cameraSnapshotUrl, fetchCameraStatus, type CameraStatus } from '../api/camera'
 import {
@@ -81,6 +82,9 @@ export default function Vision({ onAskAssistant }: { onAskAssistant?: (prompt: s
   const [visionFrameTick, setVisionFrameTick] = useState(0)
   const [visionFrameFailed, setVisionFrameFailed] = useState(false)
   const [analysisSummary, setAnalysisSummary] = useState('Start detection to analyze the live camera scene.')
+  const [aiSceneDescription, setAiSceneDescription] = useState('')
+  const [aiSceneBusy, setAiSceneBusy] = useState(false)
+  const [aiSceneError, setAiSceneError] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -158,6 +162,41 @@ export default function Vision({ onAskAssistant }: { onAskAssistant?: (prompt: s
     setAnalysisSummary(total
       ? 'Live scene: ' + labels.map(([name, count]) => name + (count > 1 ? ' ×' + count : '')).join(', ') + '. ' + total + ' object detection(s) currently visible.'
       : 'No objects are currently above the detector confidence threshold.')
+  }
+
+  const handleImageSceneAnalysis = async (file?: File) => {
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setAiSceneError('Choose an image file.')
+      return
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setAiSceneError('Choose an image smaller than 8 MB.')
+      return
+    }
+    setAiSceneBusy(true)
+    setAiSceneError('')
+    setAiSceneDescription('')
+    try {
+      const imageBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result || ''))
+        reader.onerror = () => reject(new Error('Could not read that image.'))
+        reader.readAsDataURL(file)
+      })
+      const response = await apiFetch('/api/assistant/vision/analyze', {
+        method: 'POST',
+        body: JSON.stringify({ image_base64: imageBase64, prompt: 'Describe the visible scene for a smart-glasses wearer. Identify objects, visible text, spatial relationships, and notable context. Do not guess personal identities or claim uncertain details as facts. Keep it concise.' }),
+      })
+      const data = await readJson<{ success?: boolean; description?: string; message?: string; detail?: string }>(response)
+      if (!response.ok) throw new Error(data?.detail || data?.message || 'Scene analysis failed.')
+      if (!data?.success || !data.description) throw new Error(data?.message || 'AI image understanding is not configured on the backend.')
+      setAiSceneDescription(data.description)
+    } catch (error) {
+      setAiSceneError(error instanceof Error ? error.message : 'Scene analysis failed.')
+    } finally {
+      setAiSceneBusy(false)
+    }
   }
 
   const handleVisionToggle = async () => {
@@ -604,6 +643,15 @@ export default function Vision({ onAskAssistant }: { onAskAssistant?: (prompt: s
                 ? `YOLO found ${overlayObjects.length} object(s) across ${Object.keys(visionDetections?.labels ?? {}).length} class(es): ${Object.entries(visionDetections?.labels ?? {}).map(([name, count]) => `${name} ×${count}`).join(', ')}.`
                 : 'Start detection to see a live scene summary.')}
             </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <label className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 font-mono text-[10px] tracking-wider text-white/75 hover:bg-white/10 cursor-pointer">
+                {aiSceneBusy ? 'ANALYZING IMAGE…' : 'CAPTURE / UPLOAD PHOTO'}
+                <input type="file" accept="image/*" capture="environment" className="hidden" disabled={aiSceneBusy} onChange={event => { void handleImageSceneAnalysis(event.target.files?.[0]); event.currentTarget.value = '' }} />
+              </label>
+              <span className="text-[9px] text-white/35">AI image analysis · explicit photo only · up to 8 MB</span>
+            </div>
+            {aiSceneError && <p role="alert" className="mt-2 text-xs text-red-200">{aiSceneError}</p>}
+            {aiSceneDescription && <div className="mt-3 rounded-xl border border-cyan-300/15 bg-cyan-300/5 p-3"><p className="mb-1 text-[9px] font-mono tracking-widest text-cyan-100/60">AI IMAGE UNDERSTANDING</p><p className="whitespace-pre-wrap text-xs leading-relaxed text-white/75">{aiSceneDescription}</p></div>}
             <button
               type="button"
               disabled={!usingRealDetections || !onAskAssistant}
