@@ -136,6 +136,22 @@ async function speakWithCloud(text: string, run: number, onStarted: () => void):
   }
 }
 
+// Call synchronously from the user's click/tap before any async work or tab switch.
+// This unlocks Chrome's speech output so the later AI response can speak after
+// classification finishes, even when Gmail or another app opens in a new tab.
+export function primeSpeechOutput(): void {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') return
+  try {
+    const synthesis = window.speechSynthesis
+    synthesis.resume()
+    const unlock = new SpeechSynthesisUtterance(' ')
+    unlock.volume = 0
+    unlock.rate = 10
+    unlock.onend = () => synthesis.resume()
+    synthesis.speak(unlock)
+  } catch { /* browser may not expose speech output */ }
+}
+
 export function speakText(value: string, options: SpeechOptions = {}): boolean {
   const text = cleanSpeechText(value)
   if (!text || (!areVoiceResponsesEnabled() && !options.force)) return false

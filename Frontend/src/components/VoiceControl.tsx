@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { apiFetch, readJson } from '../services/api'
 import { correctDictation, isTextEntry } from '../services/dictation'
+import { primeSpeechOutput } from '../services/speech'
 
 interface VoiceControlProps {
   onCommand: (text: string) => void
@@ -219,6 +220,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
   }
 
   const startWakeListening = async () => {
+    primeSpeechOutput()
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SpeechRecognition) {
       setStatus('Wake-word listening needs a supported browser such as Chrome.')
@@ -286,6 +288,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
   }
 
   const toggle = async () => {
+    primeSpeechOutput()
     if (wakeListeningRef.current) stopWakeListening()
     if (listening) {
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)

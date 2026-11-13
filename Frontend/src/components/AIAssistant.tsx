@@ -9,7 +9,7 @@ import remarkGfm from "remark-gfm"
 import { apiFetch } from "../services/api"
 import { parseCallIntent } from "../services/callIntent"
 import { answerBirthdayQuestion, executeAppAction } from "../services/universalApps"
-import { speakText } from "../services/speech"
+import { primeSpeechOutput, speakText } from "../services/speech"
 
 // =========================================================
 // BROWSER SPEECH RECOGNITION TYPES
@@ -1874,6 +1874,10 @@ const AIAssistant: React.FC<{
     if (!message) {
       return
     }
+
+    // Unlock speech while this submit still has the user's click activation.
+    // The AI response arrives after an async request and may follow a tab switch.
+    primeSpeechOutput()
 
     // Reserve a browser tab synchronously for explicit navigation commands.
     const navigationTab = /\b(navigate|navigation|directions|route|take me to|take me|go to|how do i get to|find directions to)\b/i.test(message)
