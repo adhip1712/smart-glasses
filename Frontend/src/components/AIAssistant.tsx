@@ -11,6 +11,7 @@ import { parseCallIntent } from "../services/callIntent"
 import { answerBirthdayQuestion, executeAppAction } from "../services/universalApps"
 import { launchDesktopApp, setDesktopAlarm } from "../services/desktopCompanion"
 import { primeSpeechOutput, speakText } from "../services/speech"
+import { parseMusicCommand } from "../services/voiceMusic"
 
 // =========================================================
 // BROWSER SPEECH RECOGNITION TYPES
@@ -124,6 +125,7 @@ const AIAssistant: React.FC<{
   // =======================================================
 
   const inputRef = useRef<HTMLInputElement>(null)
+  const awaitingTypedMusicChoiceRef = useRef(false)
   const [speechStatus, setSpeechStatus] = useState("Voice not tested")
 
   // Browser speech uses the laptop's selected audio output and preserves all
@@ -1878,6 +1880,53 @@ const AIAssistant: React.FC<{
     // Unlock speech while this submit still has the user's click activation.
     // The AI response arrives after an async request and may follow a tab switch.
     primeSpeechOutput()
+
+    // Typed music requests use the same Music tab command handler as voice.
+    // Keep a two-turn prompt state so "I want to hear" asks for a title first.
+    if (awaitingTypedMusicChoiceRef.current) {
+      awaitingTypedMusicChoiceRef.current = false
+      const choice = message
+      setInput("")
+      setMessages(previous => [...previous,
+        { id: Date.now() + Math.random(), role: "user", content: choice },
+      ])
+      onMusic?.()
+      const query = /^(surprise me|anything|any song)$/i.test(choice) ? "popular songs" : choice
+      window.dispatchEvent(new CustomEvent("visionary:voice-command", {
+        detail: { activeTab: "music", intent: "music", action: "play", query, text: choice },
+      }))
+      addLocalMessage("Searching for " + query + " and starting playback.")
+      return
+    }
+
+    const typedMusicCommand = parseMusicCommand(message)
+    if (typedMusicCommand) {
+      setInput("")
+      setMessages(previous => [...previous,
+        { id: Date.now() + Math.random(), role: "user", content: message },
+      ])
+      onMusic?.()
+      if (typedMusicCommand.action === "open" && !typedMusicCommand.query) {
+        awaitingTypedMusicChoiceRef.current = true
+        const prompt = "Sure! Which song would you like to listen to?"
+        addLocalMessage(prompt)
+        speakResponse(prompt)
+        return
+      }
+      window.dispatchEvent(new CustomEvent("visionary:voice-command", {
+        detail: {
+          activeTab: "music",
+          intent: "music",
+          action: typedMusicCommand.action,
+          query: typedMusicCommand.query,
+          text: message,
+        },
+      }))
+      addLocalMessage(typedMusicCommand.query
+        ? "Searching for " + typedMusicCommand.query + " and starting playback."
+        : "Opening music controls.")
+      return
+    }
 
     // Windows alarms are a local desktop action. Route them before conversation
     // routing, AI classification, or /api/ask so backend availability/auth cannot
