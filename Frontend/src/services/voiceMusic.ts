@@ -85,7 +85,7 @@ export function parseMusicCommand(input: string): MusicCommand | null {
   text = text.replace(/^(?:(?:hey|okay|ok)\s+)?vision(?:ary nexus)?[\s,:.!?-]*/i, '')
   if (!text) return null
 
-  if (/^(?:(?:i want to|i would like to|i'd like to|let me|can i|could i)\s+)?(?:listen to|hear)\s+(?:something|anything|some music|music|a song|some songs)[.!?]*$/i.test(text)) {
+  if (/^(?:(?:i want to|i would like to|i'd like to|let me|can i|could i)\s+)?(?:listen(?:\s+to)?|hear)(?:\s+(?:something|anything|some music|music|a song|some songs))?[.!?]*$/i.test(text)) {
     return { action: 'open', query: '' }
   }
 
