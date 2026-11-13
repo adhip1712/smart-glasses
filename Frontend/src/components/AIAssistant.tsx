@@ -1907,6 +1907,30 @@ const AIAssistant: React.FC<{
       return
     }
 
+    // Basic arithmetic is deterministic and does not need an AI API call.
+    const arithmetic = message.match(/^(?:what is\\s+|calculate\\s+)?(-?\\d+(?:\\.\\d+)?)\\s*([+\\-*/x×÷])\\s*(-?\\d+(?:\\.\\d+)?)\\??$/i)
+    if (arithmetic) {
+      const left = Number(arithmetic[1])
+      const right = Number(arithmetic[3])
+      const operator = arithmetic[2].toLowerCase()
+      let answer: number
+      if (operator === "+") answer = left + right
+      else if (operator === "-") answer = left - right
+      else if (operator === "*" || operator === "x" || operator === "×") answer = left * right
+      else if (operator === "÷" || operator === "/") answer = right === 0 ? NaN : left / right
+      else answer = NaN
+      const response = Number.isFinite(answer)
+        ? String(Number(answer.toPrecision(12)))
+        : "That calculation is undefined."
+      setInput("")
+      setMessages(previous => [...previous,
+        { id: Date.now() + Math.random(), role: "user", content: message },
+        { id: Date.now() + Math.random() + 1, role: "ai", content: response },
+      ])
+      speakResponse(response)
+      return
+    }
+
     // Reserve a browser tab synchronously for explicit navigation commands.
     const navigationTab = /\b(navigate|navigation|directions|route|take me to|take me|go to|how do i get to|find directions to)\b/i.test(message)
       ? window.open('about:blank', '_blank')
