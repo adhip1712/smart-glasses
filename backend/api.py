@@ -3391,12 +3391,13 @@ Rules:
         )
         parsed = json.loads(completion.choices[0].message.content or "{}")
         allowed = {"app_action", "whatsapp", "music", "weather", "navigation", "vision", "audio", "dashboard", "ai", "notifications", "device", "settings", "general"}
-        actions = {"compose_email", "open_chat", "find_conversation", "create_event", "find_event", "send", "play", "pause", "resume", "next", "previous", "search", "open", "capture", "analyze", "none"}
         intent = str(parsed.get("intent") or "general").lower()
         if intent not in allowed:
             intent = "general"
-        action = str(parsed.get("action") or "none").lower()
-        if action not in actions:
+        # Task names are intentionally extensible: new apps can expose actions
+        # such as set_alarm, print, scan, or open_file without backend edits.
+        action = re.sub(r"[^a-z0-9_]+", "_", str(parsed.get("action") or "none").lower()).strip("_")
+        if not action or len(action) > 64:
             action = "none"
         destination = str(parsed.get("destination") or "").strip()
         app_name = str(parsed.get("app_name") or destination).strip()
