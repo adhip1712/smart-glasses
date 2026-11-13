@@ -181,7 +181,7 @@ function NowPlayingMini({
 }
 
 type Props = {
-  setActiveTab: (tab: "dashboard" | "ai" | "vision" | "music" | "weather" | "nav" | "notifications" | "whatsapp" | "calling" | "device" | "settings") => void
+  setActiveTab: (tab: "dashboard" | "ai" | "vision" | "music" | "weather" | "notifications" | "whatsapp" | "calling" | "device" | "settings") => void
   displayName: string
   backendOnline: boolean
   glassesOnline: number
@@ -221,15 +221,7 @@ export default function SpatialDashboard({ setActiveTab, displayName, backendOnl
             </span>
             <i>↗</i>
           </button>
-          <button onClick={() => setActiveTab('nav')}>
-            <Icon file="5331f.svg" />
-            <span>
-              <b>Take me home</b>
-              <small>Open route guidance</small>
-            </span>
-            <i>↗</i>
-          </button>
-        </div>
+</div>
       </Panel>
       <div className="context-column">
         <MiniDevice connected={glassesOnline > 0} />

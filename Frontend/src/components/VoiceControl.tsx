@@ -218,7 +218,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
     setStatus('Wake-word listening stopped.')
   }
 
-  const startWakeListening = () => {
+  const startWakeListening = async () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SpeechRecognition) {
       setStatus('Wake-word listening needs a supported browser such as Chrome.')
@@ -265,10 +265,18 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
         wakeRestartRef.current = setTimeout(() => startWakeListening(), 450)
       }
     }
-    try { recognition.start() } catch {
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone access requires HTTPS and a supported browser.')
+      setStatus('Checking microphone access…')
+      const permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      permissionStream.getTracks().forEach(track => track.stop())
+      if (!wakeListeningRef.current) return
+      recognition.start()
+    } catch (error) {
       wakeListeningRef.current = false
       setWakeListening(false)
-      setStatus('Microphone is busy. Try again in a moment.')
+      const denied = error instanceof DOMException && error.name === 'NotAllowedError'
+      setStatus(denied ? 'Microphone permission is blocked. Allow microphone access for this site in Chrome.' : (error instanceof Error ? error.message : 'Microphone could not start.'))
     }
   }
 
@@ -277,7 +285,7 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
     else startWakeListening()
   }
 
-  const toggle = () => {
+  const toggle = async () => {
     if (wakeListeningRef.current) stopWakeListening()
     if (listening) {
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
@@ -353,10 +361,16 @@ export default function VoiceControl({ onCommand }: VoiceControlProps) {
 
     recognitionRef.current = recognition
     try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone access requires HTTPS and a supported browser.')
+      setStatus('Checking microphone access…')
+      const permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      permissionStream.getTracks().forEach(track => track.stop())
+      if (recognitionRef.current !== recognition) return
       recognition.start()
-    } catch {
+    } catch (error) {
       setListening(false)
-      setStatus('Microphone is busy. Try again in a moment.')
+      const denied = error instanceof DOMException && error.name === 'NotAllowedError'
+      setStatus(denied ? 'Microphone permission is blocked. Allow microphone access for this site in Chrome.' : (error instanceof Error ? error.message : 'Microphone could not start.'))
     }
   }
 

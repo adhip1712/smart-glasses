@@ -20,7 +20,6 @@ const shortcuts: { label: string; detail: string; tab: Tab; mark: string }[] = [
   { label: 'AI assistant', detail: 'Ask, dictate and get things done', tab: 'ai', mark: '✳' },
   { label: 'Vision', detail: 'Camera, recognition and scene analysis', tab: 'vision', mark: '◈' },
   { label: 'Music', detail: 'Your connected listening space', tab: 'music', mark: '♫' },
-  { label: 'Navigation', detail: 'Routes, directions and places', tab: 'nav', mark: '↗' },
 ]
 
 export default function Dashboard({ setActiveTab }: { setActiveTab: (t: Tab) => void }) {
