@@ -9,6 +9,7 @@ import remarkGfm from "remark-gfm"
 import { apiFetch } from "../services/api"
 import { parseCallIntent } from "../services/callIntent"
 import { answerBirthdayQuestion, executeAppAction } from "../services/universalApps"
+import { primeSpeechOutput, speakText } from "../services/speech"
 
 // =========================================================
 // BROWSER SPEECH RECOGNITION TYPES
@@ -67,12 +68,7 @@ type NavigationResult = {
   destination?: string
   distance_km?: number
   duration_minutes?: number
-  steps?: Array<{
-    instruction?: string
-    type?: string
-    modifier?: string
-    distance_meters?: number
-  }>
+  steps?: Array<{ instruction?: string }>
   message?: string
 }
 
@@ -131,38 +127,18 @@ const AIAssistant: React.FC<{
 
   // Browser speech uses the laptop's selected audio output and preserves all
   // existing backend APIs. The test button provides a user-gesture unlock.
-  const speakResponse = (value: string) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window) ||
-        typeof SpeechSynthesisUtterance === "undefined") {
-      setSpeechStatus("Speech unavailable in this browser")
-      console.error("Speech output is unavailable in this browser.")
-      return
+  const speakResponse = (value: string, onFinished?: () => void) => {
+    const started = speakText(value, {
+      onStart: () => setSpeechStatus("Speaking"),
+      onEnd: () => { setSpeechStatus("Voice ready"); onFinished?.() },
+      onError: error => { setSpeechStatus("Speech error: " + error); onFinished?.() },
+    })
+    if (started) setSpeechStatus("Starting voice…")
+    else {
+      setSpeechStatus("Voice responses are disabled or unavailable")
+      onFinished?.()
     }
-
-    const spokenText = value
-      .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-      .replace(/[#*_>|~]/g, " ")
-      .replace(new RegExp(String.fromCharCode(96), "g"), " ")
-      .replace(/\s+/g, " ")
-      .trim()
-
-    if (!spokenText) return
-    window.speechSynthesis.cancel()
-    window.speechSynthesis.resume()
-    const utterance = new SpeechSynthesisUtterance(spokenText)
-    utterance.lang = navigator.language || "en-US"
-    utterance.rate = 1
-    utterance.pitch = 1
-    utterance.volume = 1
-    utterance.onstart = () => setSpeechStatus("Speaking")
-    utterance.onend = () => setSpeechStatus("Voice ready")
-    utterance.onerror = (event) => {
-      setSpeechStatus(`Speech error: ${event.error}`)
-      console.error("Browser speech synthesis failed:", event.error)
-    }
-    setSpeechStatus("Starting voice…")
-    window.speechSynthesis.speak(utterance)
+    return started
   }
 
   const audioRef =
@@ -1874,7 +1850,7 @@ const AIAssistant: React.FC<{
 
       if (navigationMatch) {
         const destination = navigationMatch[1].trim()
-        await getNavigation(destination)
+        onNavigate?.(destination)
         return true
       }
 
@@ -1897,6 +1873,10 @@ const AIAssistant: React.FC<{
     if (!message) {
       return
     }
+
+    // Unlock speech while this submit still has the user's click activation.
+    // The AI response arrives after an async request and may follow a tab switch.
+    primeSpeechOutput()
 
     // Reserve a browser tab synchronously for explicit navigation commands.
     const navigationTab = /\b(navigate|navigation|directions|route|take me to|take me|go to|how do i get to|find directions to)\b/i.test(message)
@@ -1927,6 +1907,9 @@ const AIAssistant: React.FC<{
     const appActionWindow = !navigationTab && /\b(?:send|message|email|mail|write|compose|schedule|create|find|search|open|launch|book|add)\b/i.test(message)
       ? window.open('about:blank', '_blank')
       : null
+    // Chrome focuses a newly opened tab by default. Restore focus to Visionary Nexus
+    // so its speech engine remains in the foreground while AI planning completes.
+    if (navigationTab || appActionWindow) window.focus()
 
     // AI plans the intent before ordinary chat fallback. This is semantic
     // routing, not a growing collection of phrase-specific command patterns.
@@ -2012,19 +1995,25 @@ const AIAssistant: React.FC<{
     }
 
     if (featureIntent?.intent === "navigation" && featureIntent.destination) {
-      onNavigate?.(String(featureIntent.destination), navigationTab)
+      const destination = String(featureIntent.destination)
+      speakResponse(`Opening Google Maps directions to ${destination}.`, () => onNavigate?.(destination, navigationTab))
       return
     }
 
     if (featureIntent?.intent === "app_action") {
+      // Start the spoken confirmation before navigating the reserved tab away from this page.
       const result = executeAppAction({
         destination: String(featureIntent.destination || ""),
         action: String(featureIntent.action || "open"),
         recipient: String(featureIntent.recipient || ""),
         message_text: String(featureIntent.message_text || ""),
         query: String(featureIntent.query || ""),
-      }, appActionWindow)
+      }, null, true)
       addLocalMessage(result.message)
+      speakResponse(result.message, () => {
+        if (result.url && appActionWindow && !appActionWindow.closed) appActionWindow.location.href = result.url
+      })
+      if (!result.url && appActionWindow && !appActionWindow.closed) appActionWindow.close()
       return
     }
 
@@ -2279,7 +2268,7 @@ const AIAssistant: React.FC<{
           <div className="flex flex-col items-end gap-1">
             <button
               type="button"
-              onClick={() => speakResponse("Visionary Nexus voice responses are working. You should hear this through your laptop speakers.")}
+              onClick={() => speakText("Visionary Nexus voice responses are working. You should hear this through your laptop speakers.", { force: true, onStart: () => setSpeechStatus("Speaking"), onEnd: () => setSpeechStatus("Voice ready"), onError: error => setSpeechStatus("Speech error: " + error) })}
               className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-xs font-medium text-white hover:bg-cyan-400/20 transition-all"
               aria-label="Test spoken responses"
             >

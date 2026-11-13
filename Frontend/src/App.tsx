@@ -4,7 +4,6 @@ import AIAssistant from './components/AIAssistant'
 import Vision from './components/Vision'
 import Music from './components/Music'
 import Weather from './components/Weather'
-import Navigation from './components/Navigation'
 import Notifications from './components/Notifications'
 import Device from './components/Device'
 import Settings from './components/Settings'
@@ -35,7 +34,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs = 10000): Promise<T> {
   })
 }
 
-export type Tab = 'dashboard' | 'ai' | 'vision' | 'music' | 'weather' | 'nav' | 'notifications' | 'whatsapp' | 'calling' | 'device' | 'settings'
+export type Tab = 'dashboard' | 'ai' | 'vision' | 'music' | 'weather' | 'notifications' | 'whatsapp' | 'calling' | 'device' | 'settings'
 
 const DashIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
@@ -72,11 +71,6 @@ const WeatherIcon = () => (
     <path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.6 1.6A4 4 0 0 0 7 19h10.5z" />
   </svg>
 )
-const NavIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
-    <polygon points="3 11 22 2 13 21 11 13 3 11" />
-  </svg>
-)
 const BellIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
     <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" />
@@ -106,7 +100,6 @@ const tabs = [
   { id: 'vision' as Tab, label: 'Vision', Icon: EyeIcon },
   { id: 'music' as Tab, label: 'Music', Icon: MusicIcon },
   { id: 'weather' as Tab, label: 'Weather', Icon: WeatherIcon },
-  { id: 'nav' as Tab, label: 'Navigation', Icon: NavIcon },
   { id: 'notifications' as Tab, label: 'Notifications', Icon: BellIcon },
   { id: 'whatsapp' as Tab, label: 'WhatsApp', Icon: WhatsAppIcon },
   { id: 'calling' as Tab, label: 'Calling', Icon: PhoneIcon },
@@ -123,7 +116,6 @@ interface SystemStatus {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard')
-  const [navigationDestination, setNavigationDestination] = useState('')
   const [pendingVoiceCommand, setPendingVoiceCommand] = useState('')
   const [pendingWhatsAppDraft, setPendingWhatsAppDraft] = useState<{ recipient: string; message: string } | null>(null)
   const consumeWhatsAppDraft = useCallback(() => setPendingWhatsAppDraft(null), [])
@@ -375,6 +367,7 @@ export default function App() {
           }
           const musicCommand = parseMusicCommand(spoken)
           if (musicCommand) {
+            speakText(musicCommand.query ? 'Opening music for ' + musicCommand.query + '.' : 'Opening YouTube Music.')
             setActiveTab('music')
             publishMusicCommand({
               activeTab: 'music',
@@ -392,6 +385,8 @@ export default function App() {
           const appActionWindow = /\b(?:send|message|email|mail|write|compose|schedule|create|find|search|open|launch|book|add)\b/i.test(spoken)
             ? window.open('about:blank', '_blank')
             : null
+          // Keep Visionary Nexus focused; the external tab is navigated only after speech.
+          if (appActionWindow) window.focus()
           try {
             const response = await apiFetch('/api/intent/classify', {
               method: 'POST',
@@ -412,6 +407,7 @@ export default function App() {
             const routedIntent = (intent?.intent || 'general').toLowerCase()
             const polished = intent?.polished_text?.trim() || spoken
             if (routedIntent === 'music') {
+              speakText(intent?.query ? 'Opening music for ' + intent.query + '.' : 'Opening YouTube Music.')
               setActiveTab('music')
               publishMusicCommand({
                 activeTab: 'music', provider: 'youtube', source: 'voice', intent: 'music',
@@ -423,14 +419,19 @@ export default function App() {
               return
             }
             if (routedIntent === 'app_action') {
+              // Begin the spoken confirmation before the new app tab takes focus.
               const result = executeAppAction({
                 destination: String(intent?.destination || ''),
                 action: String(intent?.action || 'open'),
                 recipient: String(intent?.recipient || ''),
                 message_text: String(intent?.message_text || ''),
                 query: String(intent?.query || ''),
-              }, appActionWindow)
-              speakText(result.message.replace(/\*\*/g, '').replace(/\*/g, ''))
+              }, null, true)
+              const spoken = speakText(result.message.replace(/\*\*/g, '').replace(/\*/g, ''), {
+                onEnd: () => { if (result.url && appActionWindow && !appActionWindow.closed) appActionWindow.location.href = result.url },
+                onError: () => { if (result.url && appActionWindow && !appActionWindow.closed) appActionWindow.location.href = result.url },
+              })
+              if (!spoken && result.url && appActionWindow && !appActionWindow.closed) appActionWindow.location.href = result.url
               return
             }
             if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
@@ -443,11 +444,10 @@ export default function App() {
               return
             }
             if (routedIntent === 'navigation' && intent?.destination) {
-              speakText(`Getting directions to ${intent.destination}.`)
-              setNavigationDestination(intent.destination)
-              setActiveTab('nav')
-              openMapForDestination(intent.destination)
-              window.dispatchEvent(new CustomEvent('visionary:navigate', { detail: { destination: intent.destination } }))
+              const destination = String(intent.destination)
+              const openDirections = () => openMapForDestination(destination)
+              const spoken = speakText(`Opening Google Maps directions to ${destination}.`, { onEnd: openDirections, onError: openDirections })
+              if (!spoken) openDirections()
               return
             }
             const intentTabs: Partial<Record<string, Tab>> = {
@@ -481,7 +481,7 @@ export default function App() {
         <div className="page-content animate-slide-in vn-content">
           {activeTab === 'dashboard' && <SpatialDashboard setActiveTab={setActiveTab} displayName={displayName} backendOnline={status.backend} glassesOnline={status.glassesOnline} />}
           {activeTab === 'ai' && <AIAssistant
-            onNavigate={(destination, openedWindow) => { setNavigationDestination(destination); setActiveTab('nav'); openMapForDestination(destination, openedWindow) }}
+            onNavigate={(destination, openedWindow) => { openMapForDestination(destination, openedWindow) }}
             onMusic={() => setActiveTab('music')}
             onWhatsAppDraft={(draft) => { setPendingWhatsAppDraft(draft); setActiveTab('whatsapp') }}
             onCallRequest={(request) => { setPendingCallRequest(request); setActiveTab('calling') }}
@@ -492,7 +492,6 @@ export default function App() {
             <Music />
           </div>
           {activeTab === 'weather' && <Weather />}
-          {activeTab === 'nav' && <Navigation initialDestination={navigationDestination} />}
           {activeTab === 'notifications' && <Notifications />}
           {activeTab === 'whatsapp' && <WhatsApp initialDraft={pendingWhatsAppDraft} onDraftConsumed={consumeWhatsAppDraft} />}
           {activeTab === 'calling' && <Calling initialRequest={pendingCallRequest} onRequestConsumed={consumeCallRequest} />}

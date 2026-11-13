@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { apiFetch, readJson } from '../services/api'
 import { APP_DIRECTORY, getStoredBirthday, saveBirthday, openApp } from '../services/universalApps'
+import { getAvailableSpeechVoices, getPreferredSpeechVoice, setPreferredSpeechVoice, setVoiceResponsesEnabled, speakText } from '../services/speech'
 
 function Toggle({
   value,
@@ -35,10 +36,12 @@ function Select({
   options,
   value,
   onChange,
+  optionLabels,
 }: {
   options: string[]
   value: string
   onChange: (v: string) => void
+  optionLabels?: Record<string, string>
 }) {
   return (
     <select
@@ -53,7 +56,7 @@ function Select({
           value={o}
           style={{ background: '#0d1528' }}
         >
-          {o}
+          {optionLabels?.[o] || o}
         </option>
       ))}
     </select>
@@ -163,7 +166,7 @@ export default function Settings({ onSignOut }: { onSignOut?: () => void } = {})
   const [aiTemp, setAiTemp] = useState(72)
   const [aiContext, setAiContext] = useState(4096)
   const [streamResponse, setStreamResponse] = useState(true)
-  const [voiceResponse, setVoiceResponse] = useState(true)
+  const [voiceResponse, setVoiceResponse] = useState(() => { try { return localStorage.getItem('visionary-voice-responses') !== 'false' } catch { return true } })
   const [autoAnalyze, setAutoAnalyze] = useState(false)
 
   // =========================
@@ -195,7 +198,9 @@ export default function Settings({ onSignOut }: { onSignOut?: () => void } = {})
   // =========================
 
   const [speakerVolume, setSpeakerVolume] = useState(72)
-  const [tts, setTts] = useState('Neural-en-US')
+  const [tts, setTts] = useState(getPreferredSpeechVoice)
+  const [speechVoices, setSpeechVoices] = useState<SpeechSynthesisVoice[]>([])
+  const [voiceTestStatus, setVoiceTestStatus] = useState('')
   const [speakerEQ, setSpeakerEQ] = useState(false)
 
   // =========================
@@ -222,6 +227,26 @@ export default function Settings({ onSignOut }: { onSignOut?: () => void } = {})
   // =========================
   // AI CONNECTION
   // =========================
+
+  useEffect(() => {
+    const refreshVoices = () => {
+      const available = getAvailableSpeechVoices()
+      setSpeechVoices(available)
+      const selected = getPreferredSpeechVoice()
+      if (available.length > 0 && selected && !available.some(voice => voice.voiceURI === selected)) {
+        setTts('')
+        setPreferredSpeechVoice('')
+      }
+    }
+    refreshVoices()
+    if ('speechSynthesis' in window) window.speechSynthesis.addEventListener('voiceschanged', refreshVoices)
+    window.addEventListener('visionary:tts-settings-updated', refreshVoices)
+    return () => {
+      if ('speechSynthesis' in window) window.speechSynthesis.removeEventListener('voiceschanged', refreshVoices)
+      window.removeEventListener('visionary:tts-settings-updated', refreshVoices)
+    }
+  }, [])
+  useEffect(() => { setVoiceResponsesEnabled(voiceResponse) }, [voiceResponse])
 
   useEffect(() => {
     const loadWakeSettings = async () => {
@@ -435,7 +460,7 @@ export default function Settings({ onSignOut }: { onSignOut?: () => void } = {})
         >
           <Toggle
             value={voiceResponse}
-            onChange={setVoiceResponse}
+            onChange={value => { setVoiceResponse(value); setVoiceResponsesEnabled(value) }}
           />
         </SettingRow>
 
@@ -606,16 +631,21 @@ export default function Settings({ onSignOut }: { onSignOut?: () => void } = {})
           label="TTS Voice"
           description="Text-to-speech engine"
         >
-          <Select
-            options={[
-              'Neural-en-US',
-              'Neural-en-GB',
-              'Neural-en-AU',
-              'Standard-en-US',
-            ]}
-            value={tts}
-            onChange={setTts}
-          />
+          <div className="flex items-center gap-2">
+            <Select
+              options={['', ...speechVoices.map(voice => voice.voiceURI)]}
+              optionLabels={{ '': 'System default', ...Object.fromEntries(speechVoices.map(voice => [voice.voiceURI, voice.name + ' (' + voice.lang + ')'])) }}
+              value={tts}
+              onChange={value => { setTts(value); setPreferredSpeechVoice(value) }}
+            />
+            <button type="button" onClick={() => {
+              setVoiceTestStatus('Playing test…')
+              const started = speakText('This is a Visionary Nexus voice test. Your selected voice is active.', { force: true, onError: error => setVoiceTestStatus('Speech error: ' + error), onStart: () => setVoiceTestStatus('Speaking…') })
+              if (!started) setVoiceTestStatus('Voice responses are disabled or unavailable.')
+              else setVoiceTestStatus('Test requested. Check your speakers.')
+            }} className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-xs text-cyan-100 hover:bg-cyan-400/20">Test</button>
+          </div>
+          {voiceTestStatus && <p className="text-[10px] text-white/50" role="status">{voiceTestStatus}</p>}
         </SettingRow>
 
         <SettingRow label="EQ Enhancement">

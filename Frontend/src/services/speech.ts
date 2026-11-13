@@ -7,11 +7,35 @@ import { API_URL } from './api'
  */
 let speechRun = 0
 let activeAudio: HTMLAudioElement | null = null
+const VOICE_KEY = 'visionary-tts-voice-uri'
+const VOICE_ENABLED_KEY = 'visionary-voice-responses'
+
+export function getAvailableSpeechVoices(): SpeechSynthesisVoice[] {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return []
+  return window.speechSynthesis.getVoices()
+}
+export function getPreferredSpeechVoice(): string {
+  try { return window.localStorage.getItem(VOICE_KEY) || '' } catch { return '' }
+}
+export function setPreferredSpeechVoice(uri: string): void {
+  try {
+    if (uri) window.localStorage.setItem(VOICE_KEY, uri)
+    else window.localStorage.removeItem(VOICE_KEY)
+  } catch { /* browser storage may be unavailable */ }
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('visionary:tts-settings-updated'))
+}
+export function setVoiceResponsesEnabled(enabled: boolean): void {
+  try { window.localStorage.setItem(VOICE_ENABLED_KEY, enabled ? 'true' : 'false') } catch { /* storage may be unavailable */ }
+}
+export function areVoiceResponsesEnabled(): boolean {
+  try { return window.localStorage.getItem(VOICE_ENABLED_KEY) !== 'false' } catch { return true }
+}
 
 type SpeechOptions = {
   onStart?: () => void
   onEnd?: () => void
   onError?: (error: string) => void
+  force?: boolean
 }
 
 function cleanSpeechText(value: string): string {
@@ -49,7 +73,15 @@ function playBrowserSpeech(text: string, run: number, onStarted: () => void): Pr
       return reject(new Error('Speech output is unavailable in this browser.'))
     }
     const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = navigator.language || 'en-US'
+    const voices = getAvailableSpeechVoices()
+    const preferred = getPreferredSpeechVoice()
+    const selected = voices.find(voice => voice.voiceURI === preferred) || voices.find(voice => voice.default) || voices[0]
+    if (selected) {
+      utterance.voice = selected
+      utterance.lang = selected.lang || navigator.language || 'en-US'
+    } else {
+      utterance.lang = navigator.language || 'en-US'
+    }
     utterance.rate = 1
     utterance.pitch = 1
     utterance.volume = 1
@@ -104,9 +136,25 @@ async function speakWithCloud(text: string, run: number, onStarted: () => void):
   }
 }
 
+// Call synchronously from the user's click/tap before any async work or tab switch.
+// This unlocks Chrome's speech output so the later AI response can speak after
+// classification finishes, even when Gmail or another app opens in a new tab.
+export function primeSpeechOutput(): void {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') return
+  try {
+    const synthesis = window.speechSynthesis
+    synthesis.resume()
+    const unlock = new SpeechSynthesisUtterance(' ')
+    unlock.volume = 0
+    unlock.rate = 10
+    unlock.onend = () => synthesis.resume()
+    synthesis.speak(unlock)
+  } catch { /* browser may not expose speech output */ }
+}
+
 export function speakText(value: string, options: SpeechOptions = {}): boolean {
   const text = cleanSpeechText(value)
-  if (!text) return false
+  if (!text || (!areVoiceResponsesEnabled() && !options.force)) return false
 
   const run = ++speechRun
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {

@@ -8,7 +8,6 @@ type Page =
   | "AI Assistant"
   | "Vision"
   | "Music"
-  | "Navigation"
   | "Weather"
   | "Notifications"
   | "Device"
@@ -20,7 +19,6 @@ const navItems: { label: Page; icon: string; badge?: string }[] = [
   { label: "AI Assistant", icon: "362e6.svg" },
   { label: "Vision", icon: "e2679.svg" },
   { label: "Music", icon: "c2fa8.svg" },
-  { label: "Navigation", icon: "5331f.svg" },
   { label: "Weather", icon: "23d58.svg" },
   { label: "Notifications", icon: "c8c91.svg", badge: "2" },
   { label: "Device", icon: "e2011.svg" },
@@ -33,7 +31,6 @@ const pageDescriptions: Record<Page, string> = {
   "AI Assistant": "Personal intelligence, always within reach",
   Vision: "See, understand and remember what matters",
   Music: "Immersive audio for your spatial world",
-  Navigation: "Quiet guidance, precisely when you need it",
   Weather: "Conditions around you, beautifully distilled",
   Notifications: "The signals that deserve your attention",
   Device: "Visionary One health and connection",
@@ -181,7 +178,7 @@ function NowPlayingMini({
 }
 
 type Props = {
-  setActiveTab: (tab: "dashboard" | "ai" | "vision" | "music" | "weather" | "nav" | "notifications" | "whatsapp" | "calling" | "device" | "settings") => void
+  setActiveTab: (tab: "dashboard" | "ai" | "vision" | "music" | "weather" | "notifications" | "whatsapp" | "calling" | "device" | "settings") => void
   displayName: string
   backendOnline: boolean
   glassesOnline: number
@@ -221,15 +218,7 @@ export default function SpatialDashboard({ setActiveTab, displayName, backendOnl
             </span>
             <i>↗</i>
           </button>
-          <button onClick={() => setActiveTab('nav')}>
-            <Icon file="5331f.svg" />
-            <span>
-              <b>Take me home</b>
-              <small>Open route guidance</small>
-            </span>
-            <i>↗</i>
-          </button>
-        </div>
+</div>
       </Panel>
       <div className="context-column">
         <MiniDevice connected={glassesOnline > 0} />
@@ -241,7 +230,6 @@ export default function SpatialDashboard({ setActiveTab, displayName, backendOnl
           {[
             ["362e6.svg", "AI assistant", backendOnline ? "Backend online" : "Backend unavailable"],
             ["e2679.svg", "Vision system", glassesOnline > 0 ? "Glasses linked" : "Ready to connect"],
-            ["5331f.svg", "Navigation", "OpenStreetMap + OSRM"],
           ].map(([icon, title, sub]) => (
             <div className="activity-row" key={title}>
               <span className="icon-well">
