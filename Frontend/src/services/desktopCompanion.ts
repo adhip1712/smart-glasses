@@ -40,7 +40,3 @@ export async function discoverDesktopApps(): Promise<Array<{ name: string; kind:
 export async function launchDesktopApp(app: string): Promise<DesktopActionResult> {
   return request<DesktopActionResult>("/launch", { app })
 }
-
-export async function setDesktopAlarm(requestText: string): Promise<DesktopActionResult> {
-  return request<DesktopActionResult>("/alarm", { request: requestText })
-}
