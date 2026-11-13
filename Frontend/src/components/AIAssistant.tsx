@@ -1931,13 +1931,14 @@ const AIAssistant: React.FC<{
       return
     }
 
-    // Route typed alarm requests locally. If no time was supplied, ask for it
-    // before attempting the desktop alarm or opening the browser fallback.
+    // Alarm requests are handled entirely in the browser UI, never sent to AI
+    // and never routed through the built-in desktop/Windows alarm companion.
     const isAlarmFollowUp = awaitingAlarmTimeRef.current
     const alarmRequest = isAlarmFollowUp ? "Set an alarm for " + message : message
     const isAlarmCommand = isAlarmFollowUp
-      || /\b(?:set|create|make|schedule)\b.*\b(?:alarm|alaram|alram)\b/i.test(message)
+      || /\b(?:set|create|make|schedule|wake me(?: up)?|remind me)\b.*\b(?:alarm|alaram|alram)\b/i.test(message)
       || /\b(?:alarm|alaram|alram)\b.*\b(?:at|for)\b/i.test(message)
+      || /^\s*(?:an?\s+)?(?:alarm|alaram|alram)\s*[.!?]*$/i.test(message)
     if (isAlarmCommand) {
       const hasExplicitTime = /\b(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)\b/i.test(alarmRequest)
         || /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/.test(alarmRequest)
@@ -1956,32 +1957,15 @@ const AIAssistant: React.FC<{
       }
 
       awaitingAlarmTimeRef.current = false
-      // Reserve a tab during the user's click so the no-sign-in web fallback
-      // can still open after the asynchronous desktop-companion request.
-      const alarmFallbackWindow = window.open("about:blank", "_blank")
-      try {
-        const alarm = await setDesktopAlarm(alarmRequest)
-        const when = alarm.scheduled_for
-          ? new Date(alarm.scheduled_for).toLocaleString()
-          : "the requested time"
-        const confirmation = "Alarm set for " + when + ". " + (alarm.note || "")
-        if (alarmFallbackWindow && !alarmFallbackWindow.closed) alarmFallbackWindow.close()
-        addLocalMessage(confirmation)
-        speakResponse(confirmation)
-      } catch (error) {
-        console.error("Local Windows alarm failed; opening the no-sign-in browser alarm.", error)
-        const fallbackUrl = "https://digiclock.net/alarm-clock/"
-        const notice = "I couldn't set the alarm through the Windows Clock companion, so I've opened DigiClock, a free online alarm that doesn't require signing in. Enter " +
-          message.replace(/^.*?\b(?:for|at)\s+/i, "") +
-          " there, then keep the tab open and your device awake so it can ring."
-        if (alarmFallbackWindow && !alarmFallbackWindow.closed) {
-          alarmFallbackWindow.location.href = fallbackUrl
-        } else {
-          addLocalMessage("Open the [DigiClock online alarm](" + fallbackUrl + ") to set it without signing in.")
-        }
-        addLocalMessage(notice)
-        speakResponse(notice)
-      }
+      const alarmUrl = "https://digiclock.net/alarm-clock/"
+      const alarmTab = window.open(alarmUrl, "_blank", "noopener,noreferrer")
+      const confirmation = alarmTab
+        ? "I've opened the free DigiClock alarm. Set it to " +
+          alarmRequest.replace(/^.*?\b(?:for|at)\s+/i, "") +
+          " on that page. No sign-in is needed. Keep the tab open and your device awake so it can ring."
+        : "Your browser blocked the alarm tab. Allow pop-ups for Visionary Nexus, then try again. You can also open https://digiclock.net/alarm-clock/ directly; no sign-in is needed."
+      addLocalMessage(confirmation)
+      speakResponse(confirmation)
       return
     }
 
