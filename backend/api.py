@@ -3230,6 +3230,15 @@ def classify_feature_intent(request: dict):
     if not message:
         return {"intent": "general", "action": "none", "destination": "", "query": "", "polished_text": ""}
     normalized_fallback = " ".join(message.lower().split())
+    # Deterministic Windows alarm routing: never send alarm requests to ordinary chat.
+    if re.search(r"\\b(?:set|create|make|schedule)\\s+(?:an?\\s+)?alarm\\b|\\bset\\s+(?:an?\\s+)?(?:wake[- ]?up\\s+)?alarm\\b", normalized_fallback):
+        return {
+            "intent": "app_action", "action": "set_alarm",
+            "destination": "clock", "app_name": "Windows Clock",
+            "destination_url": "", "query": message,
+            "polished_text": message, "recipient": "", "message_text": "",
+            "channel": "",
+        }
     if re.search(r"\b(?:listen to|hear)\s+(?:something|anything|some music|music|a song|some songs)\b", normalized_fallback):
         return {"intent": "music", "action": "open", "destination": "", "query": "", "polished_text": message}
     if any(phrase in normalized_fallback for phrase in (
