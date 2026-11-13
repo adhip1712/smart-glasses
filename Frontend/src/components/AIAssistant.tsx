@@ -1879,6 +1879,34 @@ const AIAssistant: React.FC<{
     // The AI response arrives after an async request and may follow a tab switch.
     primeSpeechOutput()
 
+    // Windows alarms are a local desktop action. Route them before conversation
+    // routing, AI classification, or /api/ask so backend availability/auth cannot
+    // prevent a real alarm from being scheduled. Accept common speech-to-text typos.
+    if (/\\b(?:set|create|make|schedule)\\b.*\\b(?:alarm|alaram|alram)\\b/i.test(message)
+        || /\\b(?:alarm|alaram|alram)\\b.*\\b(?:at|for)\\b/i.test(message)) {
+      setInput("")
+      setMessages(previous => [...previous, {
+        id: Date.now() + Math.random(),
+        role: "user",
+        content: message,
+      }])
+      try {
+        const alarm = await setDesktopAlarm(message)
+        const when = alarm.scheduled_for
+          ? new Date(alarm.scheduled_for).toLocaleString()
+          : "the requested time"
+        const confirmation = "Alarm set for " + when + ". " + (alarm.note || "")
+        addLocalMessage(confirmation)
+        speakResponse(confirmation)
+      } catch (error) {
+        console.error("Local Windows alarm failed:", error)
+        const notice = "I couldn't reach the Windows companion, so no alarm was set. Please make sure the Visionary Nexus Companion is running on this laptop."
+        addLocalMessage(notice)
+        speakResponse(notice)
+      }
+      return
+    }
+
     // Reserve a browser tab synchronously for explicit navigation commands.
     const navigationTab = /\b(navigate|navigation|directions|route|take me to|take me|go to|how do i get to|find directions to)\b/i.test(message)
       ? window.open('about:blank', '_blank')
