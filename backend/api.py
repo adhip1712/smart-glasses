@@ -3403,6 +3403,68 @@ Rules:
         if channel not in {"personal", "business"}:
             channel = ""
 
+        # Guard against a valid-but-wrong LLM classification. The model remains
+        # the primary semantic planner; this registry-backed validation only
+        # prevents clearly explicit app tasks from falling through to /api/ask.
+        if intent == "general":
+            normalized_app_request = " ".join(message.lower().split())
+            email_match = re.search(
+                r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}",
+                message,
+                flags=re.IGNORECASE,
+            )
+            asks_to_open_conversation = bool(
+                re.search(r"\b(?:open|show|find|search|look up|locate)\b", normalized_app_request)
+                and re.search(r"\b(?:chat|conversation|email thread|message thread)\b", normalized_app_request)
+            )
+            if email_match and asks_to_open_conversation:
+                intent = "app_action"
+                action = "open_chat" if re.search(r"\bchat\b", normalized_app_request) else "find_conversation"
+                destination = "gmail"
+                query = email_match.group(0)
+                recipient = email_match.group(0)
+            else:
+                app_aliases = (
+                    (("gmail", "google mail", "inbox", "email", "mail"), "gmail"),
+                    (("outlook", "microsoft outlook"), "outlook"),
+                    (("whatsapp", "whats app"), "whatsapp"),
+                    (("google calendar", "calendar"), "calendar"),
+                    (("youtube", "you tube"), "youtube"),
+                    (("google maps", "maps"), "maps"),
+                    (("spotify",), "spotify"),
+                    (("google drive", "drive"), "drive"),
+                    (("github",), "github"),
+                )
+                app_destination = next(
+                    (
+                        app_name
+                        for aliases, app_name in app_aliases
+                        if any(
+                            re.search(r"\b" + re.escape(alias) + r"\b", normalized_app_request)
+                            for alias in aliases
+                        )
+                    ),
+                    "",
+                )
+                has_app_action_verb = bool(re.search(
+                    r"\b(?:open|open up|launch|start|go to|switch to|take me to|show|view|check|browse|search|find|create|schedule|add|send|message|write|compose|draft)\b",
+                    normalized_app_request,
+                ))
+                if app_destination and has_app_action_verb:
+                    intent = "app_action"
+                    destination = app_destination
+                    if app_destination == "gmail" and re.search(r"\b(?:chat|conversation|thread)\b", normalized_app_request):
+                        action = "open_chat" if re.search(r"\bchat\b", normalized_app_request) else "find_conversation"
+                        query = query or recipient or (email_match.group(0) if email_match else "")
+                    elif app_destination == "gmail" and re.search(r"\b(?:compose|draft|write|send|email|mail)\b", normalized_app_request):
+                        action = "compose_email"
+                    elif app_destination == "calendar" and re.search(r"\b(?:create|schedule|add)\b", normalized_app_request):
+                        action = "create_event"
+                    elif re.search(r"\b(?:search|find)\b", normalized_app_request):
+                        action = "search"
+                    else:
+                        action = "open"
+
         # Resolve generic listening requests as navigation, not an accidental
         # search for the literal word "something" or an unintended autoplay.
         normalized_voice_request = " ".join(message.lower().split())
