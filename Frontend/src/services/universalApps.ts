@@ -177,6 +177,7 @@ export type AppActionPlan = {
 export type AppActionExecution = {
   handled: boolean
   message: string
+  url?: string
 }
 
 /**
@@ -184,7 +185,12 @@ export type AppActionExecution = {
  * user's existing browser session. Unsupported tasks still open the intended
  * app and explain the missing capability instead of falling back to chat.
  */
-export function executeAppAction(plan: AppActionPlan, reservedWindow?: Window | null): AppActionExecution {
+export function executeAppAction(plan: AppActionPlan, reservedWindow?: Window | null, deferNavigation = false): AppActionExecution {
+  const openDestination = (url: string) => {
+    if (deferNavigation) return
+    if (reservedWindow && !reservedWindow.closed) reservedWindow.location.href = url
+    else window.open(url, '_blank', 'noopener,noreferrer')
+  }
   const target = (plan.destination || '').toLowerCase()
   const aliases: Record<string, AppId> = {
     gmail: 'gmail', email: 'gmail', mail: 'gmail', 'google mail': 'gmail',
@@ -206,10 +212,10 @@ export function executeAppAction(plan: AppActionPlan, reservedWindow?: Window | 
   const capability = APP_CAPABILITIES[app.id]
   const actionSupported = capability.supportedActions.includes(action)
   if (!actionSupported && capability.requiresConnection.includes(action)) {
-    if (reservedWindow && !reservedWindow.closed) reservedWindow.location.href = app.url
-    else window.open(app.url, '_blank', 'noopener,noreferrer')
+    openDestination(app.url)
     return {
       handled: true,
+      url: app.url,
       message: "I opened **" + app.name + "**. I can't " + action.replace(/_/g, ' ') + " from Visionary Nexus until you connect and authorise your " + app.name + " account. The required integration is not connected, so nothing was changed or sent."
     }
   }
@@ -220,10 +226,10 @@ export function executeAppAction(plan: AppActionPlan, reservedWindow?: Window | 
     if (plan.message_text) params.set('body', plan.message_text)
     const encoded = params.toString()
     const url = 'https://mail.google.com/mail/u/0/?view=cm&fs=1' + (encoded ? '&' + encoded : '')
-    if (reservedWindow && !reservedWindow.closed) reservedWindow.location.href = url
-    else window.open(url, '_blank', 'noopener,noreferrer')
+    openDestination(url)
     return {
       handled: true,
+      url,
       message: "I opened a new Gmail draft" + (plan.recipient ? " addressed to **" + plan.recipient + "**" : "") + (plan.message_text ? " with your message filled in" : "") + ". Review it and press Send yourself. I haven't sent anything."
     }
   }
@@ -231,21 +237,20 @@ export function executeAppAction(plan: AppActionPlan, reservedWindow?: Window | 
   if (app.id === 'gmail' && (action === 'search' || action === 'open_chat' || action === 'find_conversation')) {
     const query = (action === 'open_chat' ? 'in:chats ' : '') + (plan.query || plan.recipient || '')
     const url = 'https://mail.google.com/mail/u/0/#search/' + encodeURIComponent(query)
-    if (reservedWindow && !reservedWindow.closed) reservedWindow.location.href = url
-    else window.open(url, '_blank', 'noopener,noreferrer')
-    return { handled: true, message: "I opened Gmail with your requested search. Gmail will use your existing browser sign-in; Visionary Nexus does not read your private messages." }
+    openDestination(url)
+    return { handled: true, url, message: "I opened Gmail with your requested search. Gmail will use your existing browser sign-in; Visionary Nexus does not read your private messages." }
   }
 
-  if (reservedWindow && !reservedWindow.closed) reservedWindow.location.href = app.url
-  else window.open(app.url, '_blank', 'noopener,noreferrer')
+  openDestination(app.url)
 
   if (actionSupported) {
-    return { handled: true, message: "I opened **" + app.name + "**." }
+    return { handled: true, url: app.url, message: "I opened **" + app.name + "**." }
   }
 
   const actionLabel = action.replace(/_/g, ' ')
   return {
     handled: true,
+    url: app.url,
     message: "I opened **" + app.name + "**. I understood that you wanted to " + actionLabel + ", but I can't complete that action inside Visionary Nexus yet because the " + app.name + " integration is not connected. You can continue manually in the app. To let Visionary Nexus perform it directly, an authorised " + app.name + " integration must be added and connected in Settings."
   }
 }

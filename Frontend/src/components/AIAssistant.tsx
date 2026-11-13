@@ -1998,15 +1998,17 @@ const AIAssistant: React.FC<{
     }
 
     if (featureIntent?.intent === "app_action") {
+      // Start the spoken confirmation before navigating the reserved tab away from this page.
       const result = executeAppAction({
         destination: String(featureIntent.destination || ""),
         action: String(featureIntent.action || "open"),
         recipient: String(featureIntent.recipient || ""),
         message_text: String(featureIntent.message_text || ""),
         query: String(featureIntent.query || ""),
-      }, appActionWindow)
+      }, null, true)
       addLocalMessage(result.message)
       speakResponse(result.message)
+      if (result.url && appActionWindow && !appActionWindow.closed) appActionWindow.location.href = result.url
       return
     }
 

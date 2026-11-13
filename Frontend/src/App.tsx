@@ -417,14 +417,16 @@ export default function App() {
               return
             }
             if (routedIntent === 'app_action') {
+              // Begin the spoken confirmation before the new app tab takes focus.
               const result = executeAppAction({
                 destination: String(intent?.destination || ''),
                 action: String(intent?.action || 'open'),
                 recipient: String(intent?.recipient || ''),
                 message_text: String(intent?.message_text || ''),
                 query: String(intent?.query || ''),
-              }, appActionWindow)
+              }, null, true)
               speakText(result.message.replace(/\*\*/g, '').replace(/\*/g, ''))
+              if (result.url && appActionWindow && !appActionWindow.closed) appActionWindow.location.href = result.url
               return
             }
             if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
