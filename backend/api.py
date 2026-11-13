@@ -3402,7 +3402,7 @@ Rules:
         app_name = str(parsed.get("app_name") or destination).strip()
         destination_url = str(parsed.get("destination_url") or "").strip()
         # Only pass a fully-qualified HTTPS destination to the browser client.
-        if not re.fullmatch(r"https://[^\\s/$.?#][^\\s]*", destination_url, flags=re.IGNORECASE):
+        if not re.fullmatch(r"https://[^\s/$.?#][^\s]*", destination_url, flags=re.IGNORECASE):
             destination_url = ""
         query = str(parsed.get("query") or "").strip()
         polished_text = str(parsed.get("polished_text") or message).strip()
