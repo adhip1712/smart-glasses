@@ -1,4 +1,4 @@
-export type AppId = 'calendar' | 'gmail' | 'youtube' | 'maps' | 'whatsapp' | 'spotify' | 'outlook' | 'drive' | 'github'
+export type AppId = 'calendar' | 'gmail' | 'youtube' | 'maps' | 'whatsapp' | 'spotify' | 'outlook' | 'drive' | 'github' | 'notion' | 'slack' | 'teams' | 'discord' | 'trello' | 'zoom' | 'figma'
 
 export interface AppEntry {
   id: AppId
@@ -30,6 +30,13 @@ export const APP_CAPABILITIES: Record<AppId, AppCapabilityProfile> = {
   outlook: { supportedActions: ['open'], requiresConnection: ['read_email', 'send_email', 'manage_calendar'] },
   drive: { supportedActions: ['open'], requiresConnection: ['read_files', 'create_file', 'edit_file', 'share_file'] },
   github: { supportedActions: ['open'], requiresConnection: ['read_repositories', 'create_issue', 'manage_pull_request'] },
+  notion: { supportedActions: ['open'], requiresConnection: ['search_pages', 'create_page', 'edit_page'] },
+  slack: { supportedActions: ['open'], requiresConnection: ['search_messages', 'send_message', 'manage_channels'] },
+  teams: { supportedActions: ['open'], requiresConnection: ['search_messages', 'send_message', 'manage_meetings'] },
+  discord: { supportedActions: ['open'], requiresConnection: ['search_messages', 'send_message', 'manage_servers'] },
+  trello: { supportedActions: ['open'], requiresConnection: ['create_card', 'move_card', 'manage_board'] },
+  zoom: { supportedActions: ['open'], requiresConnection: ['create_meeting', 'manage_meeting'] },
+  figma: { supportedActions: ['open'], requiresConnection: ['read_files', 'create_design', 'edit_design'] },
 }
 
 export const APP_DIRECTORY: AppEntry[] = [
@@ -42,6 +49,13 @@ export const APP_DIRECTORY: AppEntry[] = [
   { id: 'outlook', name: 'Outlook', description: 'Open mail and calendar', url: 'https://outlook.live.com/mail', capability: 'launch' },
   { id: 'drive', name: 'Google Drive', description: 'Open your files', url: 'https://drive.google.com', capability: 'launch' },
   { id: 'github', name: 'GitHub', description: 'Open repositories', url: 'https://github.com', capability: 'launch' },
+  { id: 'notion', name: 'Notion', description: 'Open notes and workspaces', url: 'https://www.notion.so', capability: 'launch' },
+  { id: 'slack', name: 'Slack', description: 'Open team messaging', url: 'https://app.slack.com/client/', capability: 'launch' },
+  { id: 'teams', name: 'Microsoft Teams', description: 'Open chats and meetings', url: 'https://teams.microsoft.com', capability: 'launch' },
+  { id: 'discord', name: 'Discord', description: 'Open servers and chats', url: 'https://discord.com/app', capability: 'launch' },
+  { id: 'trello', name: 'Trello', description: 'Open boards and tasks', url: 'https://trello.com', capability: 'launch' },
+  { id: 'zoom', name: 'Zoom', description: 'Open meetings', url: 'https://app.zoom.us/wc', capability: 'launch' },
+  { id: 'figma', name: 'Figma', description: 'Open design files', url: 'https://www.figma.com', capability: 'launch' },
 ]
 
 const BIRTHDAY_KEY = 'visionary_profile_birthday'
@@ -110,6 +124,13 @@ export function matchAppLaunchCommand(message: string): AppEntry | null {
     outlook: ['outlook', 'microsoft outlook'],
     drive: ['drive', 'google drive'],
     github: ['github'],
+    notion: ['notion'],
+    slack: ['slack'],
+    teams: ['teams', 'microsoft teams'],
+    discord: ['discord'],
+    trello: ['trello'],
+    zoom: ['zoom'],
+    figma: ['figma'],
   }
   const knownApp = APP_DIRECTORY.find(app => aliases[app.id].includes(target) || app.url.replace(/^https?:\/\//, '').replace(/\/$/, '') === target)
   if (knownApp) return knownApp
@@ -200,6 +221,8 @@ export function executeAppAction(plan: AppActionPlan, reservedWindow?: Window | 
     youtube: 'youtube', 'you tube': 'youtube',
     maps: 'maps', 'google maps': 'maps',
     spotify: 'spotify', drive: 'drive', 'google drive': 'drive', github: 'github',
+    notion: 'notion', slack: 'slack', teams: 'teams', 'microsoft teams': 'teams',
+    discord: 'discord', trello: 'trello', zoom: 'zoom', figma: 'figma',
   }
   const appId = aliases[target]
   const app = APP_DIRECTORY.find(item => item.id === appId)

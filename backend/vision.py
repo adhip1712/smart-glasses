@@ -116,6 +116,17 @@ def frame_to_base64(frame: bytes) -> str:
     return base64.b64encode(frame).decode("ascii")
 
 
+def image_mime_type(image: bytes) -> str:
+    """Detect common browser-uploaded image formats for vision API payloads."""
+    if image.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if image.startswith(b"RIFF") and image[8:12] == b"WEBP":
+        return "image/webp"
+    if image.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    return "application/octet-stream"
+
+
 def decode_image(image_base64: str | None, fallback: bytes | None = None) -> bytes | None:
     if image_base64:
         payload = image_base64.split(",", 1)[-1]
@@ -203,7 +214,7 @@ def _ai_vision_request(image: bytes, prompt: str) -> tuple[bool, str, str]:
                 {"type": "text", "text": prompt},
                 {
                     "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
+                    "image_url": {"url": f"data:{image_mime_type(image)};base64,{encoded}"},
                 },
             ],
         }

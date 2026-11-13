@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { apiFetch, readJson } from '../services/api'
 
 import { cameraSnapshotUrl, fetchCameraStatus, type CameraStatus } from '../api/camera'
 import {
@@ -59,9 +60,7 @@ const toOverlay = (detection: VisionDetection): OverlayObject | null => {
   }
 }
 
-const sceneDescription = "Office workspace with 4 people detected. Overhead fluorescent lighting, daytime. Approximately 12m² visible area. No hazards detected. Wi-Fi networks visible: 3. Dominant colors: white, grey, blue."
-
-export default function Vision() {
+export default function Vision({ onAskAssistant }: { onAskAssistant?: (prompt: string) => void } = {}) {
   const [scanning, setScanning] = useState(true)
   const [scanY, setScanY] = useState(0)
   const [showObjects, setShowObjects] = useState(true)
@@ -82,6 +81,10 @@ export default function Vision() {
   const [visionError, setVisionError] = useState('')
   const [visionFrameTick, setVisionFrameTick] = useState(0)
   const [visionFrameFailed, setVisionFrameFailed] = useState(false)
+  const [analysisSummary, setAnalysisSummary] = useState('Start detection to analyze the live camera scene.')
+  const [aiSceneDescription, setAiSceneDescription] = useState('')
+  const [aiSceneBusy, setAiSceneBusy] = useState(false)
+  const [aiSceneError, setAiSceneError] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -144,6 +147,57 @@ export default function Vision() {
 
     return () => clearInterval(interval)
   }, [vision?.running, visionFrameFailed])
+
+  const handleAnalyzeScene = () => {
+    if (!vision?.running) {
+      setAnalysisSummary('Start detection first. Scene analysis uses live camera detections, not placeholder data.')
+      return
+    }
+    if (!visionDetections) {
+      setAnalysisSummary('The detector is running. Waiting for the first live frame…')
+      return
+    }
+    const labels = Object.entries(visionDetections.labels ?? {}).filter(([, count]) => count > 0)
+    const total = labels.reduce((sum, [, count]) => sum + count, 0)
+    setAnalysisSummary(total
+      ? 'Live scene: ' + labels.map(([name, count]) => name + (count > 1 ? ' ×' + count : '')).join(', ') + '. ' + total + ' object detection(s) currently visible.'
+      : 'No objects are currently above the detector confidence threshold.')
+  }
+
+  const handleImageSceneAnalysis = async (file?: File) => {
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setAiSceneError('Choose an image file.')
+      return
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setAiSceneError('Choose an image smaller than 8 MB.')
+      return
+    }
+    setAiSceneBusy(true)
+    setAiSceneError('')
+    setAiSceneDescription('')
+    try {
+      const imageBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result || ''))
+        reader.onerror = () => reject(new Error('Could not read that image.'))
+        reader.readAsDataURL(file)
+      })
+      const response = await apiFetch('/api/assistant/vision/analyze', {
+        method: 'POST',
+        body: JSON.stringify({ image_base64: imageBase64, prompt: 'Describe the visible scene for a smart-glasses wearer. Identify objects, visible text, spatial relationships, and notable context. Do not guess personal identities or claim uncertain details as facts. Keep it concise.' }),
+      })
+      const data = await readJson<{ success?: boolean; description?: string; message?: string; detail?: string }>(response)
+      if (!response.ok) throw new Error(data?.detail || data?.message || 'Scene analysis failed.')
+      if (!data?.success || !data.description) throw new Error(data?.message || 'AI image understanding is not configured on the backend.')
+      setAiSceneDescription(data.description)
+    } catch (error) {
+      setAiSceneError(error instanceof Error ? error.message : 'Scene analysis failed.')
+    } finally {
+      setAiSceneBusy(false)
+    }
+  }
 
   const handleVisionToggle = async () => {
     setVisionBusy(true)
@@ -453,6 +507,7 @@ export default function Vision() {
               {visionBusy ? 'WAITING…' : vision?.running ? 'STOP DETECTION' : 'START DETECTION'}
             </button>
             <button
+              onClick={handleAnalyzeScene}
               className="px-5 py-2.5 rounded-xl font-display text-[11px] tracking-widest transition-all duration-300 hover:scale-105"
               style={{
                 background: 'rgba(168,85,247,0.1)',
@@ -584,20 +639,35 @@ export default function Vision() {
           <div className="glass rounded-2xl p-5">
             <div className="font-display text-xs tracking-widest text-white/50 uppercase mb-3">Scene Analysis</div>
             <p className="font-mono text-xs text-white/60 leading-relaxed">
-              {usingRealDetections
+              {analysisSummary || (usingRealDetections
                 ? `YOLO found ${overlayObjects.length} object(s) across ${Object.keys(visionDetections?.labels ?? {}).length} class(es): ${Object.entries(visionDetections?.labels ?? {}).map(([name, count]) => `${name} ×${count}`).join(', ')}.`
-                : sceneDescription}
+                : 'Start detection to see a live scene summary.')}
             </p>
-            {!usingRealDetections && (
-              <div className="font-mono text-[9px] text-white/25 mt-2">
-                placeholder text - start detection to replace it with real results
-              </div>
-            )}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <label className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 font-mono text-[10px] tracking-wider text-white/75 hover:bg-white/10 cursor-pointer">
+                {aiSceneBusy ? 'ANALYZING IMAGE…' : 'CAPTURE / UPLOAD PHOTO'}
+                <input type="file" accept="image/*" capture="environment" className="hidden" disabled={aiSceneBusy} onChange={event => { void handleImageSceneAnalysis(event.target.files?.[0]); event.currentTarget.value = '' }} />
+              </label>
+              <span className="text-[9px] text-white/35">AI image analysis · explicit photo only · up to 8 MB</span>
+            </div>
+            {aiSceneError && <p role="alert" className="mt-2 text-xs text-red-200">{aiSceneError}</p>}
+            {aiSceneDescription && <div className="mt-3 rounded-xl border border-cyan-300/15 bg-cyan-300/5 p-3"><p className="mb-1 text-[9px] font-mono tracking-widest text-cyan-100/60">AI IMAGE UNDERSTANDING</p><p className="whitespace-pre-wrap text-xs leading-relaxed text-white/75">{aiSceneDescription}</p></div>}
+            <button
+              type="button"
+              disabled={!usingRealDetections || !onAskAssistant}
+              onClick={() => {
+                const detected = Object.entries(visionDetections?.labels ?? {}).filter(([, count]) => count > 0).map(([name, count]) => name + (count > 1 ? ' ×' + count : '')).join(', ')
+                onAskAssistant?.('Describe this live camera scene using only the current object detections: ' + (detected || 'No objects detected') + '. Clearly distinguish detected facts from anything the camera cannot establish.')
+              }}
+              className="mt-3 rounded-lg border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 font-mono text-[10px] tracking-wider text-cyan-100 disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              ASK NEXUS ABOUT THIS SCENE
+            </button>
             <div className="mt-4 pt-4 border-t border-white/5 grid grid-cols-2 gap-3">
               {[
                 { label: 'Objects', value: String(overlayObjects.length), color: '#00e5ff' },
-                { label: 'People', value: String(visionDetections?.labels?.person ?? (usingRealDetections ? 0 : 1)), color: '#a855f7' },
-                { label: 'Classes', value: String(Object.keys(visionDetections?.labels ?? {}).length || (usingRealDetections ? 0 : 4)), color: '#4d9eff' },
+                { label: 'People', value: String(visionDetections?.labels?.person ?? 0), color: '#a855f7' },
+                { label: 'Classes', value: String(Object.keys(visionDetections?.labels ?? {}).length), color: '#4d9eff' },
                 { label: 'FPS', value: vision?.running ? (vision.fps ?? 0).toFixed(1) : '–', color: '#4ade80' },
               ].map(({ label, value, color }) => (
                 <div key={label} className="text-center p-2 rounded-lg"
