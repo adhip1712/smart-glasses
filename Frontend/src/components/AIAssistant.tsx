@@ -1908,13 +1908,31 @@ const AIAssistant: React.FC<{
       }
 
       awaitingAlarmTimeRef.current = false
+      // Reserve the fallback tab before awaiting the local companion so the
+      // browser does not block it after the asynchronous native-app attempt.
+      const alarmTab = window.open("about:blank", "_blank")
+      try {
+        const launched = await launchDesktopApp("Clock")
+        if (launched.success) {
+          if (alarmTab && !alarmTab.closed) alarmTab.close()
+          const confirmation = "I've opened " + (launched.app || "Clock") +
+            ". Set your alarm for " +
+            alarmRequest.replace(/^.*?\b(?:for|at)\s+/i, "") +
+            " in the Clock app. Visionary Nexus has opened the app but has not set the alarm automatically."
+          addLocalMessage(confirmation)
+          speakResponse(confirmation)
+          return
+        }
+      } catch {
+        // If the native Clock app is unavailable, continue to the web fallback.
+      }
       const alarmUrl = "https://digiclock.net/alarm-clock/"
-      const alarmTab = window.open(alarmUrl, "_blank")
+      if (alarmTab && !alarmTab.closed) alarmTab.location.href = alarmUrl
       const confirmation = alarmTab
-        ? "I've opened the free DigiClock alarm. Set it to " +
+        ? "The device Clock app wasn't available, so I've opened the free DigiClock alarm instead. Set it to " +
           alarmRequest.replace(/^.*?\b(?:for|at)\s+/i, "") +
           " on that page. No sign-in is needed. Keep the tab open and your device awake so it can ring."
-        : "Your browser blocked the alarm tab. Allow pop-ups for Visionary Nexus, then try again. You can also open https://digiclock.net/alarm-clock/ directly; no sign-in is needed."
+        : "The device Clock app wasn't available, and your browser blocked the fallback tab. Allow pop-ups for Visionary Nexus, then open https://digiclock.net/alarm-clock/ directly. No sign-in is needed."
       addLocalMessage(confirmation)
       speakResponse(confirmation)
       return
@@ -2131,10 +2149,23 @@ const AIAssistant: React.FC<{
           speakResponse(prompt)
           return
         }
+        try {
+          const launched = await launchDesktopApp("Clock")
+          if (launched.success) {
+            if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
+            const notice = "I've opened " + (launched.app || "Clock") +
+              ". Set your requested alarm time in the Clock app. Visionary Nexus has opened the app but has not set the alarm automatically."
+            addLocalMessage(notice)
+            speakResponse(notice)
+            return
+          }
+        } catch {
+          // Continue to the no-sign-in web fallback when native Clock is unavailable.
+        }
         const alarmUrl = "https://digiclock.net/alarm-clock/"
         if (appActionWindow && !appActionWindow.closed) appActionWindow.location.href = alarmUrl
         else window.open(alarmUrl, "_blank")
-        const notice = "I've opened DigiClock, a free alarm website with no sign-in. Set it to your requested time there, and keep the tab open and your device awake so it can ring."
+        const notice = "The device Clock app wasn't available, so I've opened DigiClock, a free alarm website with no sign-in. Set your requested time there, and keep the tab open and your device awake so it can ring."
         addLocalMessage(notice)
         speakResponse(notice)
         return
