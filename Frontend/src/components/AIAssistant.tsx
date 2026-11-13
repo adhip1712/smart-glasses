@@ -1882,6 +1882,44 @@ const AIAssistant: React.FC<{
     // The AI response arrives after an async request and may follow a tab switch.
     primeSpeechOutput()
 
+    // Alarm requests are handled entirely in the browser UI, never sent to AI
+    // and never routed through the built-in desktop/Windows alarm companion.
+    const isAlarmFollowUp = awaitingAlarmTimeRef.current
+    const alarmRequest = isAlarmFollowUp ? "Set an alarm for " + message : message
+    const isAlarmCommand = isAlarmFollowUp
+      || /\b(?:set|create|make|schedule|wake me(?: up)?|remind me)\b.*\b(?:alarm|alaram|alram)\b/i.test(message)
+      || /\b(?:alarm|alaram|alram)\b.*\b(?:at|for)\b/i.test(message)
+      || /^\s*(?:an?\s+)?(?:alarm|alaram|alram)\s*[.!?]*$/i.test(message)
+    if (isAlarmCommand) {
+      const hasExplicitTime = /\b(?:1[0-2]|0?[1-9])(?::[0-5]\d)?(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)\b/i.test(alarmRequest)
+        || /\b(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?\b/.test(alarmRequest)
+      setInput("")
+      setMessages(previous => [...previous, {
+        id: Date.now() + Math.random(),
+        role: "user",
+        content: message,
+      }])
+      if (!hasExplicitTime) {
+        awaitingAlarmTimeRef.current = true
+        const prompt = "What time should I set the alarm for? Please include AM/PM, for example 7:30 AM."
+        addLocalMessage(prompt)
+        speakResponse(prompt)
+        return
+      }
+
+      awaitingAlarmTimeRef.current = false
+      const alarmUrl = "https://digiclock.net/alarm-clock/"
+      const alarmTab = window.open(alarmUrl, "_blank")
+      const confirmation = alarmTab
+        ? "I've opened the free DigiClock alarm. Set it to " +
+          alarmRequest.replace(/^.*?\b(?:for|at)\s+/i, "") +
+          " on that page. No sign-in is needed. Keep the tab open and your device awake so it can ring."
+        : "Your browser blocked the alarm tab. Allow pop-ups for Visionary Nexus, then try again. You can also open https://digiclock.net/alarm-clock/ directly; no sign-in is needed."
+      addLocalMessage(confirmation)
+      speakResponse(confirmation)
+      return
+    }
+
     // Typed music requests use the same Music tab command handler as voice.
     // Keep a two-turn prompt state so "I want to hear" asks for a title first.
     if (awaitingTypedMusicChoiceRef.current) {
@@ -1928,44 +1966,6 @@ const AIAssistant: React.FC<{
       addLocalMessage(typedMusicCommand.query
         ? "Searching for " + typedMusicCommand.query + " and starting playback."
         : "Opening music controls.")
-      return
-    }
-
-    // Alarm requests are handled entirely in the browser UI, never sent to AI
-    // and never routed through the built-in desktop/Windows alarm companion.
-    const isAlarmFollowUp = awaitingAlarmTimeRef.current
-    const alarmRequest = isAlarmFollowUp ? "Set an alarm for " + message : message
-    const isAlarmCommand = isAlarmFollowUp
-      || /\b(?:set|create|make|schedule|wake me(?: up)?|remind me)\b.*\b(?:alarm|alaram|alram)\b/i.test(message)
-      || /\b(?:alarm|alaram|alram)\b.*\b(?:at|for)\b/i.test(message)
-      || /^\s*(?:an?\s+)?(?:alarm|alaram|alram)\s*[.!?]*$/i.test(message)
-    if (isAlarmCommand) {
-      const hasExplicitTime = /\b(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)\b/i.test(alarmRequest)
-        || /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/.test(alarmRequest)
-      setInput("")
-      setMessages(previous => [...previous, {
-        id: Date.now() + Math.random(),
-        role: "user",
-        content: message,
-      }])
-      if (!hasExplicitTime) {
-        awaitingAlarmTimeRef.current = true
-        const prompt = "What time should I set the alarm for? Please include AM/PM, for example 7:30 AM."
-        addLocalMessage(prompt)
-        speakResponse(prompt)
-        return
-      }
-
-      awaitingAlarmTimeRef.current = false
-      const alarmUrl = "https://digiclock.net/alarm-clock/"
-      const alarmTab = window.open(alarmUrl, "_blank")
-      const confirmation = alarmTab
-        ? "I've opened the free DigiClock alarm. Set it to " +
-          alarmRequest.replace(/^.*?\b(?:for|at)\s+/i, "") +
-          " on that page. No sign-in is needed. Keep the tab open and your device awake so it can ring."
-        : "Your browser blocked the alarm tab. Allow pop-ups for Visionary Nexus, then try again. You can also open https://digiclock.net/alarm-clock/ directly; no sign-in is needed."
-      addLocalMessage(confirmation)
-      speakResponse(confirmation)
       return
     }
 
