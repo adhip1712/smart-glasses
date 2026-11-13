@@ -73,6 +73,7 @@ class Handler(BaseHTTPRequestHandler):
         if origin in ORIGINS:
             self.send_header("Access-Control-Allow-Origin", origin); self.send_header("Vary", "Origin")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS"); self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Access-Control-Allow-Private-Network", "true")
         self.send_header("Content-Type", "application/json"); self.send_header("Cache-Control", "no-store"); self.end_headers()
         if status != 204: self.wfile.write(json.dumps(data).encode())
     def do_OPTIONS(self):
@@ -81,7 +82,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Origin") not in ORIGINS: return self.reply(403, {"success": False, "error": "Origin not allowed"})
         path = urlparse(self.path).path
         if path == "/health": return self.reply(200, {"success": True, "name": "Visionary Nexus Companion", "version": "1.0"})
-        if path == "/apps": return self.reply(200, {"success": True, "apps": discover_apps()})
+        if path == "/apps": return self.reply(200, {"success": True, "apps": [{"name": a["name"], "kind": a["kind"]} for a in discover_apps()]})
         self.reply(404, {"success": False, "error": "Not found"})
     def do_POST(self):
         if self.headers.get("Origin") not in ORIGINS: return self.reply(403, {"success": False, "error": "Origin not allowed"})
