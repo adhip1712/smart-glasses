@@ -167,6 +167,8 @@ export function openGmailSearch(query: string, reservedWindow?: Window | null): 
 
 export type AppActionPlan = {
   destination: string
+  app_name?: string
+  destination_url?: string
   action: string
   recipient?: string
   message_text?: string
@@ -185,13 +187,36 @@ export type AppActionExecution = {
  * user's existing browser session. Unsupported tasks still open the intended
  * app and explain the missing capability instead of falling back to chat.
  */
+function verifiedAppUrl(value?: string): string {
+  const candidate = (value || "").trim()
+  if (!candidate) return ""
+  try {
+    const parsed = new URL(candidate)
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password) return ""
+    return parsed.toString()
+  } catch {
+    return ""
+  }
+}
+
+/**
+ * Resolve the AI-selected destination without restricting users to the
+ * built-in app directory. Known apps retain their existing safe URLs;
+ * discovered web apps must provide a verified HTTPS destination.
+ *
+ * Opening an app is not treated as completing its requested action. Actions
+ * outside the local capability registry are reported as requiring a
+ * user-authorised connection.
+ */
 export function executeAppAction(plan: AppActionPlan, reservedWindow?: Window | null, deferNavigation = false): AppActionExecution {
   const openDestination = (url: string) => {
     if (deferNavigation) return
     if (reservedWindow && !reservedWindow.closed) reservedWindow.location.href = url
     else window.open(url, '_blank', 'noopener,noreferrer')
   }
-  const target = (plan.destination || '').toLowerCase()
+
+  const target = (plan.destination || '').trim().toLowerCase().replace(/\\s+app$/, '')
+  const requestedName = (plan.app_name || plan.destination || 'the app').trim()
   const aliases: Record<string, AppId> = {
     gmail: 'gmail', email: 'gmail', mail: 'gmail', 'google mail': 'gmail',
     outlook: 'outlook', 'microsoft outlook': 'outlook',
@@ -203,19 +228,42 @@ export function executeAppAction(plan: AppActionPlan, reservedWindow?: Window | 
   }
   const appId = aliases[target]
   const app = APP_DIRECTORY.find(item => item.id === appId)
-  if (!app) {
-    if (reservedWindow && !reservedWindow.closed) reservedWindow.close()
-    return { handled: true, message: "I understood that you want me to use " + (plan.destination || "an app") + ", but I don't have a verified destination for it yet. No action was taken." }
-  }
+  const isClock = /^(clock|windows clock|clock app|alarms? & clock)$/i.test(target) ||
+    /^(clock|windows clock)$/i.test(requestedName)
 
+  // The Windows Clock URI is a fixed, well-known target—not an arbitrary
+  // scheme supplied by the model. Other discovered targets must be HTTPS.
+  const discoveredUrl = verifiedAppUrl(plan.destination_url)
+  const destinationUrl = app?.url || (isClock ? 'ms-clock:' : discoveredUrl)
   const action = (plan.action || 'open').toLowerCase()
-  const capability = APP_CAPABILITIES[app.id]
-  const actionSupported = capability.supportedActions.includes(action)
-  if (!actionSupported && capability.requiresConnection.includes(action)) {
-    openDestination(app.url)
+
+  if (!destinationUrl) {
+    if (reservedWindow && !reservedWindow.closed) reservedWindow.close()
     return {
       handled: true,
-      url: app.url,
+      message: "I identified **" + requestedName + "** as the best app for this task, but I couldn't verify a safe way to open it on this device. Connect the app or its desktop integration to Visionary Nexus before I try to control it."
+    }
+  }
+
+  if (!app) {
+    openDestination(destinationUrl)
+    if (action === 'open') {
+      return { handled: true, url: destinationUrl, message: "I found and opened **" + requestedName + "**." }
+    }
+    return {
+      handled: true,
+      url: destinationUrl,
+      message: "I found and opened **" + requestedName + "** for this task. Opening it does not give Visionary Nexus control of it. Connect and authorise this app or its desktop integration before I can " + action.replace(/_/g, ' ') + ". Nothing has been changed yet."
+    }
+  }
+
+  const capability = APP_CAPABILITIES[app.id]
+  const actionSupported = action === 'open' || capability.supportedActions.includes(action)
+  if (!actionSupported && capability.requiresConnection.includes(action)) {
+    openDestination(destinationUrl)
+    return {
+      handled: true,
+      url: destinationUrl,
       message: "I opened **" + app.name + "**. I can't " + action.replace(/_/g, ' ') + " from Visionary Nexus until you connect and authorise your " + app.name + " account. The required integration is not connected, so nothing was changed or sent."
     }
   }
@@ -241,16 +289,14 @@ export function executeAppAction(plan: AppActionPlan, reservedWindow?: Window | 
     return { handled: true, url, message: "I opened Gmail with your requested search. Gmail will use your existing browser sign-in; Visionary Nexus does not read your private messages." }
   }
 
-  openDestination(app.url)
-
+  openDestination(destinationUrl)
   if (actionSupported) {
-    return { handled: true, url: app.url, message: "I opened **" + app.name + "**." }
+    return { handled: true, url: destinationUrl, message: "I opened **" + app.name + "**." }
   }
 
-  const actionLabel = action.replace(/_/g, ' ')
   return {
     handled: true,
-    url: app.url,
-    message: "I opened **" + app.name + "**. I understood that you wanted to " + actionLabel + ", but I can't complete that action inside Visionary Nexus yet because the " + app.name + " integration is not connected. You can continue manually in the app. To let Visionary Nexus perform it directly, an authorised " + app.name + " integration must be added and connected in Settings."
+    url: destinationUrl,
+    message: "I opened **" + app.name + "**. I understood that you wanted to " + action.replace(/_/g, ' ') + ", but I can't complete that action inside Visionary Nexus yet because the " + app.name + " integration is not connected. Connect and authorise it in Visionary Nexus before I can perform the action."
   }
 }
