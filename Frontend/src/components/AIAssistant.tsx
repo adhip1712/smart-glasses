@@ -9,7 +9,7 @@ import remarkGfm from "remark-gfm"
 import { apiFetch } from "../services/api"
 import { parseCallIntent } from "../services/callIntent"
 import { answerBirthdayQuestion, executeAppAction } from "../services/universalApps"
-import { launchDesktopApp, setDesktopAlarm } from "../services/desktopCompanion"
+import { launchDesktopApp } from "../services/desktopCompanion"
 import { primeSpeechOutput, speakText } from "../services/speech"
 import { parseMusicCommand } from "../services/voiceMusic"
 
@@ -2118,20 +2118,25 @@ const AIAssistant: React.FC<{
     if (featureIntent?.intent === "app_action") {
       const actionName = String(featureIntent.action || "open").toLowerCase()
       const appName = String(featureIntent.app_name || featureIntent.destination || "the requested app")
-      // Native Windows alarms are scheduled by the local companion, not merely by opening Clock.
+      // Alarm intents from semantic classification also use the no-sign-in
+      // browser alarm. Never invoke the built-in Windows alarm companion.
       if (actionName === "set_alarm") {
-        try {
-          const alarm = await setDesktopAlarm(message)
-          const when = alarm.scheduled_for ? new Date(alarm.scheduled_for).toLocaleString() : "the requested time"
-          const confirmation = "Alarm set for " + when + ". " + (alarm.note || "")
-          addLocalMessage(confirmation)
-          speakResponse(confirmation)
-        } catch {
-          const notice = "I understood that you want an alarm, but the Windows companion is not connected. Install and start the Visionary Nexus Windows Companion on this laptop; I have not set an alarm."
-          addLocalMessage(notice)
-          speakResponse(notice)
+        const hasTime = /\b(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)\b/i.test(message)
+          || /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/.test(message)
+        if (!hasTime) {
+          if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
+          awaitingAlarmTimeRef.current = true
+          const prompt = "What time should I set the alarm for? Please include AM/PM, for example 7:30 AM."
+          addLocalMessage(prompt)
+          speakResponse(prompt)
+          return
         }
-        if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
+        const alarmUrl = "https://digiclock.net/alarm-clock/"
+        if (appActionWindow && !appActionWindow.closed) appActionWindow.location.href = alarmUrl
+        else window.open(alarmUrl, "_blank")
+        const notice = "I've opened DigiClock, a free alarm website with no sign-in. Set it to your requested time there, and keep the tab open and your device awake so it can ring."
+        addLocalMessage(notice)
+        speakResponse(notice)
         return
       }
       // Prefer a discovered native Windows application. If it is not installed,
