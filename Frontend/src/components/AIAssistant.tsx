@@ -68,12 +68,7 @@ type NavigationResult = {
   destination?: string
   distance_km?: number
   duration_minutes?: number
-  steps?: Array<{
-    instruction?: string
-    type?: string
-    modifier?: string
-    distance_meters?: number
-  }>
+  steps?: Array<{ instruction?: string }>
   message?: string
 }
 
@@ -132,14 +127,18 @@ const AIAssistant: React.FC<{
 
   // Browser speech uses the laptop's selected audio output and preserves all
   // existing backend APIs. The test button provides a user-gesture unlock.
-  const speakResponse = (value: string) => {
+  const speakResponse = (value: string, onFinished?: () => void) => {
     const started = speakText(value, {
       onStart: () => setSpeechStatus("Speaking"),
-      onEnd: () => setSpeechStatus("Voice ready"),
-      onError: error => setSpeechStatus("Speech error: " + error),
+      onEnd: () => { setSpeechStatus("Voice ready"); onFinished?.() },
+      onError: error => { setSpeechStatus("Speech error: " + error); onFinished?.() },
     })
     if (started) setSpeechStatus("Starting voice…")
-    else setSpeechStatus("Voice responses are disabled or unavailable")
+    else {
+      setSpeechStatus("Voice responses are disabled or unavailable")
+      onFinished?.()
+    }
+    return started
   }
 
   const audioRef =
@@ -1851,7 +1850,7 @@ const AIAssistant: React.FC<{
 
       if (navigationMatch) {
         const destination = navigationMatch[1].trim()
-        await getNavigation(destination)
+        onNavigate?.(destination)
         return true
       }
 
@@ -1908,6 +1907,9 @@ const AIAssistant: React.FC<{
     const appActionWindow = !navigationTab && /\b(?:send|message|email|mail|write|compose|schedule|create|find|search|open|launch|book|add)\b/i.test(message)
       ? window.open('about:blank', '_blank')
       : null
+    // Chrome focuses a newly opened tab by default. Restore focus to Visionary Nexus
+    // so its speech engine remains in the foreground while AI planning completes.
+    if (navigationTab || appActionWindow) window.focus()
 
     // AI plans the intent before ordinary chat fallback. This is semantic
     // routing, not a growing collection of phrase-specific command patterns.
@@ -1993,7 +1995,8 @@ const AIAssistant: React.FC<{
     }
 
     if (featureIntent?.intent === "navigation" && featureIntent.destination) {
-      onNavigate?.(String(featureIntent.destination), navigationTab)
+      const destination = String(featureIntent.destination)
+      speakResponse(`Opening Google Maps directions to ${destination}.`, () => onNavigate?.(destination, navigationTab))
       return
     }
 
@@ -2007,8 +2010,10 @@ const AIAssistant: React.FC<{
         query: String(featureIntent.query || ""),
       }, null, true)
       addLocalMessage(result.message)
-      speakResponse(result.message)
-      if (result.url && appActionWindow && !appActionWindow.closed) appActionWindow.location.href = result.url
+      speakResponse(result.message, () => {
+        if (result.url && appActionWindow && !appActionWindow.closed) appActionWindow.location.href = result.url
+      })
+      if (!result.url && appActionWindow && !appActionWindow.closed) appActionWindow.close()
       return
     }
 

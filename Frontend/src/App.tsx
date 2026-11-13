@@ -385,6 +385,8 @@ export default function App() {
           const appActionWindow = /\b(?:send|message|email|mail|write|compose|schedule|create|find|search|open|launch|book|add)\b/i.test(spoken)
             ? window.open('about:blank', '_blank')
             : null
+          // Keep Visionary Nexus focused; the external tab is navigated only after speech.
+          if (appActionWindow) window.focus()
           try {
             const response = await apiFetch('/api/intent/classify', {
               method: 'POST',
@@ -425,8 +427,11 @@ export default function App() {
                 message_text: String(intent?.message_text || ''),
                 query: String(intent?.query || ''),
               }, null, true)
-              speakText(result.message.replace(/\*\*/g, '').replace(/\*/g, ''))
-              if (result.url && appActionWindow && !appActionWindow.closed) appActionWindow.location.href = result.url
+              const spoken = speakText(result.message.replace(/\*\*/g, '').replace(/\*/g, ''), {
+                onEnd: () => { if (result.url && appActionWindow && !appActionWindow.closed) appActionWindow.location.href = result.url },
+                onError: () => { if (result.url && appActionWindow && !appActionWindow.closed) appActionWindow.location.href = result.url },
+              })
+              if (!spoken && result.url && appActionWindow && !appActionWindow.closed) appActionWindow.location.href = result.url
               return
             }
             if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
@@ -439,9 +444,10 @@ export default function App() {
               return
             }
             if (routedIntent === 'navigation' && intent?.destination) {
-              speakText(`Getting directions to ${intent.destination}.`)
-              openMapForDestination(intent.destination)
-              window.dispatchEvent(new CustomEvent('visionary:navigate', { detail: { destination: intent.destination } }))
+              const destination = String(intent.destination)
+              const openDirections = () => openMapForDestination(destination)
+              const spoken = speakText(`Opening Google Maps directions to ${destination}.`, { onEnd: openDirections, onError: openDirections })
+              if (!spoken) openDirections()
               return
             }
             const intentTabs: Partial<Record<string, Tab>> = {
