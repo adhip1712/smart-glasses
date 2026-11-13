@@ -1958,7 +1958,7 @@ const AIAssistant: React.FC<{
 
       awaitingAlarmTimeRef.current = false
       const alarmUrl = "https://digiclock.net/alarm-clock/"
-      const alarmTab = window.open(alarmUrl, "_blank", "noopener,noreferrer")
+      const alarmTab = window.open(alarmUrl, "_blank")
       const confirmation = alarmTab
         ? "I've opened the free DigiClock alarm. Set it to " +
           alarmRequest.replace(/^.*?\b(?:for|at)\s+/i, "") +
