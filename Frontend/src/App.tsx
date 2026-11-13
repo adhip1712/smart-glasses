@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import SpatialDashboard from './components/SpatialDashboard'
 import AIAssistant from './components/AIAssistant'
 import Vision from './components/Vision'
@@ -12,7 +12,7 @@ import Calling from './components/Calling'
 import { apiFetch, readJson } from './services/api'
 import VoiceControl from './components/VoiceControl'
 import { speakText } from './services/speech'
-import { parseMusicCommand, publishMusicCommand, type MusicCommandAction } from './services/voiceMusic'
+import { parseMusicCommand } from './services/voiceMusic'
 import { parseCallIntent } from './services/callIntent'
 import IntroSplash from './components/IntroSplash'
 import AuthScreen from './components/AuthScreen'
@@ -117,6 +117,7 @@ interface SystemStatus {
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard')
   const [pendingVoiceCommand, setPendingVoiceCommand] = useState('')
+  const awaitingMusicChoiceRef = useRef(false)
   const [pendingWhatsAppDraft, setPendingWhatsAppDraft] = useState<{ recipient: string; message: string } | null>(null)
   const consumeWhatsAppDraft = useCallback(() => setPendingWhatsAppDraft(null), [])
   const [pendingCallRequest, setPendingCallRequest] = useState<{ recipient: string; channel: 'phone' | 'whatsapp' } | null>(null)
@@ -358,6 +359,25 @@ export default function App() {
           </div>
         </header>
         <VoiceControl onCommand={async (spoken) => {
+          // The phrase "I want to hear" starts a short two-turn music flow.
+          // The next spoken utterance is treated as the requested song/artist/genre.
+          if (awaitingMusicChoiceRef.current) {
+            awaitingMusicChoiceRef.current = false
+            const choice = spoken.trim()
+            if (!choice) {
+              speakText('I did not catch the song name. Which song would you like to hear?')
+              awaitingMusicChoiceRef.current = true
+              return
+            }
+            const query = /^(surprise me|anything|any song)$/i.test(choice) ? 'popular songs' : choice
+            setActiveTab('music')
+            speakText('Playing ' + query + '.')
+            window.dispatchEvent(new CustomEvent('visionary:voice-command', {
+              detail: { activeTab: 'music', intent: 'music', action: 'play', query, text: choice },
+            }))
+            return
+          }
+
           const callIntent = parseCallIntent(spoken)
           if (callIntent) {
             setPendingCallRequest(callIntent)
@@ -367,17 +387,22 @@ export default function App() {
           }
           const musicCommand = parseMusicCommand(spoken)
           if (musicCommand) {
-            speakText(musicCommand.query ? 'Opening music for ' + musicCommand.query + '.' : 'Opening YouTube Music.')
             setActiveTab('music')
-            publishMusicCommand({
-              activeTab: 'music',
-              provider: 'youtube',
-              source: 'voice',
-              intent: 'music',
-              action: musicCommand.action,
-              query: musicCommand.query,
-              text: spoken,
-            })
+            if (musicCommand.action === 'open' && !musicCommand.query) {
+              awaitingMusicChoiceRef.current = true
+              speakText('Sure! Which song would you like to listen to?')
+              return
+            }
+            speakText(musicCommand.query ? 'Playing ' + musicCommand.query + '.' : 'Opening YouTube Music.')
+            window.dispatchEvent(new CustomEvent('visionary:voice-command', {
+              detail: {
+                activeTab: 'music',
+                intent: 'music',
+                action: musicCommand.action,
+                query: musicCommand.query,
+                text: spoken,
+              },
+            }))
             return;
           }
           // Reserve a browser tab synchronously so a later AI-planned app
