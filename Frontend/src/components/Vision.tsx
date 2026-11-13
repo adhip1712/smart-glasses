@@ -59,9 +59,7 @@ const toOverlay = (detection: VisionDetection): OverlayObject | null => {
   }
 }
 
-const sceneDescription = "Office workspace with 4 people detected. Overhead fluorescent lighting, daytime. Approximately 12m² visible area. No hazards detected. Wi-Fi networks visible: 3. Dominant colors: white, grey, blue."
-
-export default function Vision() {
+export default function Vision({ onAskAssistant }: { onAskAssistant?: (prompt: string) => void } = {}) {
   const [scanning, setScanning] = useState(true)
   const [scanY, setScanY] = useState(0)
   const [showObjects, setShowObjects] = useState(true)
@@ -82,6 +80,7 @@ export default function Vision() {
   const [visionError, setVisionError] = useState('')
   const [visionFrameTick, setVisionFrameTick] = useState(0)
   const [visionFrameFailed, setVisionFrameFailed] = useState(false)
+  const [analysisSummary, setAnalysisSummary] = useState('Start detection to analyze the live camera scene.')
 
   useEffect(() => {
     let cancelled = false
@@ -144,6 +143,22 @@ export default function Vision() {
 
     return () => clearInterval(interval)
   }, [vision?.running, visionFrameFailed])
+
+  const handleAnalyzeScene = () => {
+    if (!vision?.running) {
+      setAnalysisSummary('Start detection first. Scene analysis uses live camera detections, not placeholder data.')
+      return
+    }
+    if (!visionDetections) {
+      setAnalysisSummary('The detector is running. Waiting for the first live frame…')
+      return
+    }
+    const labels = Object.entries(visionDetections.labels ?? {}).filter(([, count]) => count > 0)
+    const total = labels.reduce((sum, [, count]) => sum + count, 0)
+    setAnalysisSummary(total
+      ? 'Live scene: ' + labels.map(([name, count]) => name + (count > 1 ? ' ×' + count : '')).join(', ') + '. ' + total + ' object detection(s) currently visible.'
+      : 'No objects are currently above the detector confidence threshold.')
+  }
 
   const handleVisionToggle = async () => {
     setVisionBusy(true)
@@ -453,6 +468,7 @@ export default function Vision() {
               {visionBusy ? 'WAITING…' : vision?.running ? 'STOP DETECTION' : 'START DETECTION'}
             </button>
             <button
+              onClick={handleAnalyzeScene}
               className="px-5 py-2.5 rounded-xl font-display text-[11px] tracking-widest transition-all duration-300 hover:scale-105"
               style={{
                 background: 'rgba(168,85,247,0.1)',
@@ -584,20 +600,26 @@ export default function Vision() {
           <div className="glass rounded-2xl p-5">
             <div className="font-display text-xs tracking-widest text-white/50 uppercase mb-3">Scene Analysis</div>
             <p className="font-mono text-xs text-white/60 leading-relaxed">
-              {usingRealDetections
+              {analysisSummary || (usingRealDetections
                 ? `YOLO found ${overlayObjects.length} object(s) across ${Object.keys(visionDetections?.labels ?? {}).length} class(es): ${Object.entries(visionDetections?.labels ?? {}).map(([name, count]) => `${name} ×${count}`).join(', ')}.`
-                : sceneDescription}
+                : 'Start detection to see a live scene summary.')}
             </p>
-            {!usingRealDetections && (
-              <div className="font-mono text-[9px] text-white/25 mt-2">
-                placeholder text - start detection to replace it with real results
-              </div>
-            )}
+            <button
+              type="button"
+              disabled={!usingRealDetections || !onAskAssistant}
+              onClick={() => {
+                const detected = Object.entries(visionDetections?.labels ?? {}).filter(([, count]) => count > 0).map(([name, count]) => name + (count > 1 ? ' ×' + count : '')).join(', ')
+                onAskAssistant?.('Describe this live camera scene using only the current object detections: ' + (detected || 'No objects detected') + '. Clearly distinguish detected facts from anything the camera cannot establish.')
+              }}
+              className="mt-3 rounded-lg border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 font-mono text-[10px] tracking-wider text-cyan-100 disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              ASK NEXUS ABOUT THIS SCENE
+            </button>
             <div className="mt-4 pt-4 border-t border-white/5 grid grid-cols-2 gap-3">
               {[
                 { label: 'Objects', value: String(overlayObjects.length), color: '#00e5ff' },
-                { label: 'People', value: String(visionDetections?.labels?.person ?? (usingRealDetections ? 0 : 1)), color: '#a855f7' },
-                { label: 'Classes', value: String(Object.keys(visionDetections?.labels ?? {}).length || (usingRealDetections ? 0 : 4)), color: '#4d9eff' },
+                { label: 'People', value: String(visionDetections?.labels?.person ?? 0), color: '#a855f7' },
+                { label: 'Classes', value: String(Object.keys(visionDetections?.labels ?? {}).length), color: '#4d9eff' },
                 { label: 'FPS', value: vision?.running ? (vision.fps ?? 0).toFixed(1) : '–', color: '#4ade80' },
               ].map(({ label, value, color }) => (
                 <div key={label} className="text-center p-2 rounded-lg"

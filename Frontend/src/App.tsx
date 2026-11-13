@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import SpatialDashboard from './components/SpatialDashboard'
+import NexusIntelligence from './components/NexusIntelligence'
 import AIAssistant from './components/AIAssistant'
 import Vision from './components/Vision'
 import Music from './components/Music'
@@ -34,7 +35,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs = 10000): Promise<T> {
   })
 }
 
-export type Tab = 'dashboard' | 'ai' | 'vision' | 'music' | 'weather' | 'notifications' | 'whatsapp' | 'calling' | 'device' | 'settings'
+export type Tab = 'dashboard' | 'intelligence' | 'ai' | 'vision' | 'music' | 'weather' | 'notifications' | 'whatsapp' | 'calling' | 'device' | 'settings'
 
 const DashIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
@@ -96,6 +97,7 @@ const GearIcon = () => (
 
 const tabs = [
   { id: 'dashboard' as Tab, label: 'Dashboard', Icon: DashIcon },
+  { id: 'intelligence' as Tab, label: 'Intelligence', Icon: AIIcon },
   { id: 'ai' as Tab, label: 'AI Assistant', Icon: AIIcon },
   { id: 'vision' as Tab, label: 'Vision', Icon: EyeIcon },
   { id: 'music' as Tab, label: 'Music', Icon: MusicIcon },
@@ -459,6 +461,7 @@ export default function App() {
               notifications: 'notifications',
               device: 'device',
               settings: 'settings',
+              intelligence: 'intelligence',
             }
             const destinationTab = intentTabs[routedIntent]
             if (destinationTab && routedIntent !== 'general') {
@@ -480,13 +483,14 @@ export default function App() {
         }} />
         <div className="page-content animate-slide-in vn-content">
           {activeTab === 'dashboard' && <SpatialDashboard setActiveTab={setActiveTab} displayName={displayName} backendOnline={status.backend} glassesOnline={status.glassesOnline} />}
+          {activeTab === 'intelligence' && <NexusIntelligence onOpenVision={() => setActiveTab('vision')} onOpenDevice={() => setActiveTab('device')} />}
           {activeTab === 'ai' && <AIAssistant
             onNavigate={(destination, openedWindow) => { openMapForDestination(destination, openedWindow) }}
             onMusic={() => setActiveTab('music')}
             onWhatsAppDraft={(draft) => { setPendingWhatsAppDraft(draft); setActiveTab('whatsapp') }}
             onCallRequest={(request) => { setPendingCallRequest(request); setActiveTab('calling') }}
           />}
-          {activeTab === 'vision' && <Vision />}
+          {activeTab === 'vision' && <Vision onAskAssistant={(prompt) => { setPendingVoiceCommand(prompt); setActiveTab('ai') }} />}
           {/* Keep Music mounted while other tabs are open so playback and playlist editing continue. */}
           <div style={{ display: activeTab === 'music' ? 'block' : 'none' }} aria-hidden={activeTab !== 'music'}>
             <Music />
