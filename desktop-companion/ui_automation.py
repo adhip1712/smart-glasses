@@ -48,8 +48,11 @@ def inspect_window(window_id):
             if not c.is_visible():
                 continue
             info = c.element_info
-            name = (info.name or "").strip()[:120]
             ctype = str(info.control_type or "")[:40]
+            # Expose actionable labels only, not passive message/document text.
+            if ctype not in {"Button", "Edit", "ComboBox", "TabItem", "MenuItem", "CheckBox", "RadioButton", "Hyperlink", "SplitButton"}:
+                continue
+            name = (info.name or "").strip()[:120]
             if any(word in name.casefold() for word in SENSITIVE_NAMES):
                 name = "[sensitive control]"
             # Do not expose values from edit controls, document contents, or password fields.
@@ -106,7 +109,8 @@ def perform_action(data):
             if any(x in control_name.casefold() for x in SENSITIVE_NAMES):
                 raise ValueError("Typing into password or security-code controls is not supported.")
             control.click_input()
-            control.type_keys(text, with_spaces=True, set_foreground=True)
+            # Set literal text directly; do not interpret text as key sequences.
+            control.set_edit_text(text)
     else:
         key = str(data.get("key") or "").upper()
         allowed = {"ENTER", "TAB", "ESC", "UP", "DOWN", "LEFT", "RIGHT", "HOME", "END", "BACKSPACE", "DELETE", "SPACE"}
