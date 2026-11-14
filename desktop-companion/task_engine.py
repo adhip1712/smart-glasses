@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -86,9 +87,12 @@ def plan_task(payload: dict[str, Any]) -> dict[str, Any]:
         return {"success": True, "task": task, "ready": False, "missing": missing, "questions": questions}
     try:
         safe_name = _filename(filename)
+    except ValueError as exc:
+        return {"success": True, "task": task, "ready": False, "missing": [], "field": "filename", "questions": [str(exc)], "error": str(exc)}
+    try:
         safe_dir = _allowed_directory(directory)
     except ValueError as exc:
-        return {"success": True, "task": task, "ready": False, "missing": [], "questions": [str(exc)], "error": str(exc)}
+        return {"success": True, "task": task, "ready": False, "missing": [], "field": "directory", "questions": [str(exc)], "error": str(exc)}
     target = safe_dir / safe_name
     return {
         "success": True, "task": task, "ready": True, "filename": safe_name,
@@ -108,14 +112,24 @@ def execute_save_text(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(text, str) or not text or len(text) > 100_000:
         raise ValueError("Text must contain 1–100,000 characters.")
     target = Path(plan["target"])
-    temp = target.with_name(target.name + ".vn-tmp")
+    temp_path = None
     try:
-        with temp.open("w", encoding="utf-8", newline="") as stream:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="", dir=target.parent,
+                                          prefix=".visionary-nexus-", suffix=".tmp", delete=False) as stream:
+            temp_path = Path(stream.name)
             stream.write(text); stream.flush(); os.fsync(stream.fileno())
-        os.replace(temp, target)
+        if plan.get("overwrite_required"):
+            os.replace(temp_path, target)
+        else:
+            # On Windows os.rename fails if another process created the target
+            # after planning, preventing an unconfirmed overwrite race.
+            os.rename(temp_path, target)
+    except FileExistsError:
+        return {"success": False, "requires_confirmation": True, "target": str(target),
+                "message": "A file with that name appeared while saving. Confirm overwrite before replacing it."}
     finally:
         try:
-            if temp.exists(): temp.unlink()
+            if temp_path and temp_path.exists(): temp_path.unlink()
         except OSError:
             pass
     if target.read_text(encoding="utf-8") != text:
