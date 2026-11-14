@@ -2171,6 +2171,11 @@ const AIAssistant: React.FC<{
 
     if (featureIntent?.intent === "app_action") {
       const actionName = String(featureIntent.action || "open").toLowerCase()
+      // Universal control is intentionally limited to age-appropriate services.
+      if (/\\b(?:casino|gambling|betting|sportsbook|weapon|firearm|gun|vape|nicotine|alcohol|marijuana|cannabis|drug|adult content)\\b/i.test(message)) {
+        const notice = "I can't open or operate services involving restricted or age-limited activities."
+        addLocalMessage(notice); speakResponse(notice); return
+      }
       const appName = String(featureIntent.app_name || featureIntent.destination || "the requested app")
       // Universal App Control 3.0: inspect and act only within an explicitly
       // named, visible desktop window. The model must identify an exact control.
