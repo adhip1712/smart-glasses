@@ -40,3 +40,27 @@ export async function discoverDesktopApps(): Promise<Array<{ name: string; kind:
 export async function launchDesktopApp(app: string): Promise<DesktopActionResult> {
   return request<DesktopActionResult>("/launch", { app })
 }
+
+export type DesktopWindow = { window_id: string; title: string; process_id: number }
+export type DesktopControl = {
+  name: string
+  control_type: string
+  automation_id: string
+  enabled: boolean
+  rectangle: { left: number; top: number; right: number; bottom: number }
+}
+export type DesktopInspection = { success: boolean; window_id: string; title: string; controls: DesktopControl[] }
+
+export async function discoverDesktopWindows(): Promise<DesktopWindow[]> {
+  const result = await request<{ success: boolean; windows: DesktopWindow[] }>("/windows")
+  return result.windows || []
+}
+export async function inspectDesktopWindow(window_id: string): Promise<DesktopInspection> {
+  return request<DesktopInspection>("/ui/inspect", { window_id })
+}
+export async function performDesktopAction(input: {
+  window_id: string; action: "click" | "type_text" | "press_key"
+  control_name?: string; control_type?: string; text?: string; key?: string; confirmed?: boolean
+}): Promise<{ success: boolean; verified?: boolean; requires_confirmation?: boolean; message?: string }> {
+  return request("/ui/action", input)
+}
