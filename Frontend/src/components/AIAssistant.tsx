@@ -2257,7 +2257,7 @@ const AIAssistant: React.FC<{
         }
         const plan = await planDesktopTask(payload)
         if (!plan.ready) {
-          const field = (plan.missing?.[0] || "filename") as "text" | "filename" | "directory"
+          const field = (plan.missing?.[0] || (plan as any).field || "filename") as "text" | "filename" | "directory"
           pendingSaveTaskRef.current = { text: payload.text || undefined, filename: payload.filename || undefined,
             directory: payload.directory || undefined, waitingFor: field }
           const question = plan.questions?.[0] || plan.error || "What filename should I use?"
