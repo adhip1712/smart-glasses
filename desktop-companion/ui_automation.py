@@ -101,8 +101,9 @@ def perform_action(data):
         if len(matches) != 1:
             raise ValueError("Control must match exactly one visible, enabled control. Inspect the window and use its exact name and type.")
         control = matches[0]
+        resolved_name = (control.element_info.name or control_name).strip()
         if action == "click":
-            if control_name.casefold() in HIGH_IMPACT_NAMES or any(x in control_name.casefold() for x in HIGH_IMPACT_NAMES):
+            if any(x in resolved_name.casefold() for x in HIGH_IMPACT_NAMES):
                 if data.get("confirmed") is not True:
                     return {"success": False, "requires_confirmation": True, "message": "This control may send, submit, publish, delete, purchase, or transfer. Confirm the exact action in Visionary Nexus before continuing."}
             control.click_input()
@@ -112,7 +113,7 @@ def perform_action(data):
                 raise ValueError("Provide text of 1–2000 characters.")
             if control.element_info.control_type not in {"Edit", "ComboBox", "Document"}:
                 raise ValueError("Text can only be entered into an editable text control.")
-            if any(x in control_name.casefold() for x in SENSITIVE_NAMES):
+            if any(word in resolved_name.casefold() for word in SENSITIVE_NAMES):
                 raise ValueError("Typing into password or security-code controls is not supported.")
             control.click_input()
             # Set literal text directly; do not interpret text as key sequences.
