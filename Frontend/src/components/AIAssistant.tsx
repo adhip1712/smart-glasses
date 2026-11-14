@@ -128,7 +128,7 @@ const AIAssistant: React.FC<{
   const awaitingTypedMusicChoiceRef = useRef(false)
   const awaitingAlarmTimeRef = useRef(false)
   const pendingDesktopActionRef = useRef<{
-    window_id: string; action: "click"; control_name: string; automation_id?: string; control_type?: string; app_title: string
+    window_id: string; action: "click"; control_name?: string; automation_id?: string; control_type?: string; app_title: string
   } | null>(null)
   const pendingSaveTaskRef = useRef<{
     text?: string; filename?: string; directory?: string; waitingFor: "text" | "filename" | "directory" | "overwrite"
@@ -1920,17 +1920,17 @@ const AIAssistant: React.FC<{
         setInput("")
         setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }])
         if (!confirmation) {
-          const cancelled = "Cancelled. I did not click the " + pending.control_name + " control."
+          const cancelled = "Cancelled. I did not click the " + (pending.control_name || pending.automation_id || "selected") + " control."
           addLocalMessage(cancelled); speakResponse(cancelled); return
         }
         try {
           const result = await performDesktopAction({
             window_id: pending.window_id, action: "click",
-            control_name: pending.control_name, automation_id: pending.automation_id,
+            control_name: pending.control_name || undefined, automation_id: pending.automation_id,
             control_type: pending.control_type, confirmed: true,
           })
           const outcome = result.success
-            ? "Clicked **" + pending.control_name + "** in " + pending.app_title + ". The desktop companion reported the action completed."
+            ? "Clicked **" + (pending.control_name || pending.automation_id || "selected control") + "** in " + pending.app_title + ". The desktop companion reported the action completed."
             : "The action was not completed: " + (result.message || "the control could not be activated.")
           addLocalMessage(outcome); speakResponse(outcome)
         } catch (error) {
@@ -2385,8 +2385,8 @@ const AIAssistant: React.FC<{
             confirmed: false,
           })
           if (actionResult.requires_confirmation && actionName === "click") {
-            pendingDesktopActionRef.current = { window_id: selected.window_id, action: "click", control_name: controlName, automation_id: automationId || undefined, control_type: controlType || undefined, app_title: inspection.title }
-            const notice = "This control is potentially sensitive. I found **" + controlName + "** in **" + inspection.title + "**. Reply **confirm** to click it, or **cancel** to stop."
+            pendingDesktopActionRef.current = { window_id: selected.window_id, action: "click", control_name: controlName || undefined, automation_id: automationId || undefined, control_type: controlType || undefined, app_title: inspection.title }
+            const notice = "This control is potentially sensitive. I found **" + (controlName || automationId) + "** in **" + inspection.title + "**. Reply **confirm** to click it, or **cancel** to stop."
             addLocalMessage(notice); speakResponse(notice); return
           }
           const notice = actionResult.success
