@@ -50,7 +50,7 @@ def inspect_window(window_id):
             info = c.element_info
             ctype = str(info.control_type or "")[:40]
             # Expose actionable labels only, not passive message/document text.
-            if ctype not in {"Button", "Edit", "ComboBox", "TabItem", "MenuItem", "CheckBox", "RadioButton", "Hyperlink", "SplitButton"}:
+            if ctype not in {"Button", "Edit", "Document", "ComboBox", "TabItem", "MenuItem", "CheckBox", "RadioButton", "Hyperlink", "SplitButton"}:
                 continue
             name = (info.name or "").strip()[:120]
             if any(word in name.casefold() for word in SENSITIVE_NAMES):
@@ -113,9 +113,9 @@ def perform_action(data):
             control.set_edit_text(text)
     else:
         key = str(data.get("key") or "").upper()
-        allowed = {"ENTER", "TAB", "ESC", "UP", "DOWN", "LEFT", "RIGHT", "HOME", "END", "BACKSPACE", "DELETE", "SPACE"}
+        allowed = {"TAB", "ESC", "UP", "DOWN", "LEFT", "RIGHT", "HOME", "END", "BACKSPACE", "SPACE"}
         if key not in allowed:
-            raise ValueError("That key is not allowed. Use a navigation key such as ENTER, TAB, ESC, or an arrow key.")
+            raise ValueError("That key is not allowed. Use a non-submitting navigation key such as TAB, ESC, or an arrow key.")
         w.set_focus()
         send_keys("{" + key + "}")
-    return {"success": True, "action": action, "window_id": window_id, "verified": True}
+    return {"success": True, "action": action, "window_id": window_id}
