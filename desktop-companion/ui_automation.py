@@ -119,3 +119,23 @@ def perform_action(data):
         w.set_focus()
         send_keys("{" + key + "}")
     return {"success": True, "action": action, "window_id": window_id}
+
+def capture_window(window_id):
+    """Capture only the explicitly selected visible window for optional vision analysis."""
+    import base64
+    from io import BytesIO
+    w = _window(window_id)
+    image = w.capture_as_image()
+    if image.width > 1600 or image.height > 1200:
+        image.thumbnail((1600, 1200))
+    buffer = BytesIO()
+    image.save(buffer, format="JPEG", quality=78, optimize=True)
+    data = buffer.getvalue()
+    if len(data) > 4_000_000:
+        image.thumbnail((1200, 900))
+        buffer = BytesIO()
+        image.save(buffer, format="JPEG", quality=68, optimize=True)
+        data = buffer.getvalue()
+    return {"success": True, "window_id": str(w.handle), "title": w.window_text()[:180],
+            "mime_type": "image/jpeg", "image_base64": base64.b64encode(data).decode("ascii"),
+            "width": image.width, "height": image.height}
