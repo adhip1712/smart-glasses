@@ -1881,10 +1881,8 @@ const AIAssistant: React.FC<{
       return
     }
 
-    // Correct every submitted AI Assistant message before intent routing or
-    // conversational AI receives it. The shared backend editor preserves the
-    // original language, names, commands, numbers, and meaning. If unavailable,
-    // keep the user's original text and continue without blocking the chat.
+    // Polish every submitted message before routing or sending it to chat.
+    // Keep the original if the correction service is unavailable or unsafe.
     const originalMessage = message
     try {
       const correctionResponse = await apiFetch("/api/dictation/polish", {
@@ -3024,3 +3022,103 @@ const AIAssistant: React.FC<{
           bg-white/5
           p-2
         ">
+
+          {/* MIC */}
+
+          <button
+            type="button"
+            onClick={toggleListening}
+            className={`
+              flex-shrink-0
+              w-10
+              h-10
+              rounded-xl
+              flex
+              items-center
+              justify-center
+              transition-all
+              ${
+                isListening
+                  ? "bg-red-500/20"
+                  : "bg-white/5 hover:bg-white/10"
+              }
+            `}
+            title="Voice input"
+          >
+            <span className="text-sm">
+              {isListening
+                ? "■"
+                : "MIC"}
+            </span>
+          </button>
+
+          {/* TEXT INPUT */}
+
+          <textarea
+            ref={inputRef as unknown as React.RefObject<HTMLTextAreaElement>}
+            value={input}
+            rows={1}
+            onChange={event => setInput(event.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask VISIONARY NEXUS... (Shift+Enter for a new line)"
+            disabled={isThinking}
+            className="
+              flex-1
+              min-h-10
+              max-h-40
+              resize-y
+              bg-transparent
+              outline-none
+              text-sm
+              placeholder:opacity-30
+            "
+          />
+
+          {/* SEND */}
+
+          <button
+            type="button"
+            onClick={() =>
+              void sendMessage()
+            }
+            disabled={
+              !input.trim() ||
+              isThinking
+            }
+            className="
+              flex-shrink-0
+              px-4
+              py-2.5
+              rounded-xl
+              bg-white/10
+              hover:bg-white/15
+              disabled:opacity-30
+              disabled:cursor-not-allowed
+              transition-all
+              text-sm
+            "
+          >
+            Send
+          </button>
+
+        </div>
+
+        <div className="mt-2 text-center">
+
+          <span className="text-[10px] opacity-25">
+            Voice: "play spooky" ·
+            "pause" · "resume" ·
+            "next song" ·
+            "previous song" ·
+            "weather in Bengaluru"
+          </span>
+
+        </div>
+
+      </div>
+
+    </div>
+  )
+}
+
+export default AIAssistant
