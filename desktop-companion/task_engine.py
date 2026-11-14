@@ -9,15 +9,25 @@ from typing import Any
 _ALLOWED_ROOT_NAMES = ("Desktop", "Documents", "Downloads")
 _INVALID_FILENAME = re.compile(r'[<>:"/\\|?*]')
 
+def _allowed_roots() -> list[Path]:
+    home = Path.home().resolve()
+    candidates = []
+    for folder in _ALLOWED_ROOT_NAMES:
+        candidates.extend([home / folder, home / "OneDrive" / folder, home / "OneDrive - Personal" / folder])
+    return [path.resolve() for path in candidates if path.exists() and path.is_dir()]
+
 def _allowed_directory(raw: Any) -> Path:
     if not isinstance(raw, str) or not raw.strip():
         raise ValueError("Choose a save location: Desktop, Documents, Downloads, or a folder inside one of them.")
-    home = Path.home().resolve()
+    roots = _allowed_roots()
     alias = raw.strip().casefold()
     if alias in {name.casefold() for name in _ALLOWED_ROOT_NAMES}:
-        raw = str(home / next(name for name in _ALLOWED_ROOT_NAMES if name.casefold() == alias))
+        folder = next(name for name in _ALLOWED_ROOT_NAMES if name.casefold() == alias)
+        preferred = [root for root in roots if root.name.casefold() == folder.casefold()]
+        if not preferred:
+            raise ValueError("Windows could not find that standard folder. Enter an existing folder path inside your user profile's Desktop, Documents, or Downloads.")
+        raw = str(preferred[0])
     candidate = Path(raw).expanduser().resolve()
-    roots = [(home / name).resolve() for name in _ALLOWED_ROOT_NAMES]
     if not any(candidate == root or root in candidate.parents for root in roots):
         raise ValueError("For safety, file tasks are limited to Desktop, Documents, Downloads, and folders inside them.")
     if not candidate.exists() or not candidate.is_dir():
