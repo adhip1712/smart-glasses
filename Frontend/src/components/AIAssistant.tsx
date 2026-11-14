@@ -1969,7 +1969,7 @@ const AIAssistant: React.FC<{
         }
         const plan = await planDesktopTask(payload)
         if (!plan.ready) {
-          const field = plan.missing?.[0] as "text" | "filename" | "directory" | undefined
+          const field = (plan.missing?.[0] || (plan as any).field) as "text" | "filename" | "directory" | undefined
           pending.waitingFor = field || pending.waitingFor
           const question = plan.questions?.[0] || plan.error || "Please provide the missing save details."
           addLocalMessage(question); speakResponse(question); return
