@@ -1945,6 +1945,8 @@ const AIAssistant: React.FC<{
 
     // Continue the safe Save Text workflow one missing field at a time.
     if (pendingSaveTaskRef.current) {
+      setInput("")
+      setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }])
       const pending = pendingSaveTaskRef.current
       if (/^(?:no|cancel|stop)$/i.test(message)) {
         pendingSaveTaskRef.current = null
