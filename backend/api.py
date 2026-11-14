@@ -3322,6 +3322,32 @@ def classify_feature_intent(request: dict):
                 "message_text": body, "channel": "email",
             }
 
+    # Deterministic native Notepad flow. Keep the text after the command
+    # verbatim so this works even when the language-model provider is offline.
+    notepad_match = re.match(
+        r"^(?:please\\s+)?(?:save|write|put|type)\\s+(?:this\\s+)?(?:message|text|note)\\s+(?:in|into|to)\\s+(?:windows\\s+)?notepad\\b\\s*[:,-]?\\s*([\\s\\S]*)$",
+        message,
+        flags=re.IGNORECASE,
+    )
+    if notepad_match:
+        notepad_text = notepad_match.group(1).strip()
+        return {
+            "intent": "app_action",
+            "action": "type_text" if notepad_text else "open",
+            "destination": "notepad",
+            "app_name": "Notepad",
+            "destination_url": "",
+            "query": message,
+            "polished_text": message,
+            "recipient": "",
+            "message_text": "",
+            "control_name": "",
+            "control_type": "",
+            "text": notepad_text,
+            "key": "",
+            "channel": "",
+        }
+
     if groq is None:
         # Registry-driven fallback: preserve an app-action request when the
         # language model is offline instead of passing it to conversational AI.
