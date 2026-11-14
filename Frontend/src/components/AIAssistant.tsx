@@ -9,7 +9,7 @@ import remarkGfm from "remark-gfm"
 import { apiFetch } from "../services/api"
 import { parseCallIntent } from "../services/callIntent"
 import { answerBirthdayQuestion, executeAppAction } from "../services/universalApps"
-import { launchDesktopApp } from "../services/desktopCompanion"
+import { discoverDesktopWindows, inspectDesktopWindow, launchDesktopApp, performDesktopAction } from "../services/desktopCompanion"
 import { primeSpeechOutput, speakText } from "../services/speech"
 import { parseMusicCommand } from "../services/voiceMusic"
 
@@ -127,6 +127,9 @@ const AIAssistant: React.FC<{
   const inputRef = useRef<HTMLInputElement>(null)
   const awaitingTypedMusicChoiceRef = useRef(false)
   const awaitingAlarmTimeRef = useRef(false)
+  const pendingDesktopActionRef = useRef<{
+    window_id: string; action: "click"; control_name: string; control_type?: string; app_title: string
+  } | null>(null)
   const [speechStatus, setSpeechStatus] = useState("Voice not tested")
 
   // Browser speech uses the laptop's selected audio output and preserves all
@@ -1878,6 +1881,39 @@ const AIAssistant: React.FC<{
       return
     }
 
+    // A second, explicit confirmation is required before sensitive UI buttons
+    // (Send/Delete/Publish/Buy/etc.) can be clicked.
+    if (pendingDesktopActionRef.current) {
+      const confirmation = /^(?:yes|confirm|confirm it|proceed|do it)$/i.test(message)
+      const cancellation = /^(?:no|cancel|stop)$/i.test(message)
+      if (confirmation || cancellation) {
+        const pending = pendingDesktopActionRef.current
+        pendingDesktopActionRef.current = null
+        setInput("")
+        setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }])
+        if (!confirmation) {
+          const cancelled = "Cancelled. I did not click the " + pending.control_name + " control."
+          addLocalMessage(cancelled); speakResponse(cancelled); return
+        }
+        try {
+          const result = await performDesktopAction({
+            window_id: pending.window_id, action: "click",
+            control_name: pending.control_name, control_type: pending.control_type, confirmed: true,
+          })
+          const outcome = result.success
+            ? "Clicked **" + pending.control_name + "** in " + pending.app_title + ". The desktop companion reported the action completed."
+            : "The action was not completed: " + (result.message || "the control could not be activated.")
+          addLocalMessage(outcome); speakResponse(outcome)
+        } catch (error) {
+          const outcome = "I couldn't complete that desktop action: " + (error instanceof Error ? error.message : "companion unavailable")
+          addLocalMessage(outcome); speakResponse(outcome)
+        }
+        return
+      }
+      pendingDesktopActionRef.current = null
+      addLocalMessage("I cancelled the pending desktop action because the reply wasn't a clear confirmation.")
+    }
+
     // Unlock speech while this submit still has the user's click activation.
     // The AI response arrives after an async request and may follow a tab switch.
     primeSpeechOutput()
@@ -2136,6 +2172,56 @@ const AIAssistant: React.FC<{
     if (featureIntent?.intent === "app_action") {
       const actionName = String(featureIntent.action || "open").toLowerCase()
       const appName = String(featureIntent.app_name || featureIntent.destination || "the requested app")
+      // Universal App Control 3.0: inspect and act only within an explicitly
+      // named, visible desktop window. The model must identify an exact control.
+      if (actionName === "inspect_window" || ["click", "type_text", "press_key"].includes(actionName)) {
+        try {
+          let windows = await discoverDesktopWindows()
+          const target = appName.toLocaleLowerCase()
+          let selected = windows.find(item => item.title.toLocaleLowerCase().includes(target))
+          if (!selected) {
+            const launched = await launchDesktopApp(appName)
+            if (launched.success) {
+              const notice = "I opened " + (launched.app || appName) + ". Its window has not appeared in the desktop window list yet. Ask me to inspect it again once it is visible."
+              addLocalMessage(notice); speakResponse(notice); return
+            }
+            throw new Error("I couldn't find an open window for " + appName + ". Open it first, then ask me to inspect it.")
+          }
+          const inspection = await inspectDesktopWindow(selected.window_id)
+          if (actionName === "inspect_window") {
+            const controls = inspection.controls.slice(0, 80).map(item =>
+              (item.name || "(unnamed)") + " [" + item.control_type + "]" + (item.enabled ? "" : " (disabled)")
+            )
+            const notice = "Inspecting **" + inspection.title + "**. Visible controls:\n" + (controls.length ? controls.join("\n") : "No readable controls were found.")
+            addLocalMessage(notice); speakResponse("I inspected " + inspection.title + " and found " + controls.length + " visible controls."); return
+          }
+          const controlName = String(featureIntent.control_name || "")
+          const controlType = String(featureIntent.control_type || "")
+          if (actionName === "click" && !controlName) throw new Error("I need the exact button or control name before clicking.")
+          if (actionName === "type_text" && (!controlName || !String(featureIntent.text || featureIntent.message_text || ""))) throw new Error("I need the exact text field and the text to enter.")
+          const actionResult = await performDesktopAction({
+            window_id: selected.window_id,
+            action: actionName as "click" | "type_text" | "press_key",
+            control_name: controlName || undefined,
+            control_type: controlType || undefined,
+            text: String(featureIntent.text || featureIntent.message_text || "") || undefined,
+            key: String(featureIntent.key || "") || undefined,
+            confirmed: false,
+          })
+          if (actionResult.requires_confirmation && actionName === "click") {
+            pendingDesktopActionRef.current = { window_id: selected.window_id, action: "click", control_name: controlName, control_type: controlType || undefined, app_title: inspection.title }
+            const notice = "This control is potentially sensitive. I found **" + controlName + "** in **" + inspection.title + "**. Reply **confirm** to click it, or **cancel** to stop."
+            addLocalMessage(notice); speakResponse(notice); return
+          }
+          const notice = actionResult.success
+            ? "Completed " + actionName.replace(/_/g, " ") + " in " + inspection.title + "."
+            : actionResult.message || "The desktop action was not completed."
+          addLocalMessage(notice); speakResponse(notice); return
+        } catch (error) {
+          const notice = "I couldn't complete the desktop action: " + (error instanceof Error ? error.message : "the companion is unavailable")
+          addLocalMessage(notice); speakResponse(notice); return
+        }
+      }
       // Alarm intents from semantic classification also use the no-sign-in
       // browser alarm. Never invoke the built-in Windows alarm companion.
       if (actionName === "set_alarm") {
