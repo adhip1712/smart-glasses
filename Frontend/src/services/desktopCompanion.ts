@@ -73,6 +73,7 @@ export type DesktopTaskPlan = {
   task?: string
   ready?: boolean
   missing?: string[]
+  field?: "text" | "filename" | "directory"
   questions?: string[]
   filename?: string
   directory?: string
@@ -92,7 +93,8 @@ export async function executeDesktopTask(input: {
   filename?: string; directory?: string; app?: string; confirmed_overwrite?: boolean
 }): Promise<{ success: boolean; path?: string; verified?: boolean; opened_in_notepad?: boolean
   requires_confirmation?: boolean; target?: string; message?: string; error?: string }> {
-  return request("/task/execute", input)
+  return request<{ success: boolean; path?: string; verified?: boolean; opened_in_notepad?: boolean
+    requires_confirmation?: boolean; target?: string; message?: string; error?: string }>("/task/execute", input)
 }
 export async function captureDesktopWindow(window_id: string): Promise<{
   success: boolean; title: string; mime_type: string; image_base64: string; width: number; height: number
