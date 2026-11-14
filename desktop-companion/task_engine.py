@@ -12,8 +12,11 @@ _INVALID_FILENAME = re.compile(r'[<>:"/\\|?*]')
 def _allowed_directory(raw: Any) -> Path:
     if not isinstance(raw, str) or not raw.strip():
         raise ValueError("Choose a save location: Desktop, Documents, Downloads, or a folder inside one of them.")
-    candidate = Path(raw).expanduser().resolve()
     home = Path.home().resolve()
+    alias = raw.strip().casefold()
+    if alias in {name.casefold() for name in _ALLOWED_ROOT_NAMES}:
+        raw = str(home / next(name for name in _ALLOWED_ROOT_NAMES if name.casefold() == alias))
+    candidate = Path(raw).expanduser().resolve()
     roots = [(home / name).resolve() for name in _ALLOWED_ROOT_NAMES]
     if not any(candidate == root or root in candidate.parents for root in roots):
         raise ValueError("For safety, file tasks are limited to Desktop, Documents, Downloads, and folders inside them.")
