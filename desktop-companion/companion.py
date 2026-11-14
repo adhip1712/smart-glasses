@@ -3,6 +3,13 @@ import json, os, re, subprocess, threading, uuid, winreg
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+try:
+    from ui_automation import list_windows, inspect_window, perform_action
+except ImportError:
+    def _ui_missing(*args, **kwargs):
+        raise RuntimeError("UI automation module is unavailable. Reinstall the Windows companion.")
+    list_windows = inspect_window = perform_action = _ui_missing
+
 HOST, PORT = "127.0.0.1", 8765
 APPDATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "VisionaryNexus"
 ALARM_DIR = APPDATA / "alarms"
@@ -61,8 +68,6 @@ def set_alarm(request):
     def ring():
         subprocess.Popen(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     fallback = False
-    # Task Scheduler is minute-granular. Use it only when the requested time
-    # has no seconds; otherwise use the resident timer to avoid duplicate alerts.
     if when.second == 0:
         try:
             subprocess.run(["schtasks", "/Create", "/SC", "ONCE", "/ST", when.strftime("%H:%M"), "/SD", when.strftime("%m/%d/%Y"), "/TN", "VisionaryNexus_Alarm_" + alarm_id, "/TR", f'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{script}"', "/F", "/IT"], check=True, capture_output=True, timeout=15)
@@ -88,19 +93,30 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.headers.get("Origin") not in ORIGINS: return self.reply(403, {"success": False, "error": "Origin not allowed"})
         path = urlparse(self.path).path
-        if path == "/health": return self.reply(200, {"success": True, "name": "Visionary Nexus Companion", "version": "1.0"})
+        if path == "/health": return self.reply(200, {"success": True, "name": "Visionary Nexus Companion", "version": "3.0"})
         if path == "/apps": return self.reply(200, {"success": True, "apps": [{"name": a["name"], "kind": a["kind"]} for a in discover_apps()]})
+        if path == "/windows":
+            try: return self.reply(200, {"success": True, "windows": list_windows()})
+            except RuntimeError as e: return self.reply(503, {"success": False, "error": str(e)})
         self.reply(404, {"success": False, "error": "Not found"})
     def do_POST(self):
         if self.headers.get("Origin") not in ORIGINS: return self.reply(403, {"success": False, "error": "Origin not allowed"})
         try:
-            data = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length", "0")), 16000)) or b"{}")
+            length = int(self.headers.get("Content-Length", "0"))
+            if length < 0 or length > 12000: return self.reply(413, {"success": False, "error": "Request body too large"})
+            data = json.loads(self.rfile.read(length) or b"{}")
             path = urlparse(self.path).path
             if path == "/launch":
                 result = launch_app(str(data.get("app") or "")); return self.reply(200 if result["success"] else 404, result)
+            if path == "/ui/inspect":
+                result = inspect_window(data.get("window_id")); return self.reply(200, result)
+            if path == "/ui/action":
+                result = perform_action(data)
+                return self.reply(200 if result.get("success") else 409 if result.get("requires_confirmation") else 400, result)
             if path == "/alarm": return self.reply(410, {"success": False, "error": "Built-in alarms have been removed. Use the browser alarm website."})
             self.reply(404, {"success": False, "error": "Not found"})
         except ValueError as e: self.reply(400, {"success": False, "error": str(e)})
+        except RuntimeError as e: self.reply(503, {"success": False, "error": str(e)})
         except Exception as e: self.reply(500, {"success": False, "error": type(e).__name__})
     def log_message(self, *args): pass
 if __name__ == "__main__":
