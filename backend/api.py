@@ -3325,7 +3325,7 @@ def classify_feature_intent(request: dict):
     # Deterministic native Notepad flow. Keep the text after the command
     # verbatim so this works even when the language-model provider is offline.
     notepad_match = re.match(
-        r"^(?:please\\s+)?(?:save|write|put|type)\\s+(?:this\\s+)?(?:message|text|note)\\s+(?:in|into|to)\\s+(?:windows\\s+)?notepad\\b\\s*[:,-]?\\s*([\\s\\S]*)$",
+        r"^(?:please\s+)?(?:save|write|put|type)\s+(?:this\s+)?(?:message|text|note)\s+(?:in|into|to)\s+(?:windows\s+)?notepad\b\s*[:,-]?\s*([\s\S]*)$",
         message,
         flags=re.IGNORECASE,
     )
