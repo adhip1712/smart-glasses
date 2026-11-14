@@ -3335,21 +3335,47 @@ def classify_feature_intent(request: dict):
             (("spotify",), "spotify"),
             (("google drive", "drive"), "drive"),
             (("github",), "github"),
+            (("notion",), "notion"),
+            (("slack",), "slack"),
+            (("microsoft teams", "teams"), "teams"),
+            (("discord",), "discord"),
+            (("trello",), "trello"),
+            (("zoom",), "zoom"),
+            (("figma",), "figma"),
         )
         normalized_app_request = normalized_fallback
         app_destination = next(
             (app for aliases, app in app_aliases if any(re.search(r"\b" + re.escape(alias) + r"\b", normalized_app_request) for alias in aliases)),
             "",
         )
-        if app_destination and re.search(r"\b(?:open|launch|start|go to|switch to|search|find|create|schedule|add|send|message|write|compose)\b", normalized_app_request):
+        if app_destination and re.search(r"\b(?:open|launch|start|go to|switch to|search|find|create|schedule|add|send|message|write|compose|inspect|click|type|press)\b", normalized_app_request):
             app_action = "open"
+            control_name = ""
+            control_type = ""
+            typed_text = ""
+            key_name = ""
+            if re.search(r"\b(?:inspect|show|list)\b.*\b(?:window|controls|buttons|screen)\b", normalized_app_request):
+                app_action = "inspect_window"
+            elif re.search(r"\bclick\b", normalized_app_request):
+                app_action = "click"
+                control_match = re.search(r"\bclick\s+(?:on\s+)?(?:the\s+)?(.+?)(?:\s+(?:button|control))?(?:\s+in\s+.+)?$", normalized_app_request)
+                control_name = control_match.group(1).strip(" .!?") if control_match else ""
+            elif re.search(r"\btype\b", normalized_app_request):
+                app_action = "type_text"
+                type_match = re.search(r"\btype\s+(.+?)\s+into\s+(?:the\s+)?(.+?)(?:\s+(?:field|box|textbox))?(?:\s+in\s+.+)?$", message, re.I)
+                if type_match:
+                    typed_text, control_name = type_match.group(1).strip(" .!?"), type_match.group(2).strip(" .!?")
+            elif re.search(r"\bpress\b", normalized_app_request):
+                app_action = "press_key"
+                key_match = re.search(r"\bpress\s+(enter|tab|escape|esc|up|down|left|right|home|end|backspace|delete|space)\b", normalized_app_request)
+                key_name = {"escape": "ESC"}.get(key_match.group(1), key_match.group(1).upper()) if key_match else ""
             if app_destination == "calendar" and re.search(r"\b(?:create|schedule|add)\b", normalized_app_request):
                 app_action = "create_event"
             elif app_destination == "calendar" and re.search(r"\b(?:find|search|show)\b", normalized_app_request):
                 app_action = "find_event"
             elif re.search(r"\b(?:search|find)\b", normalized_app_request):
                 app_action = "search"
-            return {"intent": "app_action", "action": app_action, "destination": app_destination, "query": message, "polished_text": message, "recipient": "", "message_text": "", "channel": ""}
+            return {"intent": "app_action", "action": app_action, "destination": app_destination, "query": message, "polished_text": message, "recipient": "", "message_text": "", "control_name": control_name, "control_type": control_type, "text": typed_text, "key": key_name, "channel": ""}
         return {"intent": "general", "action": "none", "destination": "", "query": message, "polished_text": message, "recipient": "", "message_text": "", "channel": ""}
 
     try:
