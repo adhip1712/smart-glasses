@@ -46,6 +46,9 @@ export type DesktopControl = {
   name: string
   control_type: string
   automation_id: string
+  control_id?: number
+  class_name?: string
+  framework_id?: string
   enabled: boolean
   rectangle: { left: number; top: number; right: number; bottom: number }
 }
@@ -60,7 +63,7 @@ export async function inspectDesktopWindow(window_id: string): Promise<DesktopIn
 }
 export async function performDesktopAction(input: {
   window_id: string; action: "click" | "type_text" | "press_key"
-  control_name?: string; control_type?: string; text?: string; key?: string; confirmed?: boolean
+  control_name?: string; automation_id?: string; control_type?: string; text?: string; key?: string; confirmed?: boolean
 }): Promise<{ success: boolean; verified?: boolean; requires_confirmation?: boolean; message?: string }> {
   return request<{ success: boolean; verified?: boolean; requires_confirmation?: boolean; message?: string }>("/ui/action", input)
 }
