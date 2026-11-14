@@ -3,6 +3,9 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Python = (Get-Command python -ErrorAction Stop).Source
 & $Python -m pip install --upgrade pywinauto
 if ($LASTEXITCODE -ne 0) { throw "Could not install pywinauto. Companion was not updated." }
+$CompileFiles = @((Join-Path $Root "companion.py"), (Join-Path $Root "ui_automation.py"), (Join-Path $Root "task_engine.py"))
+& $Python -m py_compile @CompileFiles
+if ($LASTEXITCODE -ne 0) { throw "Companion preflight failed. The running companion was left untouched." }
 $Startup = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup"
 New-Item -ItemType Directory -Force -Path $Startup | Out-Null
 $Script = Join-Path $Root "companion.py"
