@@ -2181,11 +2181,15 @@ const AIAssistant: React.FC<{
           let selected = windows.find(item => item.title.toLocaleLowerCase().includes(target))
           if (!selected) {
             const launched = await launchDesktopApp(appName)
-            if (launched.success) {
-              const notice = "I opened " + (launched.app || appName) + ". Its window has not appeared in the desktop window list yet. Ask me to inspect it again once it is visible."
-              addLocalMessage(notice); speakResponse(notice); return
+            if (!launched.success) throw new Error("I couldn't find or open " + appName + " on this laptop.")
+            // Give Windows a short opportunity to create the app window, then
+            // re-discover it instead of making the user repeat the command.
+            for (let attempt = 0; attempt < 8 && !selected; attempt++) {
+              await new Promise(resolve => window.setTimeout(resolve, 350))
+              windows = await discoverDesktopWindows()
+              selected = windows.find(item => item.title.toLocaleLowerCase().includes(target))
             }
-            throw new Error("I couldn't find an open window for " + appName + ". Open it first, then ask me to inspect it.")
+            if (!selected) throw new Error("I opened " + (launched.app || appName) + ", but its window did not become available for inspection yet.")
           }
           const inspection = await inspectDesktopWindow(selected.window_id)
           if (actionName === "inspect_window") {
