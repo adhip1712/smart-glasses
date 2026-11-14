@@ -2185,16 +2185,36 @@ const AIAssistant: React.FC<{
           const target = appName.toLocaleLowerCase()
           let selected = windows.find(item => item.title.toLocaleLowerCase().includes(target))
           if (!selected) {
-            const launched = await launchDesktopApp(appName)
-            if (!launched.success) throw new Error("I couldn't find or open " + appName + " on this laptop.")
-            // Give Windows a short opportunity to create the app window, then
-            // re-discover it instead of making the user repeat the command.
-            for (let attempt = 0; attempt < 8 && !selected; attempt++) {
+            let openedApp = appName
+            const launched = await launchDesktopApp(appName).catch(() => ({ success: false }))
+            let expectedHost = ""
+            if (launched.success) {
+              openedApp = launched.app || appName
+            } else {
+              // For browser services, use the existing verified HTTPS resolver
+              // and the reserved browser tab; native apps still use the launcher.
+              const openPlan = executeAppAction({
+                destination: String(featureIntent.destination || appName),
+                app_name: appName,
+                destination_url: String(featureIntent.destination_url || ""),
+                action: "open",
+              }, null, true)
+              if (!openPlan.url) throw new Error("I couldn't find or safely open " + appName + " on this laptop.")
+              try { expectedHost = new URL(openPlan.url).hostname.toLocaleLowerCase() } catch { expectedHost = "" }
+              if (appActionWindow && !appActionWindow.closed) appActionWindow.location.href = openPlan.url
+              else window.open(openPlan.url, "_blank", "noopener,noreferrer")
+            }
+            // Give Windows/browser a short opportunity to create the app
+            // window, then re-discover it without asking the user to repeat.
+            for (let attempt = 0; attempt < 10 && !selected; attempt++) {
               await new Promise(resolve => window.setTimeout(resolve, 350))
               windows = await discoverDesktopWindows()
-              selected = windows.find(item => item.title.toLocaleLowerCase().includes(target))
+              selected = windows.find(item => {
+                const title = item.title.toLocaleLowerCase()
+                return title.includes(target) || (!!expectedHost && title.includes(expectedHost))
+              })
             }
-            if (!selected) throw new Error("I opened " + (launched.app || appName) + ", but its window did not become available for inspection yet.")
+            if (!selected) throw new Error("I opened " + openedApp + ", but its window did not become available for inspection yet.")
           }
           const inspection = await inspectDesktopWindow(selected.window_id)
           if (actionName === "inspect_window") {
