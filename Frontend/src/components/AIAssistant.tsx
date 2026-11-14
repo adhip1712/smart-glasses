@@ -2242,6 +2242,33 @@ const AIAssistant: React.FC<{
             if (!selected) throw new Error("I opened " + openedApp + ", but its window did not become available for inspection yet.")
           }
           const inspection = await inspectDesktopWindow(selected.window_id)
+          let controlName = String(featureIntent.control_name || "")
+          let controlType = String(featureIntent.control_type || "")
+          const typedText = String(featureIntent.text || featureIntent.message_text || "")
+          if (actionName === "type_text") {
+            if (!typedText.trim()) {
+              if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
+              const prompt = "What exact text should I enter in " + inspection.title + "?"
+              addLocalMessage(prompt); speakResponse(prompt); return
+            }
+            if (!controlName) {
+              const editableControls = inspection.controls.filter(item =>
+                item.enabled && item.name.trim() &&
+                /^(edit|document|textbox|combobox|rich.?edit|text)$/i.test(item.control_type)
+              )
+              if (editableControls.length === 1) {
+                controlName = editableControls[0].name
+                controlType = editableControls[0].control_type
+              } else {
+                if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
+                const choices = editableControls.map(item => item.name).filter(Boolean)
+                const prompt = choices.length > 1
+                  ? "Which field in " + inspection.title + " should I use? I found: " + choices.join(", ") + "."
+                  : "I couldn't identify one clearly named text field in " + inspection.title + ". Tell me the exact field name you want me to use."
+                addLocalMessage(prompt); speakResponse(prompt); return
+              }
+            }
+          }
           if (actionName === "inspect_window") {
             const controls = inspection.controls.slice(0, 80).map(item =>
               (item.name || "(unnamed)") + " [" + item.control_type + "]" + (item.enabled ? "" : " (disabled)")
@@ -2249,16 +2276,17 @@ const AIAssistant: React.FC<{
             const notice = "Inspecting **" + inspection.title + "**. Visible controls:\n" + (controls.length ? controls.join("\n") : "No readable controls were found.")
             addLocalMessage(notice); speakResponse("I inspected " + inspection.title + " and found " + controls.length + " visible controls."); return
           }
-          const controlName = String(featureIntent.control_name || "")
-          const controlType = String(featureIntent.control_type || "")
-          if (actionName === "click" && !controlName) throw new Error("I need the exact button or control name before clicking.")
-          if (actionName === "type_text" && (!controlName || !String(featureIntent.text || featureIntent.message_text || ""))) throw new Error("I need the exact text field and the text to enter.")
+          if (actionName === "click" && !controlName) {
+            if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
+            const prompt = "Which exact button or control should I click in " + inspection.title + "?"
+            addLocalMessage(prompt); speakResponse(prompt); return
+          }
           const actionResult = await performDesktopAction({
             window_id: selected.window_id,
             action: actionName as "click" | "type_text" | "press_key",
             control_name: controlName || undefined,
             control_type: controlType || undefined,
-            text: String(featureIntent.text || featureIntent.message_text || "") || undefined,
+            text: typedText || undefined,
             key: String(featureIntent.key || "") || undefined,
             confirmed: false,
           })
@@ -2326,16 +2354,34 @@ const AIAssistant: React.FC<{
       } catch {
         // Companion unavailable: use the existing browser-safe app handler.
       }
+      // Do not send native Windows URI schemes (for example ms-clock:) to a
+      // browser tab. If the local companion cannot launch a native app, report
+      // that clearly instead of pretending a new browser tab is the app.
+      const destinationUrl = String(featureIntent.destination_url || "").trim()
+      const isNativeWindowsTarget = !destinationUrl && (
+        /^(?:windows\s+)?(?:clock|calculator|notepad|paint|settings|file explorer|task manager|terminal|photos|snipping tool|device manager)$/i.test(appName) ||
+        /^(?:ms-[a-z-]+|calculator):$/i.test(String(featureIntent.destination || "").trim())
+      )
+      if (isNativeWindowsTarget) {
+        if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
+        const notice = "I couldn't launch " + appName + " on Windows. Make sure the Visionary Nexus Windows Companion is running on this laptop, then try again. I haven't opened a browser tab or changed anything."
+        addLocalMessage(notice); speakResponse(notice); return
+      }
       // Start the spoken confirmation before navigating the reserved tab away from this page.
       const result = executeAppAction({
         destination: String(featureIntent.destination || ""),
         app_name: String(featureIntent.app_name || featureIntent.destination || ""),
-        destination_url: String(featureIntent.destination_url || ""),
+        destination_url: destinationUrl,
         action: String(featureIntent.action || "open"),
         recipient: String(featureIntent.recipient || ""),
         message_text: String(featureIntent.message_text || ""),
         query: String(featureIntent.query || ""),
       }, null, true)
+      if (result.url && /^[a-z][a-z0-9+.-]*:/i.test(result.url) && !/^https:\/\//i.test(result.url)) {
+        if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
+        const notice = "I couldn't launch " + appName + " as a Windows app because the desktop companion is unavailable. No browser tab was opened."
+        addLocalMessage(notice); speakResponse(notice); return
+      }
       addLocalMessage(result.message)
       speakResponse(result.message, () => {
         if (result.url && appActionWindow && !appActionWindow.closed) appActionWindow.location.href = result.url
