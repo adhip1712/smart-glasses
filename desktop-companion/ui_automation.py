@@ -13,7 +13,7 @@ except ImportError:
     send_keys = None
 
 SENSITIVE_NAMES = ("password", "passcode", "pin", "one-time code", "otp", "security code")
-HIGH_IMPACT_NAMES = ("send", "delete", "remove", "purchase", "buy", "checkout", "publish", "post", "submit", "transfer", "pay", "confirm")
+HIGH_IMPACT_NAMES = ("send", "delete", "remove", "purchase", "buy", "checkout", "publish", "post", "submit", "transfer", "pay", "confirm", "share", "invite", "forward", "upload")
 
 def _require():
     if Desktop is None:
