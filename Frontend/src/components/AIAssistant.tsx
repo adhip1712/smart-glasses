@@ -9,7 +9,7 @@ import remarkGfm from "remark-gfm"
 import { apiFetch } from "../services/api"
 import { parseCallIntent } from "../services/callIntent"
 import { answerBirthdayQuestion, executeAppAction } from "../services/universalApps"
-import { discoverDesktopWindows, inspectDesktopWindow, launchDesktopApp, performDesktopAction } from "../services/desktopCompanion"
+import { discoverDesktopWindows, inspectDesktopWindow, launchDesktopApp, performDesktopAction, planDesktopTask, executeDesktopTask } from "../services/desktopCompanion"
 import { primeSpeechOutput, speakText } from "../services/speech"
 import { parseMusicCommand } from "../services/voiceMusic"
 
@@ -128,7 +128,10 @@ const AIAssistant: React.FC<{
   const awaitingTypedMusicChoiceRef = useRef(false)
   const awaitingAlarmTimeRef = useRef(false)
   const pendingDesktopActionRef = useRef<{
-    window_id: string; action: "click"; control_name: string; control_type?: string; app_title: string
+    window_id: string; action: "click"; control_name?: string; automation_id?: string; control_type?: string; app_title: string
+  } | null>(null)
+  const pendingSaveTaskRef = useRef<{
+    text?: string; filename?: string; directory?: string; waitingFor: "text" | "filename" | "directory" | "overwrite"
   } | null>(null)
   const [speechStatus, setSpeechStatus] = useState("Voice not tested")
 
@@ -1917,16 +1920,17 @@ const AIAssistant: React.FC<{
         setInput("")
         setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }])
         if (!confirmation) {
-          const cancelled = "Cancelled. I did not click the " + pending.control_name + " control."
+          const cancelled = "Cancelled. I did not click the " + (pending.control_name || pending.automation_id || "selected") + " control."
           addLocalMessage(cancelled); speakResponse(cancelled); return
         }
         try {
           const result = await performDesktopAction({
             window_id: pending.window_id, action: "click",
-            control_name: pending.control_name, control_type: pending.control_type, confirmed: true,
+            control_name: pending.control_name || undefined, automation_id: pending.automation_id,
+            control_type: pending.control_type, confirmed: true,
           })
           const outcome = result.success
-            ? "Clicked **" + pending.control_name + "** in " + pending.app_title + ". The desktop companion reported the action completed."
+            ? "Clicked **" + (pending.control_name || pending.automation_id || "selected control") + "** in " + pending.app_title + ". The desktop companion reported the action completed."
             : "The action was not completed: " + (result.message || "the control could not be activated.")
           addLocalMessage(outcome); speakResponse(outcome)
         } catch (error) {
@@ -1937,6 +1941,57 @@ const AIAssistant: React.FC<{
       }
       pendingDesktopActionRef.current = null
       addLocalMessage("I cancelled the pending desktop action because the reply wasn't a clear confirmation.")
+    }
+
+    // Continue the safe Save Text workflow one missing field at a time.
+    if (pendingSaveTaskRef.current) {
+      setInput("")
+      setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }])
+      const pending = pendingSaveTaskRef.current
+      if (/^(?:no|cancel|stop)$/i.test(message)) {
+        pendingSaveTaskRef.current = null
+        addLocalMessage("Cancelled. I did not save or overwrite a file.")
+        speakResponse("Cancelled. I did not save or overwrite a file.")
+        return
+      }
+      if (pending.waitingFor === "overwrite") {
+        if (!/^(?:yes|confirm|overwrite|replace|proceed)$/i.test(message)) {
+          pendingSaveTaskRef.current = null
+          addLocalMessage("I did not overwrite the existing file.")
+          speakResponse("I did not overwrite the existing file.")
+          return
+        }
+      } else if (pending.waitingFor === "text") pending.text = message
+      else if (pending.waitingFor === "filename") pending.filename = message
+      else if (pending.waitingFor === "directory") pending.directory = message
+      try {
+        const payload = {
+          task: "save_text" as const, text: pending.text, filename: pending.filename,
+          directory: pending.directory, confirmed_overwrite: pending.waitingFor === "overwrite",
+        }
+        const plan = await planDesktopTask(payload)
+        if (!plan.ready) {
+          const field = (plan.missing?.[0] || (plan as any).field) as "text" | "filename" | "directory" | undefined
+          pending.waitingFor = field || pending.waitingFor
+          const question = plan.questions?.[0] || plan.error || "Please provide the missing save details."
+          addLocalMessage(question); speakResponse(question); return
+        }
+        if (plan.overwrite_required && pending.waitingFor !== "overwrite") {
+          pending.waitingFor = "overwrite"
+          const question = "A file named **" + plan.filename + "** already exists in " + plan.directory + ". Reply **overwrite** to replace it, or **cancel** to keep the existing file."
+          addLocalMessage(question); speakResponse(question); return
+        }
+        const result = await executeDesktopTask(payload)
+        pendingSaveTaskRef.current = null
+        const outcome = result.success
+          ? "Saved and verified **" + (result.path || plan.target || plan.filename) + "**." + (result.opened_in_notepad ? " I also opened it in Notepad." : "")
+          : result.message || result.error || "The save operation did not complete."
+        addLocalMessage(outcome); speakResponse(outcome); return
+      } catch (error) {
+        pendingSaveTaskRef.current = null
+        const outcome = "I couldn't complete the save: " + (error instanceof Error ? error.message : "Windows companion unavailable")
+        addLocalMessage(outcome); speakResponse(outcome); return
+      }
     }
 
     // Unlock speech while this submit still has the user's click activation.
@@ -2189,6 +2244,44 @@ const AIAssistant: React.FC<{
       console.warn("AI feature intent routing unavailable; using normal command handling.", error)
     }
 
+    // Route Save-to-Notepad through the deterministic task planner. This
+    // asks for text, filename, and location instead of guessing any of them.
+    const saveTextCommand = /\b(?:save|write)\b.*\b(?:notepad|text file|message|document)\b/i.test(message)
+      || ["save_text", "save_file", "write_text", "save_message"].includes(String(featureIntent?.action || "").toLowerCase())
+    if (saveTextCommand) {
+      try {
+        const payload = {
+          task: "save_text" as const,
+          command: message,
+          text: String(featureIntent?.text || featureIntent?.message_text || ""),
+          filename: String(featureIntent?.filename || ""),
+          directory: String(featureIntent?.directory || ""),
+        }
+        const plan = await planDesktopTask(payload)
+        if (!plan.ready) {
+          const field = (plan.missing?.[0] || (plan as any).field || "filename") as "text" | "filename" | "directory"
+          pendingSaveTaskRef.current = { text: payload.text || undefined, filename: payload.filename || undefined,
+            directory: payload.directory || undefined, waitingFor: field }
+          const question = plan.questions?.[0] || plan.error || "What filename should I use?"
+          addLocalMessage(question); speakResponse(question); return
+        }
+        if (plan.overwrite_required) {
+          pendingSaveTaskRef.current = { text: payload.text, filename: payload.filename,
+            directory: payload.directory, waitingFor: "overwrite" }
+          const question = "A file named **" + plan.filename + "** already exists in " + plan.directory + ". Reply **overwrite** to replace it, or **cancel** to keep the existing file."
+          addLocalMessage(question); speakResponse(question); return
+        }
+        const result = await executeDesktopTask(payload)
+        const outcome = result.success
+          ? "Saved and verified **" + (result.path || plan.target || plan.filename) + "**." + (result.opened_in_notepad ? " I also opened it in Notepad." : "")
+          : result.message || result.error || "The save operation did not complete."
+        addLocalMessage(outcome); speakResponse(outcome); return
+      } catch (error) {
+        const outcome = "I couldn't complete the save: " + (error instanceof Error ? error.message : "Windows companion unavailable")
+        addLocalMessage(outcome); speakResponse(outcome); return
+      }
+    }
+
     if (featureIntent?.intent === "navigation" && featureIntent.destination) {
       const destination = String(featureIntent.destination)
       speakResponse(`Opening Google Maps directions to ${destination}.`, () => onNavigate?.(destination, navigationTab))
@@ -2244,6 +2337,7 @@ const AIAssistant: React.FC<{
           }
           const inspection = await inspectDesktopWindow(selected.window_id)
           let controlName = String(featureIntent.control_name || "")
+          let automationId = String(featureIntent.automation_id || "")
           let controlType = String(featureIntent.control_type || "")
           const typedText = String(featureIntent.text || featureIntent.message_text || "")
           if (actionName === "type_text") {
@@ -2286,14 +2380,15 @@ const AIAssistant: React.FC<{
             window_id: selected.window_id,
             action: actionName as "click" | "type_text" | "press_key",
             control_name: controlName || undefined,
+            automation_id: automationId || undefined,
             control_type: controlType || undefined,
             text: typedText || undefined,
             key: String(featureIntent.key || "") || undefined,
             confirmed: false,
           })
           if (actionResult.requires_confirmation && actionName === "click") {
-            pendingDesktopActionRef.current = { window_id: selected.window_id, action: "click", control_name: controlName, control_type: controlType || undefined, app_title: inspection.title }
-            const notice = "This control is potentially sensitive. I found **" + controlName + "** in **" + inspection.title + "**. Reply **confirm** to click it, or **cancel** to stop."
+            pendingDesktopActionRef.current = { window_id: selected.window_id, action: "click", control_name: controlName || undefined, automation_id: automationId || undefined, control_type: controlType || undefined, app_title: inspection.title }
+            const notice = "This control is potentially sensitive. I found **" + (controlName || automationId) + "** in **" + inspection.title + "**. Reply **confirm** to click it, or **cancel** to stop."
             addLocalMessage(notice); speakResponse(notice); return
           }
           const notice = actionResult.success

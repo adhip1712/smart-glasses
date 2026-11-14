@@ -3,12 +3,13 @@ import json, os, re, subprocess, threading, uuid, winreg
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+from task_engine import plan_task, execute_save_text
 try:
-    from ui_automation import list_windows, inspect_window, perform_action
+    from ui_automation import list_windows, inspect_window, perform_action, capture_window
 except ImportError:
     def _ui_missing(*args, **kwargs):
         raise RuntimeError("UI automation module is unavailable. Reinstall the Windows companion.")
-    list_windows = inspect_window = perform_action = _ui_missing
+    list_windows = inspect_window = perform_action = capture_window = _ui_missing
 
 HOST, PORT = "127.0.0.1", 8765
 APPDATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "VisionaryNexus"
@@ -110,6 +111,18 @@ class Handler(BaseHTTPRequestHandler):
                 result = launch_app(str(data.get("app") or "")); return self.reply(200 if result["success"] else 404, result)
             if path == "/ui/inspect":
                 result = inspect_window(data.get("window_id")); return self.reply(200, result)
+            if path == "/ui/screenshot":
+                result = capture_window(data.get("window_id")); return self.reply(200, result)
+            if path == "/task/plan":
+                return self.reply(200, plan_task(data))
+            if path == "/task/execute":
+                task = str(data.get("task") or "").strip().casefold()
+                if task == "save_text": return self.reply(200, execute_save_text(data))
+                if task == "launch_app":
+                    planned = plan_task(data)
+                    if not planned.get("ready"): return self.reply(200, planned)
+                    result = launch_app(planned["app"]); return self.reply(200 if result["success"] else 404, result)
+                return self.reply(400, {"success": False, "error": "Supported execution tasks are save_text and launch_app."})
             if path == "/ui/action":
                 result = perform_action(data)
                 return self.reply(200 if result.get("success") else 409 if result.get("requires_confirmation") else 400, result)

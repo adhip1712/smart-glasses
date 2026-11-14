@@ -60,6 +60,9 @@ def inspect_window(window_id):
                 "name": name,
                 "control_type": ctype,
                 "automation_id": str(info.automation_id or "")[:100],
+                "control_id": int(info.control_id or 0),
+                "class_name": str(info.class_name or "")[:100],
+                "framework_id": str(info.framework_id or "")[:60],
                 "enabled": bool(c.is_enabled()),
                 "rectangle": {
                     "left": int(c.rectangle().left), "top": int(c.rectangle().top),
@@ -76,18 +79,21 @@ def perform_action(data):
     window_id = str(data.get("window_id") or "")
     action = str(data.get("action") or "").casefold()
     control_name = str(data.get("control_name") or "").strip()
+    automation_id = str(data.get("automation_id") or "").strip()
     control_type = str(data.get("control_type") or "").strip()
     if action not in {"click", "type_text", "press_key"}:
         raise ValueError("Allowed actions are click, type_text, and press_key.")
     w = _window(window_id)
     if action in {"click", "type_text"}:
-        if not control_name:
-            raise ValueError("control_name is required for this action.")
+        if not control_name and not automation_id:
+            raise ValueError("Provide an exact control_name or automation_id from /ui/inspect.")
         matches = []
         for c in w.descendants():
             try:
                 info = c.element_info
-                if (info.name or "").strip().casefold() == control_name.casefold() and (not control_type or info.control_type == control_type):
+                name_matches = not control_name or (info.name or "").strip().casefold() == control_name.casefold()
+                id_matches = not automation_id or str(info.automation_id or "").strip() == automation_id
+                if name_matches and id_matches and (not control_type or info.control_type == control_type):
                     if c.is_visible() and c.is_enabled():
                         matches.append(c)
             except Exception:
@@ -95,8 +101,9 @@ def perform_action(data):
         if len(matches) != 1:
             raise ValueError("Control must match exactly one visible, enabled control. Inspect the window and use its exact name and type.")
         control = matches[0]
+        resolved_name = (control.element_info.name or control_name).strip()
         if action == "click":
-            if control_name.casefold() in HIGH_IMPACT_NAMES or any(x in control_name.casefold() for x in HIGH_IMPACT_NAMES):
+            if any(x in resolved_name.casefold() for x in HIGH_IMPACT_NAMES):
                 if data.get("confirmed") is not True:
                     return {"success": False, "requires_confirmation": True, "message": "This control may send, submit, publish, delete, purchase, or transfer. Confirm the exact action in Visionary Nexus before continuing."}
             control.click_input()
@@ -106,7 +113,7 @@ def perform_action(data):
                 raise ValueError("Provide text of 1–2000 characters.")
             if control.element_info.control_type not in {"Edit", "ComboBox", "Document"}:
                 raise ValueError("Text can only be entered into an editable text control.")
-            if any(x in control_name.casefold() for x in SENSITIVE_NAMES):
+            if any(word in resolved_name.casefold() for word in SENSITIVE_NAMES):
                 raise ValueError("Typing into password or security-code controls is not supported.")
             control.click_input()
             # Set literal text directly; do not interpret text as key sequences.
@@ -119,3 +126,23 @@ def perform_action(data):
         w.set_focus()
         send_keys("{" + key + "}")
     return {"success": True, "action": action, "window_id": window_id}
+
+def capture_window(window_id):
+    """Capture only the explicitly selected visible window for optional vision analysis."""
+    import base64
+    from io import BytesIO
+    w = _window(window_id)
+    image = w.capture_as_image()
+    if image.width > 1600 or image.height > 1200:
+        image.thumbnail((1600, 1200))
+    buffer = BytesIO()
+    image.save(buffer, format="JPEG", quality=78, optimize=True)
+    data = buffer.getvalue()
+    if len(data) > 4_000_000:
+        image.thumbnail((1200, 900))
+        buffer = BytesIO()
+        image.save(buffer, format="JPEG", quality=68, optimize=True)
+        data = buffer.getvalue()
+    return {"success": True, "window_id": str(w.handle), "title": w.window_text()[:180],
+            "mime_type": "image/jpeg", "image_base64": base64.b64encode(data).decode("ascii"),
+            "width": image.width, "height": image.height}
