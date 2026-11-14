@@ -128,7 +128,7 @@ const AIAssistant: React.FC<{
   const awaitingTypedMusicChoiceRef = useRef(false)
   const awaitingAlarmTimeRef = useRef(false)
   const pendingDesktopActionRef = useRef<{
-    window_id: string; action: "click"; control_name: string; control_type?: string; app_title: string
+    window_id: string; action: "click"; control_name: string; automation_id?: string; control_type?: string; app_title: string
   } | null>(null)
   const pendingSaveTaskRef = useRef<{
     text?: string; filename?: string; directory?: string; waitingFor: "text" | "filename" | "directory" | "overwrite"
@@ -1926,7 +1926,8 @@ const AIAssistant: React.FC<{
         try {
           const result = await performDesktopAction({
             window_id: pending.window_id, action: "click",
-            control_name: pending.control_name, control_type: pending.control_type, confirmed: true,
+            control_name: pending.control_name, automation_id: pending.automation_id,
+            control_type: pending.control_type, confirmed: true,
           })
           const outcome = result.success
             ? "Clicked **" + pending.control_name + "** in " + pending.app_title + ". The desktop companion reported the action completed."
@@ -2334,6 +2335,7 @@ const AIAssistant: React.FC<{
           }
           const inspection = await inspectDesktopWindow(selected.window_id)
           let controlName = String(featureIntent.control_name || "")
+          let automationId = String(featureIntent.automation_id || "")
           let controlType = String(featureIntent.control_type || "")
           const typedText = String(featureIntent.text || featureIntent.message_text || "")
           if (actionName === "type_text") {
@@ -2376,13 +2378,14 @@ const AIAssistant: React.FC<{
             window_id: selected.window_id,
             action: actionName as "click" | "type_text" | "press_key",
             control_name: controlName || undefined,
+            automation_id: automationId || undefined,
             control_type: controlType || undefined,
             text: typedText || undefined,
             key: String(featureIntent.key || "") || undefined,
             confirmed: false,
           })
           if (actionResult.requires_confirmation && actionName === "click") {
-            pendingDesktopActionRef.current = { window_id: selected.window_id, action: "click", control_name: controlName, control_type: controlType || undefined, app_title: inspection.title }
+            pendingDesktopActionRef.current = { window_id: selected.window_id, action: "click", control_name: controlName, automation_id: automationId || undefined, control_type: controlType || undefined, app_title: inspection.title }
             const notice = "This control is potentially sensitive. I found **" + controlName + "** in **" + inspection.title + "**. Reply **confirm** to click it, or **cancel** to stop."
             addLocalMessage(notice); speakResponse(notice); return
           }
