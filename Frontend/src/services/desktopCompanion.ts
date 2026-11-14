@@ -62,5 +62,5 @@ export async function performDesktopAction(input: {
   window_id: string; action: "click" | "type_text" | "press_key"
   control_name?: string; control_type?: string; text?: string; key?: string; confirmed?: boolean
 }): Promise<{ success: boolean; verified?: boolean; requires_confirmation?: boolean; message?: string }> {
-  return request("/ui/action", input)
+  return request<{ success: boolean; verified?: boolean; requires_confirmation?: boolean; message?: string }>("/ui/action", input)
 }
