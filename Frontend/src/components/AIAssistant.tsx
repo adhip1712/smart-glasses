@@ -2265,7 +2265,7 @@ const AIAssistant: React.FC<{
           addLocalMessage(question); speakResponse(question); return
         }
         if (plan.overwrite_required) {
-          pendingSaveTaskRef.current = { text: payload.text, filename: payload.filename, directory: payload.directory, app: payload.app, waitingFor: "overwrite" }
+          pendingSaveTaskRef.current = { text: payload.text, filename: payload.filename || plan.filename, directory: payload.directory || plan.directory, app: payload.app || plan.app, waitingFor: "overwrite" }
           const question = "A file named **" + plan.filename + "** already exists in " + plan.directory + ". Reply **overwrite** to replace it, or **cancel** to keep the existing file."
           addLocalMessage(question); speakResponse(question); return
         }
