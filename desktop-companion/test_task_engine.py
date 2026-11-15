@@ -21,6 +21,15 @@ class TaskEngineTests(unittest.TestCase):
                 self.assertTrue(plan["ready"], plan)
                 self.assertEqual(plan["task"], "save_text")
 
+    def test_app_identifier_aliases_are_normalized(self):
+        for app, expected in (("sticky_notes", "sticky_notes"), ("word", "word"), ("notepad", "notepad")):
+            with self.subTest(app=app):
+                plan = task_engine.plan_task({
+                    "task": "save_text", "text": "hello", "filename": "note", "app": app,
+                })
+                self.assertTrue(plan["ready"], plan)
+                self.assertEqual(plan["app"], expected)
+
     def test_default_destination_is_visionary_nexus_documents_folder(self):
         with tempfile.TemporaryDirectory() as folder:
             docs = Path(folder) / "Documents"
