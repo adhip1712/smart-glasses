@@ -96,7 +96,7 @@ export async function executeDesktopTask(input: {
   requires_confirmation?: boolean; target?: string; message?: string; error?: string
   app?: string; opened_in_app?: boolean }> {
   return request<{ success: boolean; path?: string; verified?: boolean; opened_in_notepad?: boolean
-    requires_confirmation?: boolean; target?: string; message?: string; error?: string }>("/task/execute", input)
+    requires_confirmation?: boolean; target?: string; message?: string; error?: string; app?: string; opened_in_app?: boolean }>("/task/execute", input)
 }
 export async function captureDesktopWindow(window_id: string): Promise<{
   success: boolean; title: string; mime_type: string; image_base64: string; width: number; height: number
