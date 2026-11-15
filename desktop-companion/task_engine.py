@@ -1,6 +1,7 @@
 """Safe task planning and deterministic file workflows for Universal App Control 3.0."""
 from __future__ import annotations
 import os, re, subprocess, tempfile, zipfile
+from pathlib import PureWindowsPath
 from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
@@ -115,6 +116,14 @@ def plan_task(payload: dict[str, Any]) -> dict[str, Any]:
         text = command.split(":", 1)[1].strip()
     filename = payload.get("filename") or _infer_filename(command)
     directory = payload.get("directory") or payload.get("path") or payload.get("destination_path")
+    # A complete destination filename is accepted as well as a folder path.
+    if isinstance(directory, str) and directory.strip():
+        raw_destination = directory.strip().strip('"')
+        destination_file = PureWindowsPath(raw_destination)
+        if destination_file.suffix.casefold() in {".txt", ".md", ".docx"}:
+            if not filename:
+                filename = destination_file.name
+            directory = str(destination_file.parent)
     missing, questions = [], []
     if not isinstance(text, str) or not text:
         missing.append("text"); questions.append("What exact text should I save?")
