@@ -71,6 +71,7 @@ export async function performDesktopAction(input: {
 export type DesktopTaskPlan = {
   success: boolean
   task?: string
+  app?: string
   ready?: boolean
   missing?: string[]
   field?: "text" | "filename" | "directory"
@@ -84,7 +85,7 @@ export type DesktopTaskPlan = {
 }
 export async function planDesktopTask(input: {
   task: "save_text" | "launch_app"; command?: string; text?: string
-  filename?: string; directory?: string; app?: string
+  filename?: string; directory?: string; path?: string; destination_path?: string; app?: string
 }): Promise<DesktopTaskPlan> {
   return request<DesktopTaskPlan>("/task/plan", input)
 }
@@ -92,7 +93,8 @@ export async function executeDesktopTask(input: {
   task: "save_text" | "launch_app"; command?: string; text?: string
   filename?: string; directory?: string; app?: string; confirmed_overwrite?: boolean
 }): Promise<{ success: boolean; path?: string; verified?: boolean; opened_in_notepad?: boolean
-  requires_confirmation?: boolean; target?: string; message?: string; error?: string }> {
+  requires_confirmation?: boolean; target?: string; message?: string; error?: string
+  app?: string; opened_in_app?: boolean }> {
   return request<{ success: boolean; path?: string; verified?: boolean; opened_in_notepad?: boolean
     requires_confirmation?: boolean; target?: string; message?: string; error?: string }>("/task/execute", input)
 }
