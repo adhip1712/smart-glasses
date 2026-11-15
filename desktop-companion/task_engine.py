@@ -119,7 +119,8 @@ def plan_task(payload: dict[str, Any]) -> dict[str, Any]:
     # A complete destination filename is accepted as well as a folder path.
     if isinstance(directory, str) and directory.strip():
         raw_destination = directory.strip().strip('"')
-        destination_file = PureWindowsPath(raw_destination)
+        native_destination = Path(raw_destination).expanduser()
+        destination_file = native_destination if native_destination.is_absolute() else PureWindowsPath(raw_destination)
         if destination_file.suffix.casefold() in {".txt", ".md", ".docx"}:
             if not filename:
                 filename = destination_file.name
