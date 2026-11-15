@@ -131,7 +131,7 @@ const AIAssistant: React.FC<{
     window_id: string; action: "click"; control_name?: string; automation_id?: string; control_type?: string; app_title: string
   } | null>(null)
   const pendingSaveTaskRef = useRef<{
-    text?: string; filename?: string; directory?: string; waitingFor: "text" | "filename" | "directory" | "overwrite"
+    text?: string; filename?: string; directory?: string; app?: string; waitingFor: "text" | "filename" | "directory" | "overwrite"
   } | null>(null)
   const [speechStatus, setSpeechStatus] = useState("Voice not tested")
 
@@ -1967,7 +1967,7 @@ const AIAssistant: React.FC<{
       try {
         const payload = {
           task: "save_text" as const, text: pending.text, filename: pending.filename,
-          directory: pending.directory, confirmed_overwrite: pending.waitingFor === "overwrite",
+          directory: pending.directory, app: pending.app, confirmed_overwrite: pending.waitingFor === "overwrite",
         }
         const plan = await planDesktopTask(payload)
         if (!plan.ready) {
@@ -1984,7 +1984,7 @@ const AIAssistant: React.FC<{
         const result = await executeDesktopTask(payload)
         pendingSaveTaskRef.current = null
         const outcome = result.success
-          ? "Saved and verified **" + (result.path || plan.target || plan.filename) + "**." + (result.opened_in_notepad ? " I also opened it in Notepad." : "")
+          ? "Saved and verified **" + (result.path || plan.target || plan.filename) + "**." + (result.opened_in_app ? " Opened " + (result.app || plan.app || "the requested app") + "." : " The file was saved, but the requested app did not open.")
           : result.message || result.error || "The save operation did not complete."
         addLocalMessage(outcome); speakResponse(outcome); return
       } catch (error) {
@@ -2244,40 +2244,38 @@ const AIAssistant: React.FC<{
       console.warn("AI feature intent routing unavailable; using normal command handling.", error)
     }
 
-    // Route Save-to-Notepad through the deterministic task planner. This
-    // asks for text, filename, and location instead of guessing any of them.
-    const saveTextCommand = /\b(?:save|write)\b.*\b(?:notepad|text file|message|document)\b/i.test(message)
+    // Route save requests through the deterministic task runner.
+    // If no destination is supplied, save to Documents/Visionary Nexus.
+    const saveTextCommand = /\b(?:save|write|put)\b.*\b(?:this|it|message|text|file|document|note|notepad|word|sticky notes?)\b/i.test(message)
       || ["save_text", "save_file", "write_text", "save_message"].includes(String(featureIntent?.action || "").toLowerCase())
     if (saveTextCommand) {
       try {
         const payload = {
-          task: "save_text" as const,
-          command: message,
+          task: "save_text" as const, command: message,
           text: String(featureIntent?.text || featureIntent?.message_text || ""),
           filename: String(featureIntent?.filename || ""),
-          directory: String(featureIntent?.directory || ""),
+          directory: String(featureIntent?.directory || featureIntent?.path || featureIntent?.destination_path || ""),
+          app: String(featureIntent?.target_app || featureIntent?.app || featureIntent?.app_name || ""),
         }
         const plan = await planDesktopTask(payload)
         if (!plan.ready) {
           const field = (plan.missing?.[0] || (plan as any).field || "filename") as "text" | "filename" | "directory"
-          pendingSaveTaskRef.current = { text: payload.text || undefined, filename: payload.filename || undefined,
-            directory: payload.directory || undefined, waitingFor: field }
+          pendingSaveTaskRef.current = { text: payload.text || undefined, filename: payload.filename || undefined, directory: payload.directory || undefined, app: payload.app || undefined, waitingFor: field }
           const question = plan.questions?.[0] || plan.error || "What filename should I use?"
           addLocalMessage(question); speakResponse(question); return
         }
         if (plan.overwrite_required) {
-          pendingSaveTaskRef.current = { text: payload.text, filename: payload.filename,
-            directory: payload.directory, waitingFor: "overwrite" }
+          pendingSaveTaskRef.current = { text: payload.text, filename: payload.filename, directory: payload.directory, app: payload.app, waitingFor: "overwrite" }
           const question = "A file named **" + plan.filename + "** already exists in " + plan.directory + ". Reply **overwrite** to replace it, or **cancel** to keep the existing file."
           addLocalMessage(question); speakResponse(question); return
         }
         const result = await executeDesktopTask(payload)
         const outcome = result.success
-          ? "Saved and verified **" + (result.path || plan.target || plan.filename) + "**." + (result.opened_in_notepad ? " I also opened it in Notepad." : "")
+          ? "Saved and verified **" + (result.path || plan.target || plan.filename) + "**." + (result.opened_in_app ? " Opened " + (result.app || plan.app || "the requested app") + "." : " The file was saved, but the requested app did not open.") + (result.message?.includes("Sticky Notes does not provide") ? " " + result.message : "")
           : result.message || result.error || "The save operation did not complete."
         addLocalMessage(outcome); speakResponse(outcome); return
       } catch (error) {
-        const outcome = "I couldn't complete the save: " + (error instanceof Error ? error.message : "Windows companion unavailable")
+        const outcome = "I could not complete the save: " + (error instanceof Error ? error.message : "Windows companion unavailable")
         addLocalMessage(outcome); speakResponse(outcome); return
       }
     }
