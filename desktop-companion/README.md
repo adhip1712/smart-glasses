@@ -14,14 +14,15 @@ Capabilities:
 - Capture a selected window for optional vision analysis (POST /ui/screenshot). Screenshot access is explicit and scoped to one selected window.
 - Click a uniquely matched visible control, enter literal text into an editable field, or press a restricted navigation key (POST /ui/action).
 - Plan supported natural-language tasks (POST /task/plan).
-- Execute safe text-file save workflows (POST /task/execute): ask for missing text, filename, and location; validate the destination; save; read back to verify; and open the result in Notepad.
+- Execute save workflows (POST /task/execute): ask for missing text and filename; default to the user's Documents\\Visionary Nexus folder (created automatically); honor an explicitly supplied folder or full destination path; save, read back to verify, and open in the selected app where supported. Word output is a .docx document; Notepad and Sticky Notes requests produce text files.
 - Launch an application through the task runner (POST /task/execute with task=launch_app).
 
 Task runner safety:
-- File operations are limited to Desktop, Documents, Downloads, and folders inside those locations.
-- Filenames are validated; only .txt and .md are accepted.
+- The default save location is Documents\\Visionary Nexus. An explicit absolute destination supplied by the user is honored, except protected Windows system folders and drive roots.
+- Filenames are validated. Word creates .docx; Notepad and Sticky Notes create .txt or .md.
 - Existing files are never overwritten without explicit confirmed_overwrite=true.
-- File writes are atomic and verified by reading the saved content back.
+- Sticky Notes can be launched, but it has no supported file-import interface in this workflow; the verified text copy remains in the Visionary Nexus folder.
+- File writes are atomic and verified by reading the saved content back. Word documents are checked by reopening their OpenXML content.
 - No arbitrary shell, script, URL, process, or unrestricted filesystem operation is exposed.
 
 UI safety boundaries:
