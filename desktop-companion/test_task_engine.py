@@ -69,10 +69,11 @@ class TaskEngineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             with patch.object(task_engine, "_is_protected_path", return_value=False):
                 with patch.object(task_engine.subprocess, "Popen") as launch:
-                    result = task_engine.execute_save_text({
-                        "task": "save_text", "text": "Word document test", "filename": "report",
-                        "directory": folder, "app": "word",
-                    })
+                    with patch.object(task_engine.os, "startfile", create=True) as startfile:
+                        result = task_engine.execute_save_text({
+                            "task": "save_text", "text": "Word document test", "filename": "report",
+                            "directory": folder, "app": "word",
+                        })
             self.assertTrue(result["success"], result)
             self.assertTrue(result["verified"])
             self.assertTrue(result["opened_in_app"])
@@ -80,7 +81,10 @@ class TaskEngineTests(unittest.TestCase):
             with zipfile.ZipFile(result["path"]) as doc:
                 self.assertIn("word/document.xml", doc.namelist())
                 self.assertIn("Word document test", doc.read("word/document.xml").decode())
-            launch.assert_called_once()
+            if task_engine.os.name == "nt":
+                startfile.assert_called_once()
+            else:
+                launch.assert_called_once()
 
     def test_existing_file_is_not_overwritten_without_confirmation(self):
         with tempfile.TemporaryDirectory() as folder:
