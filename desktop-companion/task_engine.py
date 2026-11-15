@@ -89,7 +89,7 @@ def _filename(raw: Any, app: str = "notepad") -> str:
     return name
 
 def _infer_filename(command: str) -> str:
-    match = re.search(r"\b(?:as|named|called)\s+['""]?([^'"";]+?)(?:['""]?\s+(?:in|to|at)\s+|$)", command, re.I)
+    match = re.search(r"\b(?:as|named|called)\s+([A-Za-z0-9 _-]+?)(?:\s+(?:in|to|at)\s+|$)", command, re.I)
     return match.group(1).strip() if match else ""
 
 def plan_task(payload: dict[str, Any]) -> dict[str, Any]:
