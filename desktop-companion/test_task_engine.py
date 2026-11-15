@@ -37,7 +37,7 @@ class TaskEngineTests(unittest.TestCase):
             with patch.object(task_engine, "_known_documents", return_value=docs):
                 plan = task_engine.plan_task({"task": "save_text", "text": "hello", "filename": "note"})
                 self.assertTrue(plan["ready"], plan)
-                self.assertEqual(Path(plan["directory"]), docs / "Visionary Nexus")
+                self.assertEqual(Path(plan["directory"]).resolve(), (docs / "Visionary Nexus").resolve())
                 self.assertFalse(plan["overwrite_required"])
 
     def test_explicit_path_is_used_exactly_and_created_if_needed(self):
@@ -46,7 +46,7 @@ class TaskEngineTests(unittest.TestCase):
             with patch.object(task_engine, "_is_protected_path", return_value=False):
                 plan = task_engine.plan_task({"task": "save_text", "text": "hello", "filename": "note", "directory": str(target_dir)})
                 self.assertTrue(plan["ready"], plan)
-                self.assertEqual(Path(plan["target"]), target_dir / "note.txt")
+                self.assertEqual(Path(plan["target"]).resolve(), (target_dir / "note.txt").resolve())
 
     def test_full_explicit_filename_path_is_respected(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -54,7 +54,7 @@ class TaskEngineTests(unittest.TestCase):
             with patch.object(task_engine, "_is_protected_path", return_value=False):
                 plan = task_engine.plan_task({"task": "save_text", "text": "hello", "destination_path": str(target)})
             self.assertTrue(plan["ready"], plan)
-            self.assertEqual(Path(plan["target"]), target)
+            self.assertEqual(Path(plan["target"]).resolve(), target.resolve())
 
     def test_filename_rejects_path_traversal(self):
         with self.assertRaises(ValueError):
@@ -71,7 +71,7 @@ class TaskEngineTests(unittest.TestCase):
             self.assertTrue(result["verified"])
             self.assertTrue(result["opened_in_notepad"])
             self.assertEqual(Path(result["path"]).read_text(encoding="utf-8"), "Visionary Nexus test")
-            self.assertEqual(Path(result["path"]).parent, docs / "Visionary Nexus")
+            self.assertEqual(Path(result["path"]).parent.resolve(), (docs / "Visionary Nexus").resolve())
             launch.assert_called_once()
 
     def test_word_creates_valid_docx_and_opens_it(self):
