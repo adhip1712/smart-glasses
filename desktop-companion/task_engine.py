@@ -92,6 +92,9 @@ def _infer_filename(command: str) -> str:
     match = re.search(r"\b(?:as|named|called)\s+([A-Za-z0-9 _-]+?)(?:\s+(?:in|to|at)\s+|$)", command, re.I)
     return match.group(1).strip() if match else ""
 
+def _infer_directory(command: str) -> str:
+    match = re.search(r"\b(?:in|to|at)\s+([A-Za-z]:\\.+)$", command, re.I)
+    return match.group(1).strip().rstrip(chr(92)) if match else ""
 def plan_task(payload: dict[str, Any]) -> dict[str, Any]:
     task = str(payload.get("task") or "").strip().casefold().replace("-", "_")
     command = str(payload.get("command") or "").strip()
@@ -115,7 +118,7 @@ def plan_task(payload: dict[str, Any]) -> dict[str, Any]:
     if text is None and ":" in command:
         text = command.split(":", 1)[1].strip()
     filename = payload.get("filename") or _infer_filename(command)
-    directory = payload.get("directory") or payload.get("path") or payload.get("destination_path")
+    directory = payload.get("directory") or payload.get("path") or payload.get("destination_path") or _infer_directory(command)
     # A complete destination filename is accepted as well as a folder path.
     if isinstance(directory, str) and directory.strip():
         raw_destination = directory.strip().strip('"')
