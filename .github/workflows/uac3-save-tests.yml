@@ -1,0 +1,27 @@
+name: Universal App Control save workflow tests
+
+on:
+  push:
+    paths:
+      - "desktop-companion/task_engine.py"
+      - "desktop-companion/test_task_engine.py"
+      - ".github/workflows/uac3-save-tests.yml"
+  pull_request:
+    paths:
+      - "desktop-companion/task_engine.py"
+      - "desktop-companion/test_task_engine.py"
+      - ".github/workflows/uac3-save-tests.yml"
+  workflow_dispatch:
+
+jobs:
+  windows-save-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compile Companion task runner
+        run: python -m py_compile desktop-companion/task_engine.py desktop-companion/test_task_engine.py
+      - name: Run save workflow tests
+        run: python -m unittest discover -s desktop-companion -p test_task_engine.py -v
