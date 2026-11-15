@@ -2246,7 +2246,7 @@ const AIAssistant: React.FC<{
 
     // Route save requests through the deterministic task runner.
     // If no destination is supplied, save to Documents/Visionary Nexus.
-    const saveTextCommand = /\b(?:save|write|put)\b.*\b(?:this|it|message|text|file|document|note|notepad|word|sticky notes?)\b/i.test(message)
+    const saveTextCommand = /^\s*(?:please\s+)?(?:save|write|put)\b/i.test(message)
       || ["save_text", "save_file", "write_text", "save_message"].includes(String(featureIntent?.action || "").toLowerCase())
     if (saveTextCommand) {
       try {
