@@ -63,11 +63,12 @@ def _allowed_directory(raw: Any, create: bool = False) -> Path:
     return candidate
 
 def _infer_app(payload: dict[str, Any], command: str) -> str:
-    combined = str(payload.get("app") or payload.get("target_app") or "") + " " + command
-    if re.search(r"\b(?:microsoft\s+)?word\b|\b\.docx\b", combined, re.I):
-        return "word"
-    if re.search(r"\bsticky\s*notes?\b", combined, re.I):
+    app_hint = str(payload.get("app") or payload.get("target_app") or payload.get("app_name") or "").strip()
+    combined = (app_hint + " " + command).replace("_", " ").replace("-", " ")
+    if app_hint.casefold() in {"sticky_notes", "stickynotes"} or re.search(r"\bsticky\s*notes?\b", combined, re.I):
         return "sticky_notes"
+    if app_hint.casefold() in {"word", "microsoft word"} or re.search(r"\b(?:microsoft\s+)?word\b|\b\.docx\b", combined, re.I):
+        return "word"
     return "notepad"
 
 def _filename(raw: Any, app: str = "notepad") -> str:
