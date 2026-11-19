@@ -164,7 +164,11 @@ export default function AuthScreen({ onAuthenticated }: Props) {
           <div className="grid grid-cols-2 gap-2">
             {providers.map(provider => (
               <button key={provider.id} type="button" disabled={!provider.configured}
-                onClick={() => { window.location.href = API_URL + '/api/auth/oauth/' + provider.id + '/start' }}
+                onClick={() => {
+                  const startUrl = new URL(API_URL + '/api/auth/oauth/' + provider.id + '/start', window.location.origin)
+                  startUrl.searchParams.set('frontend_origin', window.location.origin)
+                  window.location.assign(startUrl.toString())
+                }}
                 title={provider.configured ? provider.name : provider.name + ' setup required'}
                 className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-3 text-xs font-semibold text-slate-200 transition hover:border-cyan-400/50 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-40">
                 {provider.name}{!provider.configured && <span className="mt-1 block text-[9px] font-normal text-slate-500">SETUP REQUIRED</span>}

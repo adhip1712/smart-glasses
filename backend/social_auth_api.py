@@ -1,9 +1,9 @@
-import os,secrets,hashlib
+import os,secrets,hashlib,base64
 from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / '.env')
 from datetime import datetime,timedelta
-from urllib.parse import urlencode
+from urllib.parse import urlencode,urlsplit
 import httpx,jwt
 from fastapi import APIRouter,HTTPException,Request
 from fastapi.responses import RedirectResponse
@@ -17,7 +17,33 @@ except ImportError:
  from models import User
  from auth_api import _hash_password,_session_response
 router=APIRouter(prefix="/api/auth",tags=["social auth"])
-FRONT=os.getenv("OAUTH_FRONTEND_URL","http://localhost:8443").rstrip("/")
+FRONT=os.getenv("OAUTH_FRONTEND_URL","https://visionary-nexus-theta.vercel.app").rstrip("/")
+
+def allowed_frontend_origins():
+ configured=[x.strip().rstrip("/") for x in os.getenv("OAUTH_ALLOWED_FRONTEND_ORIGINS","").split(",") if x.strip()]
+ defaults=[FRONT,"https://visionary-nexus-theta.vercel.app","https://visionary-vexus-adhip17122012-6679.vercel.app","https://visionary-vexus-git-main-adhip17122012-6679.vercel.app","https://visionary-vexus-15r569hde-adhip17122012-6679.vercel.app","http://localhost:8443","http://127.0.0.1:8443"]
+ return set(defaults+configured)
+
+def safe_frontend_origin(value):
+ candidate=(value or FRONT).strip().rstrip("/")
+ parsed=urlsplit(candidate)
+ origin=(parsed.scheme+"://"+parsed.netloc).rstrip("/") if parsed.scheme and parsed.netloc else ""
+ if parsed.scheme not in ("http","https") or parsed.path not in ("","/") or parsed.query or parsed.fragment or origin not in allowed_frontend_origins():
+  return FRONT
+ return origin
+
+def encode_oauth_state(frontend_origin):
+ encoded=base64.urlsafe_b64encode(frontend_origin.encode("utf-8")).decode("ascii").rstrip("=")
+ return secrets.token_urlsafe(32)+"."+encoded
+
+def frontend_origin_from_state(state):
+ try:
+  encoded=state.rsplit(".",1)[1]
+  encoded += "="*((4-len(encoded)%4)%4)
+  decoded=base64.urlsafe_b64decode(encoded.encode("ascii")).decode("utf-8")
+  return safe_frontend_origin(decoded)
+ except Exception:
+  return FRONT
 BACK=os.getenv("OAUTH_BACKEND_URL","http://localhost:8000").rstrip("/")
 COOKIE="vn_oauth_state"
 CFG={"google":("GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET"),"facebook":("FACEBOOK_CLIENT_ID","FACEBOOK_CLIENT_SECRET"),"apple":("APPLE_CLIENT_ID","APPLE_CLIENT_SECRET"),"microsoft":("MICROSOFT_CLIENT_ID","MICROSOFT_CLIENT_SECRET"),"github":("GITHUB_CLIENT_ID","GITHUB_CLIENT_SECRET")}
@@ -40,12 +66,12 @@ def conf(p):
 def list_providers():
  return {"providers":[{"id":p,"name":p.title(),"configured":conf(p)[2]} for p in CFG]}
 @router.get("/oauth/{provider}/start")
-def start(provider:str):
+def start(provider:str,frontend_origin:str=""):
  if provider not in CFG: raise HTTPException(404,"Unknown provider")
  client,secret,ready=conf(provider)
  if not ready: raise HTTPException(503,"Add this provider's credentials to the backend environment first.")
  red=os.getenv(provider.upper()+"_REDIRECT_URI",BACK+"/api/auth/oauth/"+provider+"/callback")
- state=secrets.token_urlsafe(32); Identity.__table__.create(bind=engine,checkfirst=True); Ticket.__table__.create(bind=engine,checkfirst=True); OAuthState.__table__.create(bind=engine,checkfirst=True); db=SessionLocal(); db.add(OAuthState(state_hash=hashlib.sha256(state.encode()).hexdigest(),provider=provider,expires_at=datetime.utcnow()+timedelta(minutes=10))); db.commit(); db.close(); scope={"google":"openid email profile","facebook":"email public_profile","apple":"name email","microsoft":"openid profile email User.Read","github":"read:user user:email"}[provider]
+ frontend=safe_frontend_origin(frontend_origin); state=encode_oauth_state(frontend); Identity.__table__.create(bind=engine,checkfirst=True); Ticket.__table__.create(bind=engine,checkfirst=True); OAuthState.__table__.create(bind=engine,checkfirst=True); db=SessionLocal(); db.add(OAuthState(state_hash=hashlib.sha256(state.encode()).hexdigest(),provider=provider,expires_at=datetime.utcnow()+timedelta(minutes=10))); db.commit(); db.close(); scope={"google":"openid email profile","facebook":"email public_profile","apple":"name email","microsoft":"openid profile email User.Read","github":"read:user user:email"}[provider]
  q={"client_id":client,"redirect_uri":red,"response_type":"code","scope":scope,"state":state}
  if provider=="google": q["prompt"]="select_account"
  return RedirectResponse(AUTH[provider]+"?"+urlencode(q))
@@ -115,19 +141,21 @@ def complete(p,code,state,request):
    db.add(Identity(user_id=user.id,provider=p,subject=sub,email=email))
   user.last_login_at=datetime.utcnow(); raw=secrets.token_urlsafe(36); db.add(Ticket(ticket_hash=hashlib.sha256(raw.encode()).hexdigest(),user_id=user.id,expires_at=datetime.utcnow()+timedelta(minutes=2))); db.commit(); return raw
  finally: db.close()
-def redirect(ticket=None,error=None):
- return RedirectResponse(FRONT+"/auth/callback"+("?oauth_ticket="+ticket if ticket else "?oauth_error="+error),status_code=303)
+def redirect(ticket=None,error=None,frontend_origin=None):
+ target=safe_frontend_origin(frontend_origin or FRONT)
+ return RedirectResponse(target+"/auth/callback"+("?oauth_ticket="+ticket if ticket else "?oauth_error="+error),status_code=303)
 @router.get("/oauth/{provider}/callback")
 def callback(provider:str,request:Request,code:str="",state:str="",error:str=""):
  if provider not in CFG: raise HTTPException(404,"Unknown provider")
- if error: return redirect(error="cancelled")
+ if error: return redirect(error="cancelled",frontend_origin=frontend_origin_from_state(state))
  if not code: raise HTTPException(400,"Missing authorization code")
- return redirect(ticket=complete(provider,code,state,request))
+ return redirect(ticket=complete(provider,code,state,request),frontend_origin=frontend_origin_from_state(state))
 @router.post("/oauth/apple/callback")
 async def apple_callback(request:Request):
  f=await request.form()
- if f.get("error"): return redirect(error="cancelled")
- return redirect(ticket=complete("apple",str(f.get("code","")),str(f.get("state","")),request))
+ if f.get("error"): return redirect(error="cancelled",frontend_origin=frontend_origin_from_state(str(f.get("state",""))))
+ state=str(f.get("state",""))
+ return redirect(ticket=complete("apple",str(f.get("code","")),state,request),frontend_origin=frontend_origin_from_state(state))
 @router.post("/oauth/exchange")
 def exchange(payload:dict):
  raw=str(payload.get("ticket",""))
