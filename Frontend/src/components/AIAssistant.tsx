@@ -1893,6 +1893,24 @@ const AIAssistant: React.FC<{
       return
     }
 
+    // Open the configured music website before any asynchronous correction/API
+    // work, while the user's click or key action can still authorize a new tab.
+    const directMusicCommand = awaitingTypedMusicChoiceRef.current
+      ? { action: "play", query: /^(surprise me|anything|any song)$/i.test(message) ? "popular songs" : message }
+      : parseMusicCommand(message)
+    if (directMusicCommand?.query && (directMusicCommand.action === "play" || directMusicCommand.action === "search")) {
+      const websiteResult = openPreferredMusicWebsite(directMusicCommand.query, message)
+      if (websiteResult !== null) {
+        if (awaitingTypedMusicChoiceRef.current) awaitingTypedMusicChoiceRef.current = false
+        setInput("")
+        setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }])
+        addLocalMessage(websiteResult
+          ? `Opening YouTube for "${directMusicCommand.query}" in a new tab.`
+          : `Your preference is set to open YouTube, but Chrome blocked the tab. Allow pop-ups for Visionary Nexus and try again.`)
+        return
+      }
+    }
+
     // Polish every submitted message before routing or sending it to chat.
     // Keep the original if the correction service is unavailable or unsafe.
     const originalMessage = message
