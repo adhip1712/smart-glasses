@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+﻿import { useCallback, useEffect, useState } from 'react'
 import SpatialDashboard from './components/SpatialDashboard'
 import AIAssistant from './components/AIAssistant'
 import Vision from './components/Vision'
@@ -16,6 +16,7 @@ import { speakText } from './services/speech'
 import { parseMusicCommand, publishMusicCommand, type MusicCommandAction } from './services/voiceMusic'
 import { parseCallIntent } from './services/callIntent'
 import { parseWhatsAppMessageIntent } from './services/whatsappIntent'
+import { readMusicPreferenceConfig, resolveMusicServiceFromCommand } from './services/preferences'
 import IntroSplash from './components/IntroSplash'
 import AuthScreen from './components/AuthScreen'
 import { getToken, getStoredUser, setSession } from './services/api'
@@ -252,6 +253,33 @@ export default function App() {
     if (window.location.pathname === '/spotify/callback') setActiveTab('music')
   }, [])
 
+  const routeMusicCommand = (action: MusicCommandAction, query: string, text: string) => {
+    const config = readMusicPreferenceConfig()
+    const service = resolveMusicServiceFromCommand(text, config.service)
+    const externalPlayback = service === 'Spotify' || (service === 'YouTube' && config.destination === 'website')
+
+    if (externalPlayback && ['pause', 'stop', 'resume', 'next', 'previous'].includes(action)) {
+      speakText('I cannot control playback in an external website player from Visionary Nexus yet. Use the player controls.')
+      return
+    }
+
+    if (service === 'Spotify') {
+      const url = query ? 'https://open.spotify.com/search/' + encodeURIComponent(query) : 'https://open.spotify.com/'
+      const opened = window.open(url, 'visionary-nexus-spotify')
+      speakText(opened ? 'Spotify opened in a new tab. Playback may require a Spotify Premium account.' : 'The Spotify tab was blocked. Allow pop-ups for Visionary Nexus and try again.')
+      return
+    }
+
+    if (service === 'YouTube' && config.destination === 'website' && ['play', 'search', 'open'].includes(action)) {
+      const url = query ? 'https://www.youtube.com/results?search_query=' + encodeURIComponent(query) : 'https://www.youtube.com/'
+      const opened = window.open(url, 'visionary-nexus-youtube')
+      if (!opened) speakText('The YouTube tab was blocked. Allow pop-ups for Visionary Nexus and try again.')
+      return
+    }
+
+    setActiveTab('music')
+    publishMusicCommand({ activeTab: 'music', provider: 'youtube', source: 'voice', intent: 'music', action, query, text })
+  }
   if (!authReady) {
     return <div className="min-h-screen bg-[#030b20]" aria-label="Restoring session" />
   }
@@ -358,20 +386,13 @@ export default function App() {
               ? 'Opening WhatsApp for ' + whatsappMessage.recipient + '. Review the message and press Send.'
               : 'Opening the WhatsApp chat for ' + whatsappMessage.recipient + '.')
             return
-          }          const musicCommand = parseMusicCommand(spoken)
-          if (musicCommand) {
-            setActiveTab('music')
-            publishMusicCommand({
-              activeTab: 'music',
-              provider: 'youtube',
-              source: 'voice',
-              intent: 'music',
-              action: musicCommand.action,
-              query: musicCommand.query,
-              text: spoken,
-            })
-            return;
           }
+          const musicCommand = parseMusicCommand(spoken)
+          if (musicCommand) {
+            routeMusicCommand(musicCommand.action, musicCommand.query, spoken)
+            return
+          }
+
           try {
             const response = await apiFetch('/api/intent/classify', {
               method: 'POST',
@@ -392,14 +413,13 @@ export default function App() {
             const routedIntent = (intent?.intent || 'general').toLowerCase()
             const polished = intent?.polished_text?.trim() || spoken
             if (routedIntent === 'music') {
-              setActiveTab('music')
-              publishMusicCommand({
-                activeTab: 'music', provider: 'youtube', source: 'voice', intent: 'music',
-                action: (['play', 'search', 'open', 'pause', 'stop', 'resume', 'next', 'previous'].includes(String(intent?.action))
+              routeMusicCommand(
+                (['play', 'search', 'open', 'pause', 'stop', 'resume', 'next', 'previous'].includes(String(intent?.action))
                   ? intent?.action as MusicCommandAction
                   : 'play'),
-                query: intent?.query || '', text: polished,
-              })
+                intent?.query || '',
+                polished,
+              )
               return
             }
             if (routedIntent === 'whatsapp') {
@@ -475,3 +495,6 @@ export default function App() {
     </div>
   )
 }
+
+
+
