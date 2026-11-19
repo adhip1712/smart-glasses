@@ -11,7 +11,8 @@ import { parseCallIntent } from "../services/callIntent"
 import { answerBirthdayQuestion, executeAppAction } from "../services/universalApps"
 import { discoverDesktopWindows, inspectDesktopWindow, launchDesktopApp, performDesktopAction, planDesktopTask, executeDesktopTask } from "../services/desktopCompanion"
 import { primeSpeechOutput, speakText } from "../services/speech"
-import { parseMusicCommand, readMusicPreferenceConfig, resolveMusicServiceFromCommand, openNamedYouTubeWindow, youtubeSearchUrl } from "../services/voiceMusic"
+import { parseMusicCommand, openNamedYouTubeWindow, youtubeSearchUrl } from "../services/voiceMusic"
+import { readMusicPreferenceConfig, resolveMusicServiceFromCommand } from "../services/preferences"
 
 // =========================================================
 // BROWSER SPEECH RECOGNITION TYPES
