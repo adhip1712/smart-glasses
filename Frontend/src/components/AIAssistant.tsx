@@ -11,7 +11,7 @@ import { parseCallIntent } from "../services/callIntent"
 import { answerBirthdayQuestion, executeAppAction } from "../services/universalApps"
 import { discoverDesktopWindows, inspectDesktopWindow, launchDesktopApp, performDesktopAction, planDesktopTask, executeDesktopTask } from "../services/desktopCompanion"
 import { primeSpeechOutput, speakText } from "../services/speech"
-import { parseMusicCommand } from "../services/voiceMusic"
+import { parseMusicCommand, readMusicPreferenceConfig, resolveMusicServiceFromCommand, openNamedYouTubeWindow, youtubeSearchUrl } from "../services/voiceMusic"
 
 // =========================================================
 // BROWSER SPEECH RECOGNITION TYPES
@@ -77,6 +77,15 @@ type NavigationResult = {
 // =========================================================
 // API
 // =========================================================
+
+// Route music commands according to the saved Personal Preferences.
+// Return null when the internal Music flow should handle the request.
+function openPreferredMusicWebsite(query: string, commandText: string): boolean | null {
+  const preference = readMusicPreferenceConfig()
+  const service = resolveMusicServiceFromCommand(commandText, preference.service)
+  if (preference.destination !== "website" || service !== "YouTube") return null
+  return openNamedYouTubeWindow(youtubeSearchUrl(query))
+}
 
 // =========================================================
 // COMPONENT
@@ -2063,8 +2072,15 @@ const AIAssistant: React.FC<{
       setMessages(previous => [...previous,
         { id: Date.now() + Math.random(), role: "user", content: choice },
       ])
-      onMusic?.()
       const query = /^(surprise me|anything|any song)$/i.test(choice) ? "popular songs" : choice
+      const websiteResult = openPreferredMusicWebsite(query, choice)
+      if (websiteResult !== null) {
+        addLocalMessage(websiteResult
+          ? `Opening YouTube for "${query}" in a new tab.`
+          : `Your preference is set to open YouTube, but Chrome blocked the tab. Allow pop-ups for Visionary Nexus and try again.`)
+        return
+      }
+      onMusic?.()
       window.dispatchEvent(new CustomEvent("visionary:voice-command", {
         detail: { activeTab: "music", intent: "music", action: "play", query, text: choice },
       }))
@@ -2086,6 +2102,15 @@ const AIAssistant: React.FC<{
         addLocalMessage(prompt)
         speakResponse(prompt)
         return
+      }
+      if (typedMusicCommand.query && (typedMusicCommand.action === "play" || typedMusicCommand.action === "search")) {
+        const websiteResult = openPreferredMusicWebsite(typedMusicCommand.query, message)
+        if (websiteResult !== null) {
+          addLocalMessage(websiteResult
+            ? `Opening YouTube for "${typedMusicCommand.query}" in a new tab.`
+            : `Your preference is set to open YouTube, but Chrome blocked the tab. Allow pop-ups for Visionary Nexus and try again.`)
+          return
+        }
       }
       onMusic?.()
       window.dispatchEvent(new CustomEvent("visionary:voice-command", {
