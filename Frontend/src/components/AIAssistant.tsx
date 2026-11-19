@@ -11,7 +11,7 @@ import { parseCallIntent } from "../services/callIntent"
 import { answerBirthdayQuestion, executeAppAction } from "../services/universalApps"
 import { discoverDesktopWindows, inspectDesktopWindow, launchDesktopApp, performDesktopAction, planDesktopTask, executeDesktopTask } from "../services/desktopCompanion"
 import { primeSpeechOutput, speakText } from "../services/speech"
-import { parseMusicCommand, openNamedYouTubeWindow, youtubeSearchUrl } from "../services/voiceMusic"
+import { parseMusicCommand, openNamedYouTubeWindow, navigateNamedYouTubeWindow, youtubeSearchUrl, isValidYouTubeVideoId } from "../services/voiceMusic"
 import { readMusicPreferenceConfig, resolveMusicServiceFromCommand } from "../services/preferences"
 
 // =========================================================
@@ -80,12 +80,38 @@ type NavigationResult = {
 // =========================================================
 
 // Route music commands according to the saved Personal Preferences.
-// Return null when the internal Music flow should handle the request.
+// Open the tab synchronously from the user's gesture, then resolve the first
+// playable YouTube result and navigate directly to its watch page.
 function openPreferredMusicWebsite(query: string, commandText: string): boolean | null {
   const preference = readMusicPreferenceConfig()
   const service = resolveMusicServiceFromCommand(commandText, preference.service)
   if (preference.destination !== "website" || service !== "YouTube") return null
-  return openNamedYouTubeWindow(youtubeSearchUrl(query))
+
+  const opened = openNamedYouTubeWindow(youtubeSearchUrl(query))
+  if (!opened) return false
+
+  void apiFetch("/api/music/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query }),
+  }).then(async response => {
+    if (!response.ok) throw new Error(`YouTube search failed: ${response.status}`)
+    const data = await response.json()
+    const firstYouTubeTrack = (Array.isArray(data?.tracks) ? data.tracks : []).find(
+      (track: any) =>
+        String(track?.provider || "").toLowerCase() === "youtube" &&
+        isValidYouTubeVideoId(track?.videoId),
+    )
+    if (firstYouTubeTrack?.videoId) {
+      navigateNamedYouTubeWindow(
+        `https://www.youtube.com/watch?v=${encodeURIComponent(firstYouTubeTrack.videoId)}&autoplay=1`,
+      )
+    }
+  }).catch(error => {
+    console.warn("Could not resolve the first YouTube result; keeping the search page open.", error)
+  })
+
+  return true
 }
 
 // =========================================================
