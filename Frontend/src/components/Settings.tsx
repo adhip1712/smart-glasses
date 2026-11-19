@@ -232,12 +232,22 @@ export default function Settings(_props: { onSignOut?: () => void }) {
     try { return localStorage.getItem('visionary-player-destination') === 'website' ? 'website' : 'internal' }
     catch { return 'internal' }
   })
+  const [preferencesSaveStatus, setPreferencesSaveStatus] = useState('Loading saved preferences...')
 
   useEffect(() => {
     try {
-      localStorage.setItem('visionary-preferences', JSON.stringify({ rows: preferences }))
+      const serialized = JSON.stringify({ rows: preferences })
+      localStorage.setItem('visionary-preferences', serialized)
       localStorage.setItem('visionary-player-destination', playerDestination)
-    } catch { /* keep preferences active for this session */ }
+      const storedRows = JSON.parse(localStorage.getItem('visionary-preferences') || 'null')
+      const storedDestination = localStorage.getItem('visionary-player-destination')
+      if (JSON.stringify(storedRows?.rows) !== JSON.stringify(preferences) || storedDestination !== playerDestination) {
+        throw new Error('Preference verification failed')
+      }
+      setPreferencesSaveStatus('Saved on this browser')
+    } catch {
+      setPreferencesSaveStatus('Could not save preferences in this browser')
+    }
   }, [preferences, playerDestination])
 
   const updatePreference = (id: string, field: 'category' | 'value', value: string) => {
@@ -308,6 +318,9 @@ export default function Settings(_props: { onSignOut?: () => void }) {
       <Section title="Personal Preferences">
         <p className="font-mono text-[10px] leading-relaxed text-white/40">
           Define what each function should use. Both columns are editable free-text fields. Your entries are saved automatically and spelling variations are interpreted when you give a command; your original text stays editable.
+        </p>
+        <p role="status" aria-live="polite" className={`font-mono text-[10px] ${preferencesSaveStatus.startsWith('Saved') ? 'text-green-300/70' : 'text-amber-300/80'}`}>
+          {preferencesSaveStatus}
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2">
           <span className="font-mono text-[10px] uppercase tracking-widest text-white/45">Function</span>
