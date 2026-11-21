@@ -106,17 +106,32 @@ const WEBSITE_ALIASES: Record<string, string> = {
 };
 
 function resolveExplicitWebsiteUrl(command: string): string | null {
-  const match = command.trim().match(/^(?:(?:please|can you|could you|would you)\\s+)*(?:go to|open|visit|navigate to|take me to)\\s+(.+?)\\s*$/i);
+  const match = command.trim().match(/^(?:(?:please|can you|could you|would you)\s+)*(?:go to|open|visit|navigate to|take me to)\s+(.+?)\s*$/i);
   if (!match) return null;
-  let target = match[1].trim().replace(/\\s+(?:website|site|homepage)$/i, "").trim();
-  target = target.replace(/[.!?,]+$/g, "");
+  const target = match[1].trim().replace(/\s+(?:website|site|homepage)$/i, "").replace(/[.!?,]+$/g, "").trim();
   if (!target) return null;
 
   const alias = WEBSITE_ALIASES[target.toLowerCase()];
   if (alias) return alias;
 
-  const candidate = target.replace(/^https?:\\/\\//i, "").replace(/^www\\./i, "");
-  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9-]+)+(?:\\/[a-z0-9._~:/?#\\[\\]@!function openPreferredMusicWebsite(query: string, commandText: string): boolean | null {'()*+,;=%-]*)?$/i.test(candidate)) {
+  const candidate = target.replace(/^https?:\/\//i, "").replace(/^www\./i, "");
+  try {
+    const parsed = new URL(/^https?:\/\//i.test(target) ? target : \`https://\${candidate}\`);
+    if (!parsed.hostname.includes(".") || !/^[a-z0-9.-]+$/i.test(parsed.hostname)) return null;
+    return parsed.href;
+  } catch {
+    return null;
+  }
+}
+
+function openRequestedWebsite(command: string): boolean | null {
+  const url = resolveExplicitWebsiteUrl(command);
+  if (!url) return null;
+  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  return Boolean(opened);
+}
+
+function openPreferredMusicWebsite(query: string, commandText: string): boolean | null {'()*+,;=%-]*)?$/i.test(candidate)) {
     return null;
   }
   return /^https?:\\/\\//i.test(target) ? target : `https://${candidate}`;
@@ -497,7 +512,6 @@ const AIAssistant: React.FC<{
           `Failed to load messages: ${response.status}`
         )
       }
-
       const data = await response.json()
 
       const rawMessages = Array.isArray(data)
@@ -997,8 +1011,7 @@ const AIAssistant: React.FC<{
           "script[src*='youtube.com/iframe_api']"
         ) as HTMLScriptElement | null
 
-        if (existingScript) {
-          existingScript.addEventListener("load", () => resolve(), { once: true })
+        if (existingScript) {          existingScript.addEventListener("load", () => resolve(), { once: true })
           existingScript.addEventListener("error", () => reject(new Error("Could not load the YouTube IFrame API.")), { once: true })
           return
         }
@@ -1497,8 +1510,7 @@ const AIAssistant: React.FC<{
       musicCurrentIndexRef.current
 
     if (tracks.length === 0) {
-      addLocalMessage(
-        "There is no music queue."
+      addLocalMessage(        "There is no music queue."
       )
 
       return
@@ -1997,8 +2009,7 @@ const AIAssistant: React.FC<{
     }
 
     // Polish every submitted message before routing or sending it to chat.
-    // Keep the original if the correction service is unavailable or unsafe.
-    const originalMessage = message
+    // Keep the original if the correction service is unavailable or unsafe.    const originalMessage = message
     try {
       const correctionResponse = await apiFetch("/api/dictation/polish", {
         method: "POST",
@@ -2497,8 +2508,7 @@ const AIAssistant: React.FC<{
             addLocalMessage(notice); speakResponse("I inspected " + inspection.title + " and found " + controls.length + " visible controls."); return
           }
           if (actionName === "click" && !controlName) {
-            if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
-            const prompt = "Which exact button or control should I click in " + inspection.title + "?"
+            if (appActionWindow && !appActionWindow.closed) appActionWindow.close()            const prompt = "Which exact button or control should I click in " + inspection.title + "?"
             addLocalMessage(prompt); speakResponse(prompt); return
           }
           const actionResult = await performDesktopAction({
@@ -2997,8 +3007,7 @@ const AIAssistant: React.FC<{
             <>
               {tabs.map(
                 (tab, index) => {
-                  const isActive =
-                    tab.id === activeTab
+                  const isActive =                    tab.id === activeTab
 
                   return (
                     <div
