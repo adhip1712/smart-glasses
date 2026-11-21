@@ -83,7 +83,7 @@ async function loadSpeechVoices(): Promise<SpeechSynthesisVoice[]> {
   return getAvailableSpeechVoices()
 }
 
-function playBrowserSpeech(text: string, run: number, onStarted: () => void): Promise<void> {
+async function playBrowserSpeech(text: string, run: number, onStarted: () => void): Promise<void> {
   return new Promise((resolve, reject) => {
     if (run !== speechRun) return resolve()
     if (typeof window === 'undefined' || !('speechSynthesis' in window) ||
