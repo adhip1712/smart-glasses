@@ -82,7 +82,6 @@ type NavigationResult = {
 // Route music commands according to the saved Personal Preferences.
 // Open the tab synchronously from the user's gesture, then resolve the first
 // playable YouTube result and navigate directly to its watch page.
-
 const WEBSITE_ALIASES: Record<string, string> = {
   "eleven labs": "https://elevenlabs.io",
   "11 labs": "https://elevenlabs.io",
@@ -122,19 +121,6 @@ function resolveExplicitWebsiteUrl(command: string): string | null {
   } catch {
     return null;
   }
-}
-
-function openRequestedWebsite(command: string): boolean | null {
-  const url = resolveExplicitWebsiteUrl(command);
-  if (!url) return null;
-  const opened = window.open(url, "_blank", "noopener,noreferrer");
-  return Boolean(opened);
-}
-
-function openPreferredMusicWebsite(query: string, commandText: string): boolean | null {'()*+,;=%-]*)?$/i.test(candidate)) {
-    return null;
-  }
-  return /^https?:\\/\\//i.test(target) ? target : `https://${candidate}`;
 }
 
 function openRequestedWebsite(command: string): boolean | null {
@@ -512,6 +498,7 @@ const AIAssistant: React.FC<{
           `Failed to load messages: ${response.status}`
         )
       }
+
       const data = await response.json()
 
       const rawMessages = Array.isArray(data)
@@ -559,6 +546,7 @@ const AIAssistant: React.FC<{
     )
 
     setMessages([])
+
     await loadMessages(conversationId)
 
     setTimeout(() => {
@@ -1011,7 +999,8 @@ const AIAssistant: React.FC<{
           "script[src*='youtube.com/iframe_api']"
         ) as HTMLScriptElement | null
 
-        if (existingScript) {          existingScript.addEventListener("load", () => resolve(), { once: true })
+        if (existingScript) {
+          existingScript.addEventListener("load", () => resolve(), { once: true })
           existingScript.addEventListener("error", () => reject(new Error("Could not load the YouTube IFrame API.")), { once: true })
           return
         }
@@ -1056,7 +1045,8 @@ const AIAssistant: React.FC<{
     youtubePlayerRef.current = new (window as any).YT.Player(playerHost.id, {
       height: "200",
       width: "200",
-      playerVars: {        playsinline: 1,
+      playerVars: {
+        playsinline: 1,
         rel: 0,
       },
       events: {
@@ -1510,7 +1500,8 @@ const AIAssistant: React.FC<{
       musicCurrentIndexRef.current
 
     if (tracks.length === 0) {
-      addLocalMessage(        "There is no music queue."
+      addLocalMessage(
+        "There is no music queue."
       )
 
       return
@@ -1554,7 +1545,8 @@ const AIAssistant: React.FC<{
         nextIndex,
         tracks,
         "Playing next:"
-      )    } catch (error) {
+      )
+    } catch (error) {
       console.error(
         "NEXT TRACK FAILED:",
         error
@@ -1976,17 +1968,14 @@ const AIAssistant: React.FC<{
       return
     }
 
-    // Explicit website navigation must win over music/game keyword routing.
-    // Resolve recognised site names to their official homepages and open them
-    // directly; only explicit "search" commands should show search results.
+    // Explicit website navigation takes priority over music routing.
     const requestedWebsite = openRequestedWebsite(message);
     if (requestedWebsite !== null) {
       setInput("");
       setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
-      const websiteOutcome = requestedWebsite
+      addLocalMessage(requestedWebsite
         ? "Opening the requested website directly in a new tab."
-        : "Chrome blocked the new tab. Allow pop-ups for Visionary Nexus and try again.";
-      addLocalMessage(websiteOutcome);
+        : "Chrome blocked the new tab. Allow pop-ups for Visionary Nexus and try again.");
       return;
     }
 
@@ -2009,7 +1998,8 @@ const AIAssistant: React.FC<{
     }
 
     // Polish every submitted message before routing or sending it to chat.
-    // Keep the original if the correction service is unavailable or unsafe.    const originalMessage = message
+    // Keep the original if the correction service is unavailable or unsafe.
+    const originalMessage = message
     try {
       const correctionResponse = await apiFetch("/api/dictation/polish", {
         method: "POST",
@@ -2066,7 +2056,8 @@ const AIAssistant: React.FC<{
       addLocalMessage("I cancelled the pending desktop action because the reply wasn't a clear confirmation.")
     }
 
-    // Continue the safe Save Text workflow one missing field at a time.    if (pendingSaveTaskRef.current) {
+    // Continue the safe Save Text workflow one missing field at a time.
+    if (pendingSaveTaskRef.current) {
       setInput("")
       setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }])
       const pending = pendingSaveTaskRef.current
@@ -2508,7 +2499,8 @@ const AIAssistant: React.FC<{
             addLocalMessage(notice); speakResponse("I inspected " + inspection.title + " and found " + controls.length + " visible controls."); return
           }
           if (actionName === "click" && !controlName) {
-            if (appActionWindow && !appActionWindow.closed) appActionWindow.close()            const prompt = "Which exact button or control should I click in " + inspection.title + "?"
+            if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
+            const prompt = "Which exact button or control should I click in " + inspection.title + "?"
             addLocalMessage(prompt); speakResponse(prompt); return
           }
           const actionResult = await performDesktopAction({
@@ -2564,7 +2556,8 @@ const AIAssistant: React.FC<{
         const alarmUrl = "https://digiclock.net/alarm-clock/"
         if (appActionWindow && !appActionWindow.closed) appActionWindow.location.href = alarmUrl
         else window.open(alarmUrl, "_blank")
-        const notice = "The device Clock app wasn't available, so I've opened DigiClock, a free alarm website with no sign-in. Set your requested time there, and keep the tab open and your device awake so it can ring."        addLocalMessage(notice)
+        const notice = "The device Clock app wasn't available, so I've opened DigiClock, a free alarm website with no sign-in. Set your requested time there, and keep the tab open and your device awake so it can ring."
+        addLocalMessage(notice)
         speakResponse(notice)
         return
       }
@@ -3007,7 +3000,8 @@ const AIAssistant: React.FC<{
             <>
               {tabs.map(
                 (tab, index) => {
-                  const isActive =                    tab.id === activeTab
+                  const isActive =
+                    tab.id === activeTab
 
                   return (
                     <div
@@ -3062,7 +3056,8 @@ const AIAssistant: React.FC<{
                           px-3
                           py-2
                           text-sm
-                          opacity-40                          hover:opacity-100
+                          opacity-40
+                          hover:opacity-100
                           hover:bg-red-500/20
                           hover:text-red-300
                           transition-all
