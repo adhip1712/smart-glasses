@@ -82,6 +82,53 @@ type NavigationResult = {
 // Route music commands according to the saved Personal Preferences.
 // Open the tab synchronously from the user's gesture, then resolve the first
 // playable YouTube result and navigate directly to its watch page.
+
+const WEBSITE_ALIASES: Record<string, string> = {
+  "eleven labs": "https://elevenlabs.io",
+  "11 labs": "https://elevenlabs.io",
+  "elevenlabs": "https://elevenlabs.io",
+  "chatgpt": "https://chatgpt.com",
+  "chat gpt": "https://chatgpt.com",
+  "youtube": "https://www.youtube.com",
+  "you tube": "https://www.youtube.com",
+  "github": "https://github.com",
+  "google": "https://www.google.com",
+  "gmail": "https://mail.google.com",
+  "google drive": "https://drive.google.com",
+  "spotify": "https://open.spotify.com",
+  "figma": "https://www.figma.com",
+  "vercel": "https://vercel.com",
+  "render": "https://render.com",
+  "netflix": "https://www.netflix.com",
+  "roblox": "https://www.roblox.com",
+  "hexanaut.io": "https://hexanaut.io",
+  "hexanaut": "https://hexanaut.io",
+};
+
+function resolveExplicitWebsiteUrl(command: string): string | null {
+  const match = command.trim().match(/^(?:(?:please|can you|could you|would you)\\s+)*(?:go to|open|visit|navigate to|take me to)\\s+(.+?)\\s*$/i);
+  if (!match) return null;
+  let target = match[1].trim().replace(/\\s+(?:website|site|homepage)$/i, "").trim();
+  target = target.replace(/[.!?,]+$/g, "");
+  if (!target) return null;
+
+  const alias = WEBSITE_ALIASES[target.toLowerCase()];
+  if (alias) return alias;
+
+  const candidate = target.replace(/^https?:\\/\\//i, "").replace(/^www\\./i, "");
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9-]+)+(?:\\/[a-z0-9._~:/?#\\[\\]@!function openPreferredMusicWebsite(query: string, commandText: string): boolean | null {'()*+,;=%-]*)?$/i.test(candidate)) {
+    return null;
+  }
+  return /^https?:\\/\\//i.test(target) ? target : `https://${candidate}`;
+}
+
+function openRequestedWebsite(command: string): boolean | null {
+  const url = resolveExplicitWebsiteUrl(command);
+  if (!url) return null;
+  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  return Boolean(opened);
+}
+
 function openPreferredMusicWebsite(query: string, commandText: string): boolean | null {
   const preference = readMusicPreferenceConfig()
   const service = resolveMusicServiceFromCommand(commandText, preference.service)
@@ -498,7 +545,6 @@ const AIAssistant: React.FC<{
     )
 
     setMessages([])
-
     await loadMessages(conversationId)
 
     setTimeout(() => {
@@ -997,8 +1043,7 @@ const AIAssistant: React.FC<{
     youtubePlayerRef.current = new (window as any).YT.Player(playerHost.id, {
       height: "200",
       width: "200",
-      playerVars: {
-        playsinline: 1,
+      playerVars: {        playsinline: 1,
         rel: 0,
       },
       events: {
@@ -1497,8 +1542,7 @@ const AIAssistant: React.FC<{
         nextIndex,
         tracks,
         "Playing next:"
-      )
-    } catch (error) {
+      )    } catch (error) {
       console.error(
         "NEXT TRACK FAILED:",
         error
@@ -1920,6 +1964,20 @@ const AIAssistant: React.FC<{
       return
     }
 
+    // Explicit website navigation must win over music/game keyword routing.
+    // Resolve recognised site names to their official homepages and open them
+    // directly; only explicit "search" commands should show search results.
+    const requestedWebsite = openRequestedWebsite(message);
+    if (requestedWebsite !== null) {
+      setInput("");
+      setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
+      const websiteOutcome = requestedWebsite
+        ? "Opening the requested website directly in a new tab."
+        : "Chrome blocked the new tab. Allow pop-ups for Visionary Nexus and try again.";
+      addLocalMessage(websiteOutcome);
+      return;
+    }
+
     // Open the configured music website before any asynchronous correction/API
     // work, while the user's click or key action can still authorize a new tab.
     const directMusicCommand = awaitingTypedMusicChoiceRef.current
@@ -1997,8 +2055,7 @@ const AIAssistant: React.FC<{
       addLocalMessage("I cancelled the pending desktop action because the reply wasn't a clear confirmation.")
     }
 
-    // Continue the safe Save Text workflow one missing field at a time.
-    if (pendingSaveTaskRef.current) {
+    // Continue the safe Save Text workflow one missing field at a time.    if (pendingSaveTaskRef.current) {
       setInput("")
       setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }])
       const pending = pendingSaveTaskRef.current
@@ -2497,8 +2554,7 @@ const AIAssistant: React.FC<{
         const alarmUrl = "https://digiclock.net/alarm-clock/"
         if (appActionWindow && !appActionWindow.closed) appActionWindow.location.href = alarmUrl
         else window.open(alarmUrl, "_blank")
-        const notice = "The device Clock app wasn't available, so I've opened DigiClock, a free alarm website with no sign-in. Set your requested time there, and keep the tab open and your device awake so it can ring."
-        addLocalMessage(notice)
+        const notice = "The device Clock app wasn't available, so I've opened DigiClock, a free alarm website with no sign-in. Set your requested time there, and keep the tab open and your device awake so it can ring."        addLocalMessage(notice)
         speakResponse(notice)
         return
       }
@@ -2997,8 +3053,7 @@ const AIAssistant: React.FC<{
                           px-3
                           py-2
                           text-sm
-                          opacity-40
-                          hover:opacity-100
+                          opacity-40                          hover:opacity-100
                           hover:bg-red-500/20
                           hover:text-red-300
                           transition-all
