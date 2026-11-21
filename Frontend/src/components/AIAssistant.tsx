@@ -126,7 +126,7 @@ function resolveExplicitWebsiteUrl(command: string): string | null {
 function openRequestedWebsite(command: string): boolean | null {
   const url = resolveExplicitWebsiteUrl(command);
   if (!url) return null;
-  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  const opened = window.open(url, "_blank");
   return Boolean(opened);
 }
 
