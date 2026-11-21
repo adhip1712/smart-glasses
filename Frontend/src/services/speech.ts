@@ -83,15 +83,14 @@ async function loadSpeechVoices(): Promise<SpeechSynthesisVoice[]> {
   return getAvailableSpeechVoices()
 }
 
-async function playBrowserSpeech(text: string, run: number, onStarted: () => void): Promise<void> {
-  return new Promise((resolve, reject) => {
+function playBrowserSpeech(text: string, run: number, onStarted: () => void): Promise<void> {
+  return loadSpeechVoices().then(voices => new Promise((resolve, reject) => {
     if (run !== speechRun) return resolve()
     if (typeof window === 'undefined' || !('speechSynthesis' in window) ||
         typeof SpeechSynthesisUtterance === 'undefined') {
       return reject(new Error('Speech output is unavailable in this browser.'))
     }
     const utterance = new SpeechSynthesisUtterance(text)
-    const voices = await loadSpeechVoices()
     const preferred = getPreferredSpeechVoice()
     const naturalVoice = voices
       .map(voice => {
@@ -124,7 +123,7 @@ async function playBrowserSpeech(text: string, run: number, onStarted: () => voi
     }
     window.speechSynthesis.resume()
     window.speechSynthesis.speak(utterance)
-  })
+  }))
 }
 
 async function speakWithCloud(text: string, run: number, onStarted: () => void): Promise<boolean> {
