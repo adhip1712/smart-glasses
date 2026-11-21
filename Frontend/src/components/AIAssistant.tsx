@@ -83,18 +83,18 @@ type NavigationResult = {
 // Open the tab synchronously from the user's gesture, then resolve the first
 // playable YouTube result and navigate directly to its watch page.
 function getWebsiteTarget(command: string): string | null {
-  const match = command.trim().match(/^(?:(?:please|can you|could you|would you)\\s+)*(?:go to|open|visit|navigate to|take me to)\\s+(.+?)\\s*$/i);
+  const match = command.trim().match(/^(?:(?:please|can you|could you|would you)\s+)*(?:go to|open|visit|navigate to|take me to)\s+(.+?)\s*$/i);
   if (!match) return null;
   return match[1]
     .trim()
-    .replace(/^the\\s+/i, "")
-    .replace(/\\s+(?:website|site|homepage)$/i, "")
+    .replace(/^the\s+/i, "")
+    .replace(/\s+(?:website|site|homepage)$/i, "")
     .replace(/[.!?,]+$/g, "")
     .trim() || null;
 }
 
 function isIncompleteWebsiteCommand(command: string): boolean {
-  return /^(?:(?:please|can you|could you|would you)\\s+)*(?:open|go to|visit|navigate to|take me to)(?:\\s+the)?\\s*[.!?]*$/i.test(command.trim());
+  return /^(?:(?:please|can you|could you|would you)\s+)*(?:open|go to|visit|navigate to|take me to)(?:\s+the)?\s*[.!?]*$/i.test(command.trim());
 }
 
 function resolveExplicitWebsiteUrl(command: string): string | null {
@@ -102,7 +102,7 @@ function resolveExplicitWebsiteUrl(command: string): string | null {
   if (!target) return null;
 
   // If the user supplied a real URL/domain, open it exactly as requested.
-  const candidate = target.replace(/^https?:\\/\\//i, "").replace(/^www\\./i, "");
+  const candidate = target.replace(/^https?:\/\//i, "").replace(/^www\./i, "");
   try {
     const parsed = new URL("https://" + candidate);
     if (parsed.hostname.includes(".") && /^[a-z0-9.-]+$/i.test(parsed.hostname)) {
@@ -114,7 +114,7 @@ function resolveExplicitWebsiteUrl(command: string): string | null {
 
   // Google's I'm Feeling Lucky endpoint navigates to its highest-ranked
   // result instead of leaving the user on a search-results page.
-  return `https://www.google.com/search?btnI=I&q=${encodeURIComponent(target + " official website")}`;
+  return \`https://www.google.com/search?btnI=I&q=\${encodeURIComponent(target + " official website")}\`;
 }
 
 function openRequestedWebsite(command: string): boolean | null {
