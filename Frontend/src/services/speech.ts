@@ -2,7 +2,7 @@ import { API_URL } from './api'
 
 /**
  * Speech output for Visionary Nexus.
- * Prefer server-generated ElevenLabs audio; use browser speech only as a fallback.
+ * Prefer server-generated neural speech (Kokoro, ElevenLabs, or OpenAI); use a natural browser voice only as a fallback.
  * Provider credentials are never sent to the frontend.
  */
 let speechRun = 0
@@ -65,6 +65,24 @@ function splitSpeech(text: string, maxLength = 1400): string[] {
   return chunks.filter(Boolean)
 }
 
+async function loadSpeechVoices(): Promise<SpeechSynthesisVoice[]> {
+  const existing = getAvailableSpeechVoices()
+  if (existing.length || typeof window === 'undefined') return existing
+  await new Promise<void>(resolve => {
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      window.clearTimeout(timeout)
+      window.speechSynthesis.removeEventListener('voiceschanged', finish)
+      resolve()
+    }
+    const timeout = window.setTimeout(finish, 900)
+    window.speechSynthesis.addEventListener('voiceschanged', finish, { once: true })
+  })
+  return getAvailableSpeechVoices()
+}
+
 function playBrowserSpeech(text: string, run: number, onStarted: () => void): Promise<void> {
   return new Promise((resolve, reject) => {
     if (run !== speechRun) return resolve()
@@ -73,17 +91,30 @@ function playBrowserSpeech(text: string, run: number, onStarted: () => void): Pr
       return reject(new Error('Speech output is unavailable in this browser.'))
     }
     const utterance = new SpeechSynthesisUtterance(text)
-    const voices = getAvailableSpeechVoices()
+    const voices = await loadSpeechVoices()
     const preferred = getPreferredSpeechVoice()
-    const selected = voices.find(voice => voice.voiceURI === preferred) || voices.find(voice => voice.default) || voices[0]
+    const naturalVoice = voices
+      .map(voice => {
+        const name = voice.name.toLowerCase()
+        const score =
+          (name.includes('natural') ? 8 : 0) +
+          (name.includes('aria') || name.includes('jenny') || name.includes('guy') ? 6 : 0) +
+          (name.includes('google') ? 4 : 0) +
+          (name.includes('samantha') ? 3 : 0) +
+          (voice.lang.toLowerCase().startsWith('en-us') ? 2 : 0) -
+          (name.includes('desktop') ? 1 : 0)
+        return { voice, score }
+      })
+      .sort((a, b) => b.score - a.score)[0]?.voice
+    const selected = voices.find(voice => voice.voiceURI === preferred) || naturalVoice || voices.find(voice => voice.default) || voices[0]
     if (selected) {
       utterance.voice = selected
       utterance.lang = selected.lang || navigator.language || 'en-US'
     } else {
       utterance.lang = navigator.language || 'en-US'
     }
-    utterance.rate = 1
-    utterance.pitch = 1
+    utterance.rate = 0.96
+    utterance.pitch = 1.02
     utterance.volume = 1
     utterance.onstart = onStarted
     utterance.onend = () => resolve()
@@ -175,16 +206,14 @@ export function speakText(value: string, options: SpeechOptions = {}): boolean {
       options.onStart?.()
     }
     try {
-      // Browser speech starts without waiting for a backend request or model
-      // inference. Opt into local Kokoro only with VITE_USE_LOCAL_TTS=true.
-      const useLocalTts = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_USE_LOCAL_TTS === 'true'
+      // Try the configured neural TTS provider first for a more natural,
+      // expressive voice. If the backend has no provider or takes too long,
+      // fall back to the best available system voice without losing the reply.
       for (const chunk of chunks) {
         if (run !== speechRun) return
-        if (useLocalTts) {
-          const localPlayed = await speakWithCloud(chunk, run, notifyStarted)
-          if (run !== speechRun) return
-          if (localPlayed) continue
-        }
+        const neuralPlayed = await speakWithCloud(chunk, run, notifyStarted)
+        if (run !== speechRun) return
+        if (neuralPlayed) continue
         await playBrowserSpeech(chunk, run, notifyStarted)
       }
       if (run === speechRun) options.onEnd?.()
