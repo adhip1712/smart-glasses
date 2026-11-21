@@ -86,6 +86,8 @@ const WEBSITE_ALIASES: Record<string, string> = {
   "eleven labs": "https://elevenlabs.io",
   "11 labs": "https://elevenlabs.io",
   "elevenlabs": "https://elevenlabs.io",
+  "allen": "https://www.allen.ac.in",
+  "allen career institute": "https://www.allen.ac.in",
   "chatgpt": "https://chatgpt.com",
   "chat gpt": "https://chatgpt.com",
   "youtube": "https://www.youtube.com",
