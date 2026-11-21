@@ -114,7 +114,7 @@ function resolveExplicitWebsiteUrl(command: string): string | null {
 
   // Google's I'm Feeling Lucky endpoint navigates to its highest-ranked
   // result instead of leaving the user on a search-results page.
-  return \`https://www.google.com/search?btnI=I&q=\${encodeURIComponent(target + " official website")}\`;
+  return "https://www.google.com/search?btnI=I&q=" + encodeURIComponent(target + " official website");
 }
 
 function openRequestedWebsite(command: string): boolean | null {
