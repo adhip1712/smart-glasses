@@ -260,7 +260,16 @@ def synthesize(text: str) -> dict:
             response = httpx.post(
                 f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128",
                 headers={"xi-api-key": _env("ELEVENLABS_API_KEY"), "Accept": "audio/mpeg", "Content-Type": "application/json"},
-                json={"text": spoken, "model_id": model, "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}},
+                json={
+                    "text": spoken,
+                    "model_id": _env("ELEVENLABS_MODEL_ID") or "eleven_multilingual_v2",
+                    "voice_settings": {
+                        "stability": float(_env("ELEVENLABS_STABILITY") or "0.38"),
+                        "similarity_boost": float(_env("ELEVENLABS_SIMILARITY_BOOST") or "0.80"),
+                        "style": float(_env("ELEVENLABS_STYLE") or "0.45"),
+                        "use_speaker_boost": True,
+                    },
+                },
                 timeout=45.0,
             )
         else:
@@ -269,7 +278,13 @@ def synthesize(text: str) -> dict:
             response = httpx.post(
                 f"{base_url.rstrip('/')}/audio/speech",
                 headers={"Authorization": f"Bearer {_env('OPENAI_API_KEY')}"},
-                json={"model": model, "voice": _env("OPENAI_TTS_VOICE") or "alloy", "input": spoken, "response_format": "mp3"},
+                json={
+                    "model": model,
+                    "voice": _env("OPENAI_TTS_VOICE") or "coral",
+                    "input": spoken,
+                    "instructions": "Speak like a natural, expressive conversational assistant. Use clear pronunciation, human pacing, gentle emphasis on important words, and natural pauses. Keep the delivery confident and friendly without sounding theatrical.",
+                    "response_format": "mp3",
+                },
                 timeout=60.0,
             )
         response.raise_for_status()
