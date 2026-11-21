@@ -82,47 +82,39 @@ type NavigationResult = {
 // Route music commands according to the saved Personal Preferences.
 // Open the tab synchronously from the user's gesture, then resolve the first
 // playable YouTube result and navigate directly to its watch page.
-const WEBSITE_ALIASES: Record<string, string> = {
-  "eleven labs": "https://elevenlabs.io",
-  "11 labs": "https://elevenlabs.io",
-  "elevenlabs": "https://elevenlabs.io",
-  "allen": "https://www.allen.ac.in",
-  "allen career institute": "https://www.allen.ac.in",
-  "chatgpt": "https://chatgpt.com",
-  "chat gpt": "https://chatgpt.com",
-  "youtube": "https://www.youtube.com",
-  "you tube": "https://www.youtube.com",
-  "github": "https://github.com",
-  "google": "https://www.google.com",
-  "gmail": "https://mail.google.com",
-  "google drive": "https://drive.google.com",
-  "spotify": "https://open.spotify.com",
-  "figma": "https://www.figma.com",
-  "vercel": "https://vercel.com",
-  "render": "https://render.com",
-  "netflix": "https://www.netflix.com",
-  "roblox": "https://www.roblox.com",
-  "hexanaut.io": "https://hexanaut.io",
-  "hexanaut": "https://hexanaut.io",
-};
-
-function resolveExplicitWebsiteUrl(command: string): string | null {
+function getWebsiteTarget(command: string): string | null {
   const match = command.trim().match(/^(?:(?:please|can you|could you|would you)\s+)*(?:go to|open|visit|navigate to|take me to)\s+(.+?)\s*$/i);
   if (!match) return null;
-  const target = match[1].trim().replace(/\s+(?:website|site|homepage)$/i, "").replace(/[.!?,]+$/g, "").trim();
+  return match[1]
+    .trim()
+    .replace(/^the\s+/i, "")
+    .replace(/\s+(?:website|site|homepage)$/i, "")
+    .replace(/[.!?,]+$/g, "")
+    .trim() || null;
+}
+
+function isIncompleteWebsiteCommand(command: string): boolean {
+  return /^(?:(?:please|can you|could you|would you)\s+)*(?:open|go to|visit|navigate to|take me to)(?:\s+the)?\s*[.!?]*$/i.test(command.trim());
+}
+
+function resolveExplicitWebsiteUrl(command: string): string | null {
+  const target = getWebsiteTarget(command);
   if (!target) return null;
 
-  const alias = WEBSITE_ALIASES[target.toLowerCase()];
-  if (alias) return alias;
-
+  // If the user supplied a real URL/domain, open it exactly as requested.
   const candidate = target.replace(/^https?:\/\//i, "").replace(/^www\./i, "");
   try {
     const parsed = new URL("https://" + candidate);
-    if (!parsed.hostname.includes(".") || !/^[a-z0-9.-]+$/i.test(parsed.hostname)) return null;
-    return parsed.href;
+    if (parsed.hostname.includes(".") && /^[a-z0-9.-]+$/i.test(parsed.hostname)) {
+      return parsed.href;
+    }
   } catch {
-    return null;
+    // A natural-language site or brand name is resolved through search below.
   }
+
+  // Google's I'm Feeling Lucky endpoint navigates to its highest-ranked
+  // result instead of leaving the user on a search-results page.
+  return \`https://www.google.com/search?btnI=I&q=\${encodeURIComponent(target + " official website")}\`;
 }
 
 function openRequestedWebsite(command: string): boolean | null {
@@ -1968,6 +1960,15 @@ const AIAssistant: React.FC<{
 
     if (!message) {
       return
+    }
+
+    // Ask for the missing target instead of treating an incomplete
+    // "open the" command as a website or passing it to the general assistant.
+    if (isIncompleteWebsiteCommand(message)) {
+      setInput("");
+      setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
+      addLocalMessage("Sure — what would you like me to open?");
+      return;
     }
 
     // Explicit website navigation takes priority over music routing.
