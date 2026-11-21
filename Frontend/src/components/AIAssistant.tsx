@@ -1793,6 +1793,14 @@ const AIAssistant: React.FC<{
       // PLAY
       // ===================================================
 
+      if (normalized === "play" || normalized === "play music") {
+        awaitingTypedMusicChoiceRef.current = true
+        const prompt = "What would you like to play? Tell me a song, artist, or playlist."
+        addLocalMessage(prompt)
+        speakResponse(prompt)
+        return true
+      }
+
       const playMatch =
         normalized.match(
           /^(?:play|play song|play the song|play music|listen to)\s+(.+)$/
@@ -1965,20 +1973,29 @@ const AIAssistant: React.FC<{
     // Ask for the missing target instead of treating an incomplete
     // "open the" command as a website or passing it to the general assistant.
     if (isIncompleteWebsiteCommand(message)) {
+      primeSpeechOutput()
       setInput("");
       setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
-      addLocalMessage("Sure — what would you like me to open?");
+      const prompt = "Sure — what would you like me to open?"
+      addLocalMessage(prompt)
+      speakResponse(prompt)
       return;
     }
 
-    // Explicit website navigation takes priority over music routing.
-    const requestedWebsite = openRequestedWebsite(message);
+    // Explicitly named desktop applications must reach the desktop intent
+    // resolver, not be mistaken for a website search.
+    const explicitDesktopTarget = /\b(?:desktop app|windows app|desktop|remote desktop)\b/i.test(message)
+
+    // Explicit website navigation takes priority for website-style requests.
+    const requestedWebsite = explicitDesktopTarget ? null : openRequestedWebsite(message);
     if (requestedWebsite !== null) {
       setInput("");
       setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
-      addLocalMessage(requestedWebsite
-        ? "Opening the requested website directly in a new tab."
-        : "Chrome blocked the new tab. Allow pop-ups for Visionary Nexus and try again.");
+      const outcome = requestedWebsite
+        ? "Opening the requested website in a new tab."
+        : "Chrome blocked the new tab. Allow pop-ups for Visionary Nexus and try again."
+      addLocalMessage(outcome)
+      speakResponse(outcome)
       return;
     }
 
@@ -2426,6 +2443,19 @@ const AIAssistant: React.FC<{
         addLocalMessage(notice); speakResponse(notice); return
       }
       const appName = String(featureIntent.app_name || featureIntent.destination || "the requested app")
+      // Do not silently replace a user's named app with a different app
+      // suggested by semantic classification. Ask before using a near-match.
+      const requestedAppMatch = message.match(/^(?:please\s+)?(?:open|launch|start|run)\s+(?:the\s+)?(.+?)\s*[.!?]*$/i)
+      const requestedApp = requestedAppMatch?.[1]?.trim().toLowerCase()
+      const normalizedRequestedApp = requestedApp?.replace(/\s+/g, " ")
+      const normalizedResolvedApp = appName.trim().toLowerCase().replace(/\s+/g, " ")
+      if (normalizedRequestedApp && !normalizedRequestedApp.includes(normalizedResolvedApp) && !normalizedResolvedApp.includes(normalizedRequestedApp)) {
+        if (appActionWindow && !appActionWindow.closed) appActionWindow.close()
+        const clarification = "I couldn't confirm that **" + appName + "** is the same app as **" + requestedAppMatch![1].trim() + "**. Did you mean " + appName + "?"
+        addLocalMessage(clarification)
+        speakResponse("I couldn't confirm that app match. Did you mean " + appName + "?")
+        return
+      }
       // Universal App Control 3.0: inspect and act only within an explicitly
       // named, visible desktop window. The model must identify an exact control.
       if (actionName === "inspect_window" || ["click", "type_text", "press_key"].includes(actionName)) {
