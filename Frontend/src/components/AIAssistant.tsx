@@ -115,7 +115,7 @@ function resolveExplicitWebsiteUrl(command: string): string | null {
 
   const candidate = target.replace(/^https?:\/\//i, "").replace(/^www\./i, "");
   try {
-    const parsed = new URL(/^https?:\/\//i.test(target) ? target : \`https://\${candidate}\`);
+    const parsed = new URL("https://" + candidate);
     if (!parsed.hostname.includes(".") || !/^[a-z0-9.-]+$/i.test(parsed.hostname)) return null;
     return parsed.href;
   } catch {
