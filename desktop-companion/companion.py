@@ -71,10 +71,43 @@ def spotify_search(query):
     value = str(query or "").strip()
     if not value or len(value) > 300 or any(ord(char) < 32 for char in value):
         raise ValueError("Provide a Spotify search query of 1–300 characters.")
-    # Use Spotify's registered URI handler; no Spotify Web API or credentials.
+
+    # Launch the installed Windows app explicitly first. This supports
+    # installations whose Spotify URI handler is not registered correctly.
+    apps = discover_apps()
+    app = next((x for x in apps if norm(x["name"]) == "spotify"), None)
+    if app:
+        if app["kind"] == "shortcut":
+            os.startfile(app["target"])
+        else:
+            subprocess.Popen([app["target"]], close_fds=True)
+    else:
+        return {
+            "success": False,
+            "needs_installation": True,
+            "error": "Spotify was not found in the Windows Start Menu shortcuts or registered App Paths. Open Spotify once and reinstall/repair its Windows shortcut if it is installed."
+        }
+
+    # Ask the installed app to show the requested search. Do not report success
+    # unless Windows accepts the URI handoff.
     uri = "spotify:search:" + quote(value, safe="")
-    os.startfile(uri)
-    return {"success": True, "query": value, "kind": "spotify_uri", "note": "Spotify was asked to open search results. Selecting a result and starting playback may still be required."}
+    try:
+        os.startfile(uri)
+    except OSError as exc:
+        return {
+            "success": False,
+            "app_launched": True,
+            "error": "Spotify launched, but Windows could not hand the search to Spotify. Check the Spotify URI association.",
+            "detail": type(exc).__name__
+        }
+    return {
+        "success": True,
+        "app_launched": True,
+        "query": value,
+        "kind": "spotify_app_and_uri",
+        "autoplay": False,
+        "note": "Spotify app launch and search handoff were requested. Choose a result and press Play; search handoff does not guarantee autoplay."
+    }
 
 def spotify_media_control(action):
     keys = {"play_pause": 0xB3, "next": 0xB0, "previous": 0xB1, "stop": 0xB2}
