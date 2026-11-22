@@ -1,4 +1,4 @@
-Visionary Nexus Windows Companion 3.0
+Visionary Nexus Windows Companion 3.1
 
 Install or update on the Windows laptop:
 1. Open PowerShell in this folder.
@@ -9,6 +9,7 @@ The installer installs/updates pywinauto and starts the companion at 127.0.0.1:8
 Capabilities:
 - Discover Start Menu shortcuts and registered Windows applications.
 - Launch discovered desktop apps.
+- Open validated http/https URLs in the Windows default browser (POST /open-url); embedded credentials and non-web schemes are rejected.
 - List visible desktop windows (GET /windows).
 - Inspect visible actionable controls in a selected window (POST /ui/inspect).
 - Capture a selected window for optional vision analysis (POST /ui/screenshot). Screenshot access is explicit and scoped to one selected window.
@@ -23,7 +24,7 @@ Task runner safety:
 - Existing files are never overwritten without explicit confirmed_overwrite=true.
 - Sticky Notes can be launched, but it has no supported file-import interface in this workflow; the verified text copy remains in the Visionary Nexus folder.
 - File writes are atomic and verified by reading the saved content back. Word documents are checked by reopening their OpenXML content.
-- No arbitrary shell, script, URL, process, or unrestricted filesystem operation is exposed.
+- No arbitrary shell, script, process, or unrestricted filesystem operation is exposed. Website handoff accepts only validated http/https URLs and uses the Windows default-browser association; it does not execute commands from a URL.
 
 UI safety boundaries:
 - Inspection is explicit and limited to the selected window; passive message/document text and edit-field values are not returned.
@@ -33,6 +34,6 @@ UI safety boundaries:
 - WhatsApp messaging remains draft-first; the user must manually press Send.
 - The companion binds only to 127.0.0.1 and accepts the configured Visionary Nexus origins.
 
-Existing /health, /apps, /launch, /windows, /ui/inspect, /ui/action, and disabled /alarm behavior is preserved. A running Windows session is required for interactive desktop actions.
+Existing /health, /apps, /launch, /windows, /ui/inspect, /ui/action, and disabled /alarm behavior is preserved. The new /open-url endpoint adds default-browser website handoff. A running Windows session is required for interactive desktop actions.
 
 Note: the screenshot endpoint provides visual input; this release does not silently grant a vision model permission to click coordinates. Vision-based actions still require a separately reviewed, allowlisted integration.
