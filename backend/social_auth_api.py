@@ -18,14 +18,17 @@ except ImportError:
  from auth_api import _hash_password,_session_response
 router=APIRouter(prefix="/api/auth",tags=["social auth"])
 FRONT=os.getenv("OAUTH_FRONTEND_URL","https://visionary-nexus-theta.vercel.app").rstrip("/")
+DESKTOP_FRONTEND="visionarynexus://auth"
 
 def allowed_frontend_origins():
  configured=[x.strip().rstrip("/") for x in os.getenv("OAUTH_ALLOWED_FRONTEND_ORIGINS","").split(",") if x.strip()]
- defaults=[FRONT,"https://visionary-nexus-theta.vercel.app","https://visionary-vexus-adhip17122012-6679.vercel.app","https://visionary-vexus-git-main-adhip17122012-6679.vercel.app","https://visionary-vexus-15r569hde-adhip17122012-6679.vercel.app","http://localhost:8443","http://127.0.0.1:8443"]
+ defaults=[FRONT,"https://visionary-nexus-theta.vercel.app","https://visionary-vexus-adhip17122012-6679.vercel.app","https://visionary-vexus-git-main-adhip17122012-6679.vercel.app","https://visionary-vexus-15r569hde-adhip17122012-6679.vercel.app","http://localhost:8443","http://127.0.0.1:8443",DESKTOP_FRONTEND]
  return set(defaults+configured)
 
 def safe_frontend_origin(value):
  candidate=(value or FRONT).strip().rstrip("/")
+ if candidate == DESKTOP_FRONTEND:
+  return DESKTOP_FRONTEND
  parsed=urlsplit(candidate)
  origin=(parsed.scheme+"://"+parsed.netloc).rstrip("/") if parsed.scheme and parsed.netloc else ""
  if parsed.scheme not in ("http","https") or parsed.path not in ("","/") or parsed.query or parsed.fragment or origin not in allowed_frontend_origins():

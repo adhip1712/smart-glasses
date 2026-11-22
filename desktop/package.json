@@ -1,6 +1,6 @@
 {
   "name": "visionary-nexus-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Visionary Nexus Windows desktop client",
   "author": "Visionary Nexus",
@@ -17,23 +17,20 @@
     "appId": "com.visionarynexus.app",
     "productName": "Visionary Nexus",
     "asar": true,
+    "protocols": [
+      {
+        "name": "Visionary Nexus Authentication",
+        "schemes": ["visionarynexus"]
+      }
+    ],
     "directories": {
       "output": "release"
     },
-    "files": [
-      "main.cjs",
-      "preload.cjs",
-      "package.json"
-    ],
+    "files": ["main.cjs", "preload.cjs", "package.json"],
     "win": {
       "signAndEditExecutable": false,
-      "target": [
-        {
-          "target": "nsis",
-          "arch": ["x64"]
-        }
-      ],
-      "artifactName": "Visionary-Nexus-Setup-${version}.${ext}"
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "artifactName": "Visionary-Nexus-Setup-\${version}.\${ext}"
     },
     "nsis": {
       "differentialPackage": false,
