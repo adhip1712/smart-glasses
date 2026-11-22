@@ -39,6 +39,24 @@ def discover_apps():
                     except OSError: pass
         except OSError: pass
     return sorted(found.values(), key=lambda x: x["name"].casefold())
+def open_website(url):
+    value = str(url or "").strip()
+    if not value or len(value) > 2048 or any(ord(char) < 32 for char in value):
+        raise ValueError("Provide a valid website URL.")
+    parsed = urlparse(value)
+    if parsed.scheme.casefold() not in ("http", "https") or not parsed.hostname:
+        raise ValueError("Only http and https website URLs can be opened.")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("Website URLs containing embedded credentials are not allowed.")
+    try:
+        parsed.port
+    except ValueError:
+        raise ValueError("The website URL contains an invalid port.")
+    if any(char.isspace() for char in parsed.hostname):
+        raise ValueError("The website URL contains an invalid hostname.")
+    os.startfile(value)
+    return {"success": True, "url": value, "kind": "default_browser"}
+
 def launch_app(name):
     key, apps = norm(name), discover_apps()
     app = next((x for x in apps if norm(x["name"]) == key), None) or next((x for x in apps if key and (key in norm(x["name"]) or norm(x["name"]) in key)), None)
@@ -94,7 +112,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.headers.get("Origin") not in ORIGINS: return self.reply(403, {"success": False, "error": "Origin not allowed"})
         path = urlparse(self.path).path
-        if path == "/health": return self.reply(200, {"success": True, "name": "Visionary Nexus Companion", "version": "3.0"})
+        if path == "/health": return self.reply(200, {"success": True, "name": "Visionary Nexus Companion", "version": "3.1"})
         if path == "/apps": return self.reply(200, {"success": True, "apps": [{"name": a["name"], "kind": a["kind"]} for a in discover_apps()]})
         if path == "/windows":
             try: return self.reply(200, {"success": True, "windows": list_windows()})
@@ -107,6 +125,8 @@ class Handler(BaseHTTPRequestHandler):
             if length < 0 or length > 12000: return self.reply(413, {"success": False, "error": "Request body too large"})
             data = json.loads(self.rfile.read(length) or b"{}")
             path = urlparse(self.path).path
+            if path == "/open-url":
+                result = open_website(data.get("url")); return self.reply(200, result)
             if path == "/launch":
                 result = launch_app(str(data.get("app") or "")); return self.reply(200 if result["success"] else 404, result)
             if path == "/ui/inspect":
