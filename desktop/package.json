@@ -1,0 +1,48 @@
+{
+  "name": "visionary-nexus-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Visionary Nexus Windows desktop client",
+  "author": "Visionary Nexus",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "45.2.1",
+    "electron-builder": "26.0.12"
+  },
+  "build": {
+    "appId": "com.visionarynexus.app",
+    "productName": "Visionary Nexus",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "package.json"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "Visionary-Nexus-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "differentialPackage": false,
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Visionary Nexus"
+    }
+  }
+}
