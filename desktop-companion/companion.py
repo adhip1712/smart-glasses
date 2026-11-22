@@ -15,7 +15,7 @@ HOST, PORT = "127.0.0.1", 8765
 APPDATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "VisionaryNexus"
 ALARM_DIR = APPDATA / "alarms"
 ALARM_DIR.mkdir(parents=True, exist_ok=True)
-ORIGINS = {"https://visionary-vexus.vercel.app", "http://localhost:8443", "http://127.0.0.1:8443"}
+ORIGINS = {"https://visionary-vexus.vercel.app", "https://visionary-nexus-theta.vercel.app", "http://localhost:8443", "http://127.0.0.1:8443"}
 ORIGINS.update(x.strip() for x in os.environ.get("VN_ALLOWED_ORIGINS", "").split(",") if x.strip())
 TIMERS = {}
 def norm(s): return re.sub(r"[^a-z0-9]+", " ", s.casefold()).strip()
