@@ -78,7 +78,7 @@ export function consumeWakeUtterance(
 }
 
 const cleanCommandQuery = (value: string) =>
-  value.trim().replace(/\s+on\s+youtube\s*$/i, '').replace(/[.!?]+\s*$/u, '').trim()
+  value.trim().replace(/\s+on\s+(?:youtube|spotify|apple\s+music)\s*$/i, '').replace(/[.!?]+\s*$/u, '').trim()
 
 export function parseMusicCommand(input: string): MusicCommand | null {
   let text = input.trim()
