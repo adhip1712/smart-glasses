@@ -724,74 +724,12 @@ export default function Settings({ onSignOut }: { onSignOut?: () => void } = {})
       ========================= */}
 
       <Section title="Network & Backend API">
-
-        <SettingRow
-          label="Network"
-          description="Current SSID"
-        >
-          <span className="font-mono text-xs text-cyan-400">
-            {wifiSSID}
-          </span>
+        <SettingRow label="Backend endpoint" description="Resolved automatically from this deployment">
+          <span className="font-mono text-xs text-cyan-300">Automatic</span>
         </SettingRow>
-
-        <SettingRow label="Auto Connect">
-          <Toggle
-            value={autoConnect}
-            onChange={setAutoConnect}
-          />
-        </SettingRow>
-
-        <SettingRow
-          label="Cloud Sync"
-          description="Upload events to SG-Cloud"
-        >
-          <Toggle
-            value={cloudSync}
-            onChange={setCloudSync}
-          />
-        </SettingRow>
-
-        <div className="flex flex-col gap-2">
-
-          <span className="font-mono text-xs text-white/60">
-            FastAPI Backend Endpoint
-          </span>
-
-          <input
-            value={apiEndpoint}
-            onChange={e => setApiEndpoint(e.target.value)}
-            className="w-full px-3 py-2 rounded-xl font-mono text-xs outline-none transition-all duration-200"
-            style={{
-              background: 'rgba(0,229,255,0.05)',
-              border: '1px solid rgba(0,229,255,0.2)',
-              color: '#00e5ff',
-            }}
-            onFocus={e => {
-              e.target.style.boxShadow =
-                '0 0 12px rgba(0,229,255,0.15)'
-            }}
-            onBlur={e => {
-              e.target.style.boxShadow = 'none'
-            }}
-          />
-
-          <span className="font-mono text-[10px] text-white/25">
-            Python FastAPI backend for ESP32-CAM integration
-          </span>
-
-        </div>
-
-        <button
-          className="w-full py-2.5 rounded-xl font-display text-[11px] tracking-widest transition-all duration-300 hover:scale-[1.01]"
-          style={{
-            background: 'rgba(0,229,255,0.08)',
-            border: '1px solid rgba(0,229,255,0.3)',
-            color: '#00e5ff',
-          }}
-        >
-          TEST CONNECTION
-        </button>
-
+        <p className="font-mono text-[10px] leading-relaxed text-white/40">
+          Visionary Nexus uses its configured API endpoint automatically. No fixed LAN IP or Wi-Fi name is stored in this page. Device Wi-Fi is configured during device provisioning.
+        </p>
       </Section>
 
       {/* =========================
