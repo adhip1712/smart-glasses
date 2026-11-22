@@ -365,6 +365,13 @@ export default function Settings(_props: { onSignOut?: () => void }) {
             <p className="font-mono text-[10px] leading-relaxed text-white/35">Autoplay depends on browser permissions, YouTube availability and account restrictions. Visionary Nexus cannot guarantee autoplay or control every external website player.</p>
           </div>
         )}
+        {preferences.some(row => normalizePreference(row.value, 'value') === 'Spotify') && (
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-2">
+            <div className="font-mono text-xs text-white/85">Spotify playback behavior</div>
+            <p className="font-mono text-[10px] leading-relaxed text-white/40">Music commands using this preference open Spotify search in a new tab instead of playing YouTube inside Visionary Nexus.</p>
+            <p className="font-mono text-[10px] leading-relaxed text-amber-200/70">Autoplay is not guaranteed. Spotify may require you to sign in, have an eligible subscription, and press Play in the Spotify tab. Browser autoplay restrictions can also apply.</p>
+          </div>
+        )}
         <p className="font-mono text-[10px] leading-relaxed text-white/35">Wake-word listening needs Chrome microphone permission and the Visionary Nexus tab left open. Chrome can suspend browser speech recognition in a background tab or while the laptop sleeps. Cross-app wake detection requires a native global listener. The Windows companion can manage supported audio focus without pausing a game's screen.</p>
       </Section>
     </div>
