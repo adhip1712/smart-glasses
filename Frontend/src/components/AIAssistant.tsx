@@ -124,45 +124,46 @@ function openRequestedWebsite(command: string): boolean | null {
   return Boolean(opened);
 }
 
-function openPreferredMusicWebsite(query: string, commandText: string): boolean | null {
+async function openPreferredMusicWebsite(query: string, commandText: string): Promise<{ service: string; opened: boolean } | null> {
   const preference = readMusicPreferenceConfig()
   const service = resolveMusicServiceFromCommand(commandText, preference.service)
 
-  // Spotify must never fall through to Visionary Nexus's internal YouTube player.
-  // Spotify's web search is the supported browser destination; playback itself
-  // remains subject to Spotify sign-in, subscription and browser interaction.
   if (service === "Spotify") {
-    const spotifyUrl = `https://open.spotify.com/search/${encodeURIComponent(query)}`
-    return Boolean(window.open(spotifyUrl, "_blank"))
+    return { service, opened: Boolean(window.open(`https://open.spotify.com/search/${encodeURIComponent(query)}`, "_blank")) }
   }
 
-  if (preference.destination !== "website" || service !== "YouTube") return null
-
-  const opened = openNamedYouTubeWindow(youtubeSearchUrl(query))
-  if (!opened) return false
-
-  void apiFetch("/api/music/search", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query }),
-  }).then(async response => {
-    if (!response.ok) throw new Error(`YouTube search failed: ${response.status}`)
-    const data = await response.json()
-    const firstYouTubeTrack = (Array.isArray(data?.tracks) ? data.tracks : []).find(
-      (track: any) =>
-        String(track?.provider || "").toLowerCase() === "youtube" &&
-        isValidYouTubeVideoId(track?.videoId),
-    )
-    if (firstYouTubeTrack?.videoId) {
-      navigateNamedYouTubeWindow(
-        `https://www.youtube.com/watch?v=${encodeURIComponent(firstYouTubeTrack.videoId)}&autoplay=1`,
+  if (service === "YouTube" && preference.destination === "website") {
+    const opened = openNamedYouTubeWindow(youtubeSearchUrl(query))
+    if (!opened) return { service, opened: false }
+    void apiFetch("/api/music/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    }).then(async response => {
+      if (!response.ok) throw new Error(`YouTube search failed: ${response.status}`)
+      const data = await response.json()
+      const firstYouTubeTrack = (Array.isArray(data?.tracks) ? data.tracks : []).find(
+        (track: any) => String(track?.provider || "").toLowerCase() === "youtube" &&
+          isValidYouTubeVideoId(track?.videoId),
       )
-    }
-  }).catch(error => {
-    console.warn("Could not resolve the first YouTube result; keeping the search page open.", error)
-  })
+      if (firstYouTubeTrack?.videoId) {
+        navigateNamedYouTubeWindow(`https://www.youtube.com/watch?v=${encodeURIComponent(firstYouTubeTrack.videoId)}&autoplay=1`)
+      }
+    }).catch(error => console.warn("Could not resolve the first YouTube result; keeping the search page open.", error))
+    return { service, opened: true }
+  }
 
-  return true
+  // Custom Music preferences (such as Zplay) launch the named desktop app.
+  if (!["YouTube", "Spotify"].includes(service)) {
+    try {
+      const launched = await launchDesktopApp(service)
+      return { service, opened: Boolean(launched?.success) }
+    } catch (error) {
+      console.warn("Could not launch the preferred music app.", error)
+      return { service, opened: false }
+    }
+  }
+  return null
 }
 
 // =========================================================
@@ -2018,14 +2019,14 @@ const AIAssistant: React.FC<{
       ? { action: "play", query: /^(surprise me|anything|any song)$/i.test(message) ? "popular songs" : message }
       : parseMusicCommand(message)
     if (directMusicCommand?.query && (directMusicCommand.action === "play" || directMusicCommand.action === "search")) {
-      const websiteResult = openPreferredMusicWebsite(directMusicCommand.query, message)
+      const websiteResult = await openPreferredMusicWebsite(directMusicCommand.query, message)
       if (websiteResult !== null) {
         if (awaitingTypedMusicChoiceRef.current) awaitingTypedMusicChoiceRef.current = false
         setInput("")
         setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }])
-        addLocalMessage(websiteResult
-          ? `Opening YouTube for "${directMusicCommand.query}" in a new tab.`
-          : `Your preference is set to open YouTube, but Chrome blocked the tab. Allow pop-ups for Visionary Nexus and try again.`)
+        addLocalMessage(websiteResult.opened
+          ? websiteResult.service === "YouTube" ? `Opening YouTube for "${directMusicCommand.query}" in a new tab.` : `Opening ${websiteResult.service}.`
+          : `I couldn't open ${websiteResult.service}. Make sure it is installed and the Visionary Nexus desktop companion is running.`)
         return
       }
     }
@@ -2210,11 +2211,11 @@ const AIAssistant: React.FC<{
         { id: Date.now() + Math.random(), role: "user", content: choice },
       ])
       const query = /^(surprise me|anything|any song)$/i.test(choice) ? "popular songs" : choice
-      const websiteResult = openPreferredMusicWebsite(query, choice)
+      const websiteResult = await openPreferredMusicWebsite(query, choice)
       if (websiteResult !== null) {
-        addLocalMessage(websiteResult
-          ? `Opening YouTube for "${query}" in a new tab.`
-          : `Your preference is set to open YouTube, but Chrome blocked the tab. Allow pop-ups for Visionary Nexus and try again.`)
+        addLocalMessage(websiteResult.opened
+          ? websiteResult.service === "YouTube" ? `Opening YouTube for "${query}" in a new tab.` : `Opening ${websiteResult.service}.`
+          : `I couldn't open ${websiteResult.service}. Make sure it is installed and the Visionary Nexus desktop companion is running.`)
         return
       }
       onMusic?.()
@@ -2241,11 +2242,11 @@ const AIAssistant: React.FC<{
         return
       }
       if (typedMusicCommand.query && (typedMusicCommand.action === "play" || typedMusicCommand.action === "search")) {
-        const websiteResult = openPreferredMusicWebsite(typedMusicCommand.query, message)
+        const websiteResult = await openPreferredMusicWebsite(typedMusicCommand.query, message)
         if (websiteResult !== null) {
-          addLocalMessage(websiteResult
-            ? `Opening YouTube for "${typedMusicCommand.query}" in a new tab.`
-            : `Your preference is set to open YouTube, but Chrome blocked the tab. Allow pop-ups for Visionary Nexus and try again.`)
+          addLocalMessage(websiteResult.opened
+            ? websiteResult.service === "YouTube" ? `Opening YouTube for "${typedMusicCommand.query}" in a new tab.` : `Opening ${websiteResult.service}.`
+            : `I couldn't open ${websiteResult.service}. Make sure it is installed and the Visionary Nexus desktop companion is running.`)
           return
         }
       }
