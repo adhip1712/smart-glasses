@@ -144,12 +144,20 @@ async function openPreferredMusicWebsite(query: string, commandText: string): Pr
   const service = resolveMusicServiceFromCommand(commandText, preference.service)
 
   if (service === "Spotify") {
+    // Reserve the browser fallback synchronously so popup blockers do not
+    // prevent the web search if the local Windows companion is unavailable.
+    const fallbackWindow = window.open("about:blank", "_blank")
     try {
       const result = await openSpotifyDesktopSearch(query)
+      if (fallbackWindow && !fallbackWindow.closed) fallbackWindow.close()
       return { service, opened: result.success === true }
     } catch (error) {
       console.warn("Spotify desktop handoff unavailable; using Spotify web search.", error)
-      return { service, opened: Boolean(window.open(`https://open.spotify.com/search/${encodeURIComponent(query)}`, "_blank")) }
+      if (fallbackWindow && !fallbackWindow.closed) {
+        fallbackWindow.location.replace(`https://open.spotify.com/search/${encodeURIComponent(query)}`)
+        return { service, opened: true }
+      }
+      return { service, opened: false }
     }
   }
 
