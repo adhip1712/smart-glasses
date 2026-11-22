@@ -408,7 +408,7 @@ export default function Settings({ onSignOut }: { onSignOut?: () => void } = {})
           </div>
         )}
         <p className="font-mono text-[10px] leading-relaxed text-white/35">Wake-word listening needs Chrome microphone permission and the Visionary Nexus tab left open. Chrome can suspend browser speech recognition in a background tab or while the laptop sleeps. Cross-app wake detection requires a native global listener. The Windows companion can manage supported audio focus without pausing a game's screen.</p>
-      </Section
+      </Section>
 
       <Section title="AI Configuration">
 
