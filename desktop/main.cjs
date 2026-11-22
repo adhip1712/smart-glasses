@@ -1,4 +1,5 @@
 const { app, BrowserWindow, shell, session, dialog } = require('electron')
+const { autoUpdater } = require('electron-updater')
 const path = require('node:path')
 const APP_URL = 'https://visionary-nexus-theta.vercel.app'
 const APP_ORIGIN = new URL(APP_URL).origin
@@ -8,8 +9,12 @@ const TRUSTED_AUTH_HOSTS = new Set(['accounts.google.com','github.com','login.mi
 const OAUTH_PROVIDERS = new Set(['google','facebook','apple','microsoft','github'])
 let mainWindow
 let pendingOAuthUrl = null
+let updatePromptOpen = false
 app.setName('Visionary Nexus')
 app.setAppUserModelId('com.visionarynexus.app')
+autoUpdater.autoDownload = false
+autoUpdater.autoInstallOnAppQuit = true
+autoUpdater.allowPrerelease = false
 function isHttpUrl(value) {
   try { const url = new URL(value); return url.protocol === 'https:' || url.protocol === 'http:' } catch { return false }
 }
@@ -47,6 +52,54 @@ function handleOAuthDeepLink(value) {
 function configurePermissions() {
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => callback(['media','notifications'].includes(permission)))
   session.defaultSession.setPermissionCheckHandler((_webContents, permission) => ['media','notifications'].includes(permission))
+}
+async function checkForDesktopUpdates() {
+  if (!app.isPackaged || updatePromptOpen) return
+  try { await autoUpdater.checkForUpdates() }
+  catch (error) { console.error('[updater] Update check failed:', error) }
+}
+function configureAutoUpdates() {
+  if (!app.isPackaged) return
+  autoUpdater.on('update-available', async (info) => {
+    if (updatePromptOpen) return
+    updatePromptOpen = true
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: 'Visionary Nexus update available',
+      message: 'Version ' + info.version + ' is ready to download.',
+      detail: 'The update downloads in the background. Your account and saved conversations are not removed.',
+      buttons: ['Download update', 'Later'],
+      defaultId: 0,
+      cancelId: 1
+    })
+    updatePromptOpen = false
+    if (result.response === 0) {
+      try { await autoUpdater.downloadUpdate() }
+      catch (error) {
+        await dialog.showMessageBox(mainWindow, { type: 'error', title: 'Update download failed', message: 'Visionary Nexus could not download the update.', detail: error.message, buttons: ['OK'] })
+      }
+    }
+  })
+  autoUpdater.on('update-not-available', () => console.log('[updater] Visionary Nexus is up to date.'))
+  autoUpdater.on('download-progress', (progress) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setTitle('Visionary Nexus — downloading update ' + Math.round(progress.percent) + '%')
+    }
+  })
+  autoUpdater.on('update-downloaded', async (info) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setTitle('Visionary Nexus')
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: 'Update ready to install',
+      message: 'Visionary Nexus ' + info.version + ' has been downloaded.',
+      detail: 'Restart the app to finish installing the update.',
+      buttons: ['Restart and install', 'Later'],
+      defaultId: 0,
+      cancelId: 1
+    })
+    if (result.response === 0) autoUpdater.quitAndInstall()
+  })
+  autoUpdater.on('error', (error) => console.error('[updater] Update error:', error))
 }
 async function createWindow() {
   mainWindow = new BrowserWindow({
@@ -88,9 +141,11 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     app.setAsDefaultProtocolClient(OAUTH_SCHEME)
     configurePermissions()
+    configureAutoUpdates()
     const link = process.argv.find(value => value.startsWith(OAUTH_SCHEME + '://'))
     if (link) handleOAuthDeepLink(link)
     await createWindow()
+    setTimeout(checkForDesktopUpdates, 12000)
   })
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
