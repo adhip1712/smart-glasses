@@ -1979,6 +1979,10 @@ const AIAssistant: React.FC<{
       return
     }
 
+    // Treat the common accidental leading "z" in "zplay" as a typo,
+    // so short music commands stay on the local music-intent path.
+    message = message.replace(/^z(?=play(?:\\s|$))/i, "")
+
     // Ask for the missing target instead of treating an incomplete
     // "open the" command as a website or passing it to the general assistant.
     if (isIncompleteWebsiteCommand(message)) {
