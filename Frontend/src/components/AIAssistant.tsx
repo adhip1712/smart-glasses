@@ -9,7 +9,7 @@ import remarkGfm from "remark-gfm"
 import { apiFetch } from "../services/api"
 import { parseCallIntent } from "../services/callIntent"
 import { answerBirthdayQuestion, executeAppAction } from "../services/universalApps"
-import { discoverDesktopWindows, inspectDesktopWindow, launchDesktopApp, performDesktopAction, planDesktopTask, executeDesktopTask } from "../services/desktopCompanion"
+import { discoverDesktopWindows, inspectDesktopWindow, launchDesktopApp, openDesktopUrl, performDesktopAction, planDesktopTask, executeDesktopTask } from "../services/desktopCompanion"
 import { primeSpeechOutput, speakText } from "../services/speech"
 import { parseMusicCommand, openNamedYouTubeWindow, navigateNamedYouTubeWindow, youtubeSearchUrl, isValidYouTubeVideoId } from "../services/voiceMusic"
 import { readMusicPreferenceConfig, resolveMusicServiceFromCommand } from "../services/preferences"
@@ -117,11 +117,26 @@ function resolveExplicitWebsiteUrl(command: string): string | null {
   return "https://www.google.com/search?btnI=I&q=" + encodeURIComponent(target + " official website");
 }
 
-function openRequestedWebsite(command: string): boolean | null {
+async function openRequestedWebsite(command: string): Promise<"desktop" | "tab" | false | null> {
   const url = resolveExplicitWebsiteUrl(command);
   if (!url) return null;
-  const opened = window.open(url, "_blank");
-  return Boolean(opened);
+
+  // Reserve a browser tab during the user's gesture as a fallback. The
+  // companion can still use Windows' default browser when popup policy blocks it.
+  const fallbackWindow = window.open("about:blank", "_blank");
+  try {
+    const result = await openDesktopUrl(url);
+    if (result.success) {
+      if (fallbackWindow && !fallbackWindow.closed) fallbackWindow.close();
+      return "desktop";
+    }
+  } catch {
+    // Older companions do not expose /open-url; fall back to the browser tab.
+  }
+
+  if (!fallbackWindow || fallbackWindow.closed) return false;
+  fallbackWindow.location.replace(url);
+  return "tab";
 }
 
 async function openPreferredMusicWebsite(query: string, commandText: string): Promise<{ service: string; opened: boolean } | null> {
@@ -2001,13 +2016,15 @@ const AIAssistant: React.FC<{
     const explicitDesktopTarget = /\b(?:desktop app|windows app|desktop|remote desktop)\b/i.test(message)
 
     // Explicit website navigation takes priority for website-style requests.
-    const requestedWebsite = explicitDesktopTarget ? null : openRequestedWebsite(message);
+    const requestedWebsite = explicitDesktopTarget ? null : await openRequestedWebsite(message);
     if (requestedWebsite !== null) {
       setInput("");
       setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
-      const outcome = requestedWebsite
-        ? "Opening the requested website in a new tab."
-        : "Chrome blocked the new tab. Allow pop-ups for Visionary Nexus and try again."
+      const outcome = requestedWebsite === "desktop"
+        ? "Opening the requested website in your default browser."
+        : requestedWebsite === "tab"
+          ? "Opening the requested website in a new tab."
+          : "The browser blocked the new tab and the desktop companion could not open the website. Allow pop-ups or start the Visionary Nexus companion.";
       addLocalMessage(outcome)
       speakResponse(outcome)
       return;
