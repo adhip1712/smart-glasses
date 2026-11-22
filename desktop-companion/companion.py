@@ -82,11 +82,17 @@ def spotify_search(query):
         else:
             subprocess.Popen([app["target"]], close_fds=True)
     else:
-        return {
-            "success": False,
-            "needs_installation": True,
-            "error": "Spotify was not found in the Windows Start Menu shortcuts or registered App Paths. Open Spotify once and reinstall/repair its Windows shortcut if it is installed."
-        }
+        # Microsoft Store Spotify installs as an MSIX app and may not expose
+        # a Start Menu .lnk or App Paths entry. Launch its registered AppsFolder
+        # application identity as a fallback.
+        try:
+            os.startfile(r"shell:AppsFolder\\SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify")
+        except OSError:
+            return {
+                "success": False,
+                "needs_installation": True,
+                "error": "Spotify was not found as a desktop shortcut, executable, or registered Microsoft Store app."
+            }
 
     # Ask the installed app to show the requested search. Do not report success
     # unless Windows accepts the URI handoff.
