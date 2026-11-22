@@ -225,6 +225,43 @@ export default function Settings({ onSignOut }: { onSignOut?: () => void } = {})
   const [hud, setHud] = useState(true)
   const [blur, setBlur] = useState(true)
 
+  // User-defined function-to-app preferences are browser-persisted.
+  const [preferences, setPreferences] = useState<{ id: string; category: string; value: string }[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('visionary-preferences') || 'null')
+      return Array.isArray(saved?.rows) && saved.rows.length
+        ? saved.rows
+        : [{ id: 'music-default', category: 'Music', value: 'YouTube' }]
+    } catch {
+      return [{ id: 'music-default', category: 'Music', value: 'YouTube' }]
+    }
+  })
+  const [playerDestination, setPlayerDestination] = useState<'internal' | 'website'>(() => {
+    try { return localStorage.getItem('visionary-player-destination') === 'website' ? 'website' : 'internal' }
+    catch { return 'internal' }
+  })
+  const [preferencesSaveStatus, setPreferencesSaveStatus] = useState('Loading saved preferences...')
+
+  useEffect(() => {
+    try {
+      const serialized = JSON.stringify({ rows: preferences })
+      localStorage.setItem('visionary-preferences', serialized)
+      localStorage.setItem('visionary-player-destination', playerDestination)
+      const storedRows = JSON.parse(localStorage.getItem('visionary-preferences') || 'null')
+      const storedDestination = localStorage.getItem('visionary-player-destination')
+      if (JSON.stringify(storedRows?.rows) !== JSON.stringify(preferences) || storedDestination !== playerDestination) {
+        throw new Error('Preference verification failed')
+      }
+      setPreferencesSaveStatus('Saved on this browser')
+    } catch {
+      setPreferencesSaveStatus('Could not save preferences in this browser')
+    }
+  }, [preferences, playerDestination])
+
+  const updatePreference = (id: string, field: 'category' | 'value', value: string) => {
+    setPreferences(rows => rows.map(row => row.id === id ? { ...row, [field]: value } : row))
+  }
+
   // =========================
   // AI CONNECTION
   // =========================
