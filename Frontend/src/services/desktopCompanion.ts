@@ -41,6 +41,25 @@ export async function launchDesktopApp(app: string): Promise<DesktopActionResult
   return request<DesktopActionResult>("/launch", { app })
 }
 
+export async function openDesktopUrl(url: string): Promise<DesktopActionResult> {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 1800)
+  try {
+    const response = await fetch(BASE + "/open-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+      cache: "no-store",
+      signal: controller.signal,
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data?.error || "Windows companion could not open the website")
+    return data as DesktopActionResult
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
+
 export type DesktopWindow = { window_id: string; title: string; process_id: number }
 export type DesktopControl = {
   name: string
