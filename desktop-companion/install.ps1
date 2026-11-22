@@ -18,5 +18,5 @@ $Shortcut.WorkingDirectory = $Root
 $Shortcut.Save()
 Get-CimInstance Win32_Process -Filter "name = 'python.exe'" | Where-Object { $_.CommandLine -like "*desktop-companion*companion.py*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Start-Process -FilePath $Python -ArgumentList @($Script) -WindowStyle Hidden
-Write-Host "Visionary Nexus Companion 3.0 installed and started."
+Write-Host "Visionary Nexus Companion 3.1 installed and started."
 Write-Host "It will start automatically when you sign in. No administrator access or phone is required."
