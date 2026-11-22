@@ -127,6 +127,15 @@ function openRequestedWebsite(command: string): boolean | null {
 function openPreferredMusicWebsite(query: string, commandText: string): boolean | null {
   const preference = readMusicPreferenceConfig()
   const service = resolveMusicServiceFromCommand(commandText, preference.service)
+
+  // Spotify must never fall through to Visionary Nexus's internal YouTube player.
+  // Spotify's web search is the supported browser destination; playback itself
+  // remains subject to Spotify sign-in, subscription and browser interaction.
+  if (service === "Spotify") {
+    const spotifyUrl = `https://open.spotify.com/search/${encodeURIComponent(query)}`
+    return Boolean(window.open(spotifyUrl, "_blank"))
+  }
+
   if (preference.destination !== "website" || service !== "YouTube") return null
 
   const opened = openNamedYouTubeWindow(youtubeSearchUrl(query))
