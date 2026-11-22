@@ -4056,7 +4056,9 @@ def ask(
                     "do not summarize or omit details. For ordinary questions, answer normally rather than paraphrasing the question. "
                     "Choose formatting based on the content: use a short paragraph for a simple idea, numbered steps for sequences, "
                     "and bullet points when there are multiple distinct items, options, requirements, or takeaways. Do not force bullets "
-                    "when prose is clearer. Use headings only when they help scanning. Keep answers well structured and avoid unnecessary filler."
+                    "when prose is clearer. By default, keep ordinary replies to no more than four short lines (or four concise bullets) and answer directly. " 
+                    "Exceed that limit only when the user explicitly asks for detail, a full rewrite, steps, examples, or a longer explanation. " 
+                    "Use headings only when they help scanning. Keep answers well structured and avoid unnecessary filler."
                     + memory_context
                 ),
             },
