@@ -2052,9 +2052,11 @@ const AIAssistant: React.FC<{
     const selectedMusicService = resolveMusicServiceFromCommand(message, readMusicPreferenceConfig().service)
     if (selectedMusicService === "Spotify" && directMusicCommand && ["pause", "stop", "resume", "next", "previous"].includes(directMusicCommand.action)) {
       try {
-        const action = directMusicCommand.action === "pause" || directMusicCommand.action === "stop"
-          ? directMusicCommand.action === "pause" ? "play_pause" : "stop"
-          : directMusicCommand.action
+        const action = directMusicCommand.action === "pause" || directMusicCommand.action === "resume"
+          ? "play_pause"
+          : directMusicCommand.action === "stop"
+            ? "stop"
+            : directMusicCommand.action
         await controlSpotifyDesktop(action as "play_pause" | "next" | "previous" | "stop")
         setInput("")
         setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }])
