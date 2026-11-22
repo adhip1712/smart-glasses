@@ -122,3 +122,11 @@ export async function captureDesktopWindow(window_id: string): Promise<{
 }> {
   return request("/ui/screenshot", { window_id })
 }
+
+export async function openSpotifyDesktopSearch(query: string): Promise<DesktopActionResult> {
+  return request<DesktopActionResult>("/spotify/search", { query })
+}
+
+export async function controlSpotifyDesktop(action: "play_pause" | "next" | "previous" | "stop"): Promise<DesktopActionResult> {
+  return request<DesktopActionResult>("/spotify/control", { action })
+}

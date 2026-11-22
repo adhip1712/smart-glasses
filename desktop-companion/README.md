@@ -1,4 +1,4 @@
-Visionary Nexus Windows Companion 3.1
+Visionary Nexus Windows Companion 3.2
 
 Install or update on the Windows laptop:
 1. Open PowerShell in this folder.
@@ -10,6 +10,9 @@ Capabilities:
 - Discover Start Menu shortcuts and registered Windows applications.
 - Launch discovered desktop apps.
 - Open validated http/https URLs in the Windows default browser (POST /open-url); embedded credentials and non-web schemes are rejected.
+- Open Spotify desktop search through its registered `spotify:search:` URI (POST /spotify/search); no Spotify Web API key or OAuth token is used.
+- Send play/pause, next, previous, and stop through Windows media transport keys (POST /spotify/control). These target the active system media session and are best-effort; they do not guarantee Spotify owns that session or that a selected track autoplays.
+- Spotify account tier, ads, catalog availability, and playback restrictions remain controlled by Spotify.
 - List visible desktop windows (GET /windows).
 - Inspect visible actionable controls in a selected window (POST /ui/inspect).
 - Capture a selected window for optional vision analysis (POST /ui/screenshot). Screenshot access is explicit and scoped to one selected window.

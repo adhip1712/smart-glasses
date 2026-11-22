@@ -9,7 +9,7 @@ import remarkGfm from "remark-gfm"
 import { apiFetch } from "../services/api"
 import { parseCallIntent } from "../services/callIntent"
 import { answerBirthdayQuestion, executeAppAction } from "../services/universalApps"
-import { discoverDesktopWindows, inspectDesktopWindow, launchDesktopApp, openDesktopUrl, performDesktopAction, planDesktopTask, executeDesktopTask } from "../services/desktopCompanion"
+import { discoverDesktopWindows, inspectDesktopWindow, launchDesktopApp, openDesktopUrl, openSpotifyDesktopSearch, controlSpotifyDesktop, performDesktopAction, planDesktopTask, executeDesktopTask } from "../services/desktopCompanion"
 import { primeSpeechOutput, speakText } from "../services/speech"
 import { parseMusicCommand, openNamedYouTubeWindow, navigateNamedYouTubeWindow, youtubeSearchUrl, isValidYouTubeVideoId } from "../services/voiceMusic"
 import { readMusicPreferenceConfig, resolveMusicServiceFromCommand } from "../services/preferences"
@@ -144,7 +144,21 @@ async function openPreferredMusicWebsite(query: string, commandText: string): Pr
   const service = resolveMusicServiceFromCommand(commandText, preference.service)
 
   if (service === "Spotify") {
-    return { service, opened: Boolean(window.open(`https://open.spotify.com/search/${encodeURIComponent(query)}`, "_blank")) }
+    // Reserve the browser fallback synchronously so popup blockers do not
+    // prevent the web search if the local Windows companion is unavailable.
+    const fallbackWindow = window.open("about:blank", "_blank")
+    try {
+      const result = await openSpotifyDesktopSearch(query)
+      if (fallbackWindow && !fallbackWindow.closed) fallbackWindow.close()
+      return { service, opened: result.success === true }
+    } catch (error) {
+      console.warn("Spotify desktop handoff unavailable; using Spotify web search.", error)
+      if (fallbackWindow && !fallbackWindow.closed) {
+        fallbackWindow.location.replace(`https://open.spotify.com/search/${encodeURIComponent(query)}`)
+        return { service, opened: true }
+      }
+      return { service, opened: false }
+    }
   }
 
   if (service === "YouTube" && preference.destination === "website") {
@@ -2035,6 +2049,23 @@ const AIAssistant: React.FC<{
     const directMusicCommand = awaitingTypedMusicChoiceRef.current
       ? { action: "play", query: /^(surprise me|anything|any song)$/i.test(message) ? "popular songs" : message }
       : parseMusicCommand(message)
+    const selectedMusicService = resolveMusicServiceFromCommand(message, readMusicPreferenceConfig().service)
+    if (selectedMusicService === "Spotify" && directMusicCommand && ["pause", "stop", "resume", "next", "previous"].includes(directMusicCommand.action)) {
+      try {
+        const action = directMusicCommand.action === "pause" || directMusicCommand.action === "stop"
+          ? directMusicCommand.action === "pause" ? "play_pause" : "stop"
+          : directMusicCommand.action
+        await controlSpotifyDesktop(action as "play_pause" | "next" | "previous" | "stop")
+        setInput("")
+        setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }])
+        addLocalMessage("Sent the " + directMusicCommand.action + " command to the Windows media session. Spotify must be the active media player to respond.")
+        return
+      } catch (error) {
+        console.warn("Spotify media control handoff failed.", error)
+        addLocalMessage("I couldn't send the Spotify media command. Check that the Windows companion is running.")
+        return
+      }
+    }
     if (directMusicCommand?.query && (directMusicCommand.action === "play" || directMusicCommand.action === "search")) {
       const websiteResult = await openPreferredMusicWebsite(directMusicCommand.query, message)
       if (websiteResult !== null) {

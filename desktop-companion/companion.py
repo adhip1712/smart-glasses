@@ -1,5 +1,6 @@
 import datetime as dt
-import json, os, re, subprocess, threading, uuid, winreg
+import ctypes, json, os, re, subprocess, threading, uuid, winreg
+from urllib.parse import quote
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -66,6 +67,26 @@ def launch_app(name):
     uri = {"clock": "ms-clock:", "windows clock": "ms-clock:", "calculator": "calculator:", "settings": "ms-settings:"}.get(key)
     if uri: os.startfile(uri); return {"success": True, "app": name, "kind": "windows_uri"}
     return {"success": False, "needs_connection": True, "error": f"{name} was not found in Start Menu shortcuts or registered App Paths."}
+def spotify_search(query):
+    value = str(query or "").strip()
+    if not value or len(value) > 300 or any(ord(char) < 32 for char in value):
+        raise ValueError("Provide a Spotify search query of 1–300 characters.")
+    # Use Spotify's registered URI handler; no Spotify Web API or credentials.
+    uri = "spotify:search:" + quote(value, safe="")
+    os.startfile(uri)
+    return {"success": True, "query": value, "kind": "spotify_uri", "note": "Spotify was asked to open search results. Selecting a result and starting playback may still be required."}
+
+def spotify_media_control(action):
+    keys = {"play_pause": 0xB3, "next": 0xB0, "previous": 0xB1, "stop": 0xB2}
+    key = keys.get(str(action or "").casefold())
+    if key is None:
+        raise ValueError("Allowed Spotify media actions are play_pause, next, previous, and stop.")
+    # Windows media transport keys target the current system media session.
+    user32 = ctypes.windll.user32
+    user32.keybd_event(key, 0, 0, 0)
+    user32.keybd_event(key, 0, 2, 0)
+    return {"success": True, "action": action, "kind": "windows_media_key", "note": "Media key sent to the active Windows media session; Spotify may not respond if another app owns playback."}
+
 def parse_time(text):
     m = re.search(r"\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b", text, re.I)
     if m:
@@ -112,7 +133,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.headers.get("Origin") not in ORIGINS: return self.reply(403, {"success": False, "error": "Origin not allowed"})
         path = urlparse(self.path).path
-        if path == "/health": return self.reply(200, {"success": True, "name": "Visionary Nexus Companion", "version": "3.1"})
+        if path == "/health": return self.reply(200, {"success": True, "name": "Visionary Nexus Companion", "version": "3.2"})
         if path == "/apps": return self.reply(200, {"success": True, "apps": [{"name": a["name"], "kind": a["kind"]} for a in discover_apps()]})
         if path == "/windows":
             try: return self.reply(200, {"success": True, "windows": list_windows()})
@@ -127,6 +148,10 @@ class Handler(BaseHTTPRequestHandler):
             path = urlparse(self.path).path
             if path == "/open-url":
                 result = open_website(data.get("url")); return self.reply(200, result)
+            if path == "/spotify/search":
+                result = spotify_search(data.get("query")); return self.reply(200, result)
+            if path == "/spotify/control":
+                result = spotify_media_control(data.get("action")); return self.reply(200, result)
             if path == "/launch":
                 result = launch_app(str(data.get("app") or "")); return self.reply(200 if result["success"] else 404, result)
             if path == "/ui/inspect":
