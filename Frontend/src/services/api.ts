@@ -2,12 +2,29 @@
 // The backend host is derived from the page location so the frontend works on
 // any laptop LAN address; VITE_API_URL can override it for special setups.
 
+import { Capacitor } from '@capacitor/core'
+
 const configured = (import.meta.env.VITE_API_URL as string | undefined) || ''
 
-// Use same-origin /api requests by default. Vite proxies these to FastAPI on
-// port 8000, avoiding a second hard-coded backend port and working on any LAN IP.
-// Set VITE_API_URL only when the frontend is hosted separately from the API.
-export const API_URL = configured ? configured.replace(/\/+$/, '') : ''
+// The native Android shell serves its bundled web assets from Capacitor's
+// local origin, so API calls must target the hosted FastAPI service rather
+// than the app's local WebView origin. Users can override this in the app.
+function getNativeBackendUrl(): string {
+  const fallback = 'https://visionary-nexus-api-dyky.onrender.com'
+  try {
+    return (window.localStorage.getItem('visionary.backend_url') || fallback).replace(/\/+$/, '')
+  } catch {
+    return fallback
+  }
+}
+
+// Browser deployments keep same-origin /api requests. Native builds use the
+// cloud API by default; VITE_API_URL remains an explicit override for both.
+export const API_URL = configured
+  ? configured.replace(/\/+$/, '')
+  : Capacitor.isNativePlatform()
+    ? getNativeBackendUrl()
+    : ''
 
 const TOKEN_KEY = 'visionary_token'
 const USER_KEY = 'visionary_user'
