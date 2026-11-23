@@ -14,7 +14,7 @@ on:
       - '.github/workflows/android-build.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   android:
@@ -64,10 +64,22 @@ jobs:
         working-directory: Frontend/android
         run: ./gradlew assembleDebug
 
-      - name: Upload Android APK
+      - name: Upload Android APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: visionary-nexus-android-debug
           path: Frontend/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish Android preview download
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-v1.0.0
+          target_commitish: main
+          name: Visionary Nexus Android 1.0.0 (Preview)
+          prerelease: true
+          make_latest: false
+          files: Frontend/android/app/build/outputs/apk/debug/app-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
