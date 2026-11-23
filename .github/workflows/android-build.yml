@@ -52,7 +52,7 @@ jobs:
 
       - name: Build web application
         working-directory: Frontend
-        run: npm run build
+        run: node ./node_modules/vite/bin/vite.js build
 
       - name: Generate Android project and sync web assets
         working-directory: Frontend
