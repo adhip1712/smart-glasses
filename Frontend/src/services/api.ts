@@ -2,6 +2,8 @@
 // The backend host is derived from the page location so the frontend works on
 // any laptop LAN address; VITE_API_URL can override it for special setups.
 
+import { Capacitor } from '@capacitor/core'
+
 const configured = (import.meta.env.VITE_API_URL as string | undefined) || ''
 
 // The native Android shell serves its bundled web assets from Capacitor's
@@ -18,7 +20,6 @@ function getNativeBackendUrl(): string {
 
 // Browser deployments keep same-origin /api requests. Native builds use the
 // cloud API by default; VITE_API_URL remains an explicit override for both.
-import { Capacitor } from '@capacitor/core'
 export const API_URL = configured
   ? configured.replace(/\/+$/, '')
   : Capacitor.isNativePlatform()
