@@ -116,6 +116,7 @@ interface SystemStatus {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard')
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [pendingVoiceCommand, setPendingVoiceCommand] = useState('')
   const awaitingMusicChoiceRef = useRef(false)
   const [pendingWhatsAppDraft, setPendingWhatsAppDraft] = useState<{ recipient: string; message: string } | null>(null)
@@ -285,9 +286,13 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      {/* Figma spatial navigation shell */}
+      {/* Mobile navigation controls are mounted here so the responsive drawer is reachable. */}
+      <button type="button" className="mobile-menu" aria-label="Open navigation" aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen(open => !open)}>
+        <span /><span /><span />
+      </button>
+      {mobileNavOpen && <button type="button" className="backdrop" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}
 
-      <aside className="sidebar">
+      <aside className={`sidebar ${mobileNavOpen ? 'open' : ''}`}>
         <button className="brand identity-brand" type="button" onClick={() => setActiveTab('settings')}>
           {avatarUrl ? <img className="avatar brand-avatar" src={avatarUrl} alt="" /> : <span className="avatar brand-avatar">{userInitialsText}</span>}
           <span>
@@ -304,7 +309,7 @@ export default function App() {
             return (
               <button
                 key={id}
-                onClick={() => setActiveTab(id)}
+                onClick={() => { setActiveTab(id); setMobileNavOpen(false) }}
                 title={label}
                 className={`w-full flex items-center justify-center md:justify-start gap-3 px-2 md:px-4 py-3 rounded-lg transition-all duration-300 group ${
                   isActive ? 'active' : ''

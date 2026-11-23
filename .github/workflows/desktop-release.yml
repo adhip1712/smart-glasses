@@ -2,8 +2,12 @@ name: Publish Visionary Nexus Windows desktop
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/desktop-release.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write

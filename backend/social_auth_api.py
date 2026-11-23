@@ -146,7 +146,7 @@ def complete(p,code,state,request):
  finally: db.close()
 def redirect(ticket=None,error=None,frontend_origin=None):
  target=safe_frontend_origin(frontend_origin or FRONT)
- return RedirectResponse(target+"/auth/callback"+("?oauth_ticket="+ticket if ticket else "?oauth_error="+error),status_code=303)
+ return RedirectResponse(target+"/?"+("oauth_ticket="+ticket if ticket else "oauth_error="+error),status_code=303)
 @router.get("/oauth/{provider}/callback")
 def callback(provider:str,request:Request,code:str="",state:str="",error:str=""):
  if provider not in CFG: raise HTTPException(404,"Unknown provider")
