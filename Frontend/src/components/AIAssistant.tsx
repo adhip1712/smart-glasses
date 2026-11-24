@@ -12,7 +12,7 @@ import { answerBirthdayQuestion, executeAppAction } from "../services/universalA
 import { discoverDesktopWindows, inspectDesktopWindow, launchDesktopApp, openDesktopUrl, openSpotifyDesktopSearch, controlSpotifyDesktop, performDesktopAction, planDesktopTask, executeDesktopTask } from "../services/desktopCompanion"
 import { primeSpeechOutput, speakText } from "../services/speech"
 import { parseMusicCommand, openNamedYouTubeWindow, navigateNamedYouTubeWindow, youtubeSearchUrl, isValidYouTubeVideoId } from "../services/voiceMusic"
-import { readMusicPreferenceConfig, resolveMusicServiceFromCommand } from "../services/preferences"
+import { readMusicPreferenceConfig, resolveMusicServiceFromCommand, saveMusicPreferenceConfig } from "../services/preferences"
 import { getAppKnowledgeContext, getPreferredApp, inferAppCategory, rememberAppKnowledge, setPreferredApp } from "../services/appKnowledgeMemory"
 import { buildWebAppUrl, openWebDestination, parseWebAppCommand, getWebAppDefinition, getWebAppCapabilityContext } from "../services/webAppControl"
 
@@ -2043,12 +2043,15 @@ const AIAssistant: React.FC<{
       const reversed = /^my\s+/i.test(message);
       const app = (reversed ? preferenceMatch[2] : preferenceMatch[1]).trim();
       const category = (reversed ? preferenceMatch[1] : preferenceMatch[2]).trim().toLowerCase();
+      const musicPreferenceSaved = category === "music" ? saveMusicPreferenceConfig(app) : false;
       if (category !== "music") setPreferredApp(category, app);
       rememberAppKnowledge({ app, category, action: "preference_set", outcome: "intent" });
       setInput("");
       setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
       const response = category === "music"
-        ? "Your music app preference is managed in Personal Preferences. I won't override that setting here."
+        ? musicPreferenceSaved
+          ? "Saved **" + app + "** as your preferred music service in this browser."
+          : "I couldn't save that music preference in this browser. You can set it in Personal Preferences."
         : "Saved **" + app + "** as your preferred " + category + " app.";
       addLocalMessage(response);
       speakResponse(response);
