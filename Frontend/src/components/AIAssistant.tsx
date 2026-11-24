@@ -14,7 +14,7 @@ import { primeSpeechOutput, speakText } from "../services/speech"
 import { parseMusicCommand, openNamedYouTubeWindow, navigateNamedYouTubeWindow, youtubeSearchUrl, isValidYouTubeVideoId } from "../services/voiceMusic"
 import { readMusicPreferenceConfig, resolveMusicServiceFromCommand, saveMusicPreferenceConfig } from "../services/preferences"
 import { getAppKnowledgeContext, getPreferredApp, inferAppCategory, rememberAppKnowledge, setPreferredApp } from "../services/appKnowledgeMemory"
-import { buildWebAppUrl, openWebDestination, parseWebAppCommand, getWebAppDefinition, getWebAppCapabilityContext } from "../services/webAppControl"
+import { buildWebAppUrl, openWebDestination, parseWebAppCommand, getWebAppDefinition, getWebAppNextStep, getWebAppCapabilityContext } from "../services/webAppControl"
 
 // =========================================================
 // BROWSER SPEECH RECOGNITION TYPES
@@ -2154,7 +2154,7 @@ const AIAssistant: React.FC<{
       const outcome = opened
         ? (webAppCommand.action === "search"
           ? "Opened " + definition.label + " search results for **" + webAppCommand.query + "** in a new tab. I can navigate to the service, but this website cannot inspect or click controls inside another site's page."
-          : "Opened " + definition.label + " in a new tab.")
+          : "Opened " + definition.label + " in a new tab. " + getWebAppNextStep(webAppCommand.app) + " I can navigate to the site, but I cannot inspect or click its controls from this tab.")
         : "The browser blocked the new tab. Allow pop-ups for Visionary Nexus and try again.";
       addLocalMessage(outcome);
       speakResponse(outcome);
