@@ -14,7 +14,7 @@ import { primeSpeechOutput, speakText } from "../services/speech"
 import { parseMusicCommand, openNamedYouTubeWindow, navigateNamedYouTubeWindow, youtubeSearchUrl, isValidYouTubeVideoId } from "../services/voiceMusic"
 import { readMusicPreferenceConfig, resolveMusicServiceFromCommand } from "../services/preferences"
 import { getAppKnowledgeContext, inferAppCategory, rememberAppKnowledge } from "../services/appKnowledgeMemory"
-import { buildWebAppUrl, openWebDestination, parseWebAppCommand, getWebAppDefinition } from "../services/webAppControl"
+import { buildWebAppUrl, openWebDestination, parseWebAppCommand, getWebAppDefinition, getWebAppCapabilityContext } from "../services/webAppControl"
 
 // =========================================================
 // BROWSER SPEECH RECOGNITION TYPES
@@ -2400,7 +2400,7 @@ const AIAssistant: React.FC<{
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message,
-        context: { app_knowledge: getAppKnowledgeContext(readMusicPreferenceConfig().service) },
+        context: { client_platform: "web", web_app_capabilities: getWebAppCapabilityContext(), app_knowledge: getAppKnowledgeContext(readMusicPreferenceConfig().service) },
       }),
     }).catch(error => {
       console.warn("AI feature intent routing unavailable; using normal command handling.", error)
