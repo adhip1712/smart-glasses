@@ -341,7 +341,7 @@ const AIAssistant: React.FC<{
           .replace(/\\neq\b/g, "\u2260")
           .replace(/\\approx\b/g, "\u2248")
           .replace(/\\infty\b/g, "\u221E")
-          .replace(/\sqrt\s*\{([^{}]+)\}/g, "\u221A($1)")
+          .replace(/\\sqrt\s*\{([^{}]+)\}/g, "\u221A($1)")
           .replace(/\\left\b/g, "")
           .replace(/\\right\b/g, "")
           .replace(/\\[([]/g, "")
@@ -2059,7 +2059,7 @@ const AIAssistant: React.FC<{
       setInput("");
       setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
       const requestedTarget = getWebsiteTarget(message) || "that website";
-      const explicitDomain = /^(?:https?:\\/\\/)?(?:www\\.)?[a-z0-9-]+(?:\\.[a-z0-9-]+)+(?:[/:?#].*)?$/i.test(requestedTarget);
+      const explicitDomain = requestedTarget.includes(".") && !/\s/.test(requestedTarget);
       const outcome = requestedWebsite === "tab"
         ? explicitDomain
           ? "Opened the exact address you entered: **" + requestedTarget + "**. I have not independently verified that the domain belongs to the intended site."
