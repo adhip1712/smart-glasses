@@ -235,8 +235,8 @@ export function getWebAppCapabilityContext(): string {
 
 /** Prevent browser navigation to inherently age-restricted or dangerous services. */
 export function isRestrictedWebDestinationRequest(message: string): boolean {
-    /\\b(?:porn|pornography|adult content|adult videos?|xxx|onlyfans|xvideos|xhamster|redtube|brazzers|casino|gambling sites?|betting sites?|sportsbook|online betting|weapon sites?|gun websites?|firearm websites?|gun shops?|firearm stores?|buy guns|guns? for sale|ammunition|ammo stores?|explosives? for sale|vape(?:s| products?)?|vape shops?|vaping|nicotine products|cigarette shops?|tobacco shops?|liquor stores?|alcohol delivery|beer stores?|wine shops?|buy alcohol|drug marketplaces?|buy drugs|weed shops?|marijuana dispensaries?)\\b/i.test(message)
-    /\b(?:porn|pornography|adult videos?|xxx|onlyfans|xvideos|xhamster|redtube|brazzers|casino|gambling sites?|betting sites?|sportsbook|online betting|gun shop|firearm store|buy guns|ammunition|ammo store|vape shop|vaping|nicotine products|cigarette shop|tobacco shop|liquor store|buy alcohol|drug marketplace|buy drugs|weed shop|marijuana dispensary)\b/i.test(message)
+  const restrictedTarget =
+    /\b(?:porn|pornography|adult content|adult videos?|xxx|onlyfans|xvideos|xhamster|redtube|brazzers|casino|gambling sites?|betting sites?|sportsbook|online betting|weapon sites?|gun websites?|firearm websites?|gun shops?|firearm stores?|buy guns|guns? for sale|ammunition|ammo stores?|explosives? for sale|vape(?:s| products?)?|vape shops?|vaping|nicotine products|cigarette shops?|tobacco shops?|liquor stores?|alcohol delivery|beer stores?|wine shops?|buy alcohol|drug marketplaces?|buy drugs|weed shops?|marijuana dispensaries?)\b/i.test(message)
   const navigationIntent = /\b(?:open|visit|launch|search|find|go to|browse)\b/i.test(message)
   return restrictedTarget && navigationIntent
 }
