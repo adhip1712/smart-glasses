@@ -18,6 +18,9 @@ import IntroSplash from './components/IntroSplash'
 import AuthScreen from './components/AuthScreen'
 import { getToken, getStoredUser, setSession } from './services/api'
 import { executeAppAction } from './services/universalApps'
+import { getAppKnowledgeContext, getMostRecentApp, getPreferredApp, rememberAppKnowledge, setPreferredApp } from './services/appKnowledgeMemory'
+import { getWebAppCapabilityContext, isRestrictedWebDestinationRequest } from './services/webAppControl'
+import { readMusicPreferenceConfig, saveMusicPreferenceConfig } from './services/preferences'
 
 // Share the one-time ticket exchange across React StrictMode effect replays.
 let oauthExchangeTicket: string | null = null
@@ -119,6 +122,7 @@ export default function App() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [pendingVoiceCommand, setPendingVoiceCommand] = useState('')
   const awaitingMusicChoiceRef = useRef(false)
+  const awaitingGameChoiceRef = useRef(false)
   const [pendingWhatsAppDraft, setPendingWhatsAppDraft] = useState<{ recipient: string; message: string } | null>(null)
   const consumeWhatsAppDraft = useCallback(() => setPendingWhatsAppDraft(null), [])
   const [pendingCallRequest, setPendingCallRequest] = useState<{ recipient: string; channel: 'phone' | 'whatsapp' } | null>(null)
@@ -383,6 +387,89 @@ export default function App() {
             return
           }
 
+          const voicePreferenceMatch =
+            spoken.match(/^(?:please\s+)?(?:remember|use|set)\s+(.+?)\s+as\s+my\s+(music|video|browser|navigation|email|social|messaging|games)\s+app[.!?]*$/i) ||
+            spoken.match(/^i\s+prefer\s+(.+?)\s+for\s+(music|video|browser|navigation|email|social|messaging|games)[.!?]*$/i) ||
+            spoken.match(/^my\s+(music|video|browser|navigation|email|social|messaging|games)\s+app\s+is\s+(.+?)[.!?]*$/i)
+          if (voicePreferenceMatch) {
+            const reversed = /^my\s+/i.test(spoken)
+            const preferredApp = (reversed ? voicePreferenceMatch[2] : voicePreferenceMatch[1]).trim()
+            const category = (reversed ? voicePreferenceMatch[1] : voicePreferenceMatch[2]).trim().toLowerCase()
+            const saved = category === 'music'
+              ? saveMusicPreferenceConfig(preferredApp)
+              : (setPreferredApp(category, preferredApp), true)
+            rememberAppKnowledge({ app: preferredApp, category, action: 'preference_set', outcome: 'intent' })
+            speakText(saved
+              ? 'Saved ' + preferredApp + ' as your preferred ' + category + ' app.'
+              : 'I could not save that preference in this browser. You can set it in Personal Preferences.')
+            return
+          }
+
+          if (/^(?:please\s+)?(?:open|launch|use)\s+(?:my\s+)?(?:preferred\s+)?browser[.!?]*$/i.test(spoken.trim())) {
+            const preferredBrowser = getPreferredApp('browser')
+            speakText(preferredBrowser
+              ? 'Your saved browser preference is ' + preferredBrowser + '. Visionary Nexus is already running in a browser, and a website cannot launch a different browser application.'
+              : 'Visionary Nexus is already running in a browser. A website cannot launch a different browser application.')
+            return
+          }
+
+          const browserGameUrls: Record<string, string> = {
+            chess: 'https://www.chess.com/play/computer',
+            sudoku: 'https://sudoku.com/',
+            snake: 'https://www.google.com/fbx?fbx=snake_arcade',
+            solitaire: 'https://www.solitr.com/',
+            checkers: 'https://www.playok.com/en/checkers/',
+            wordle: 'https://www.nytimes.com/games/wordle/index.html',
+            tetris: 'https://tetris.com/play-tetris',
+          }
+          const openBrowserGame = (name: string) => {
+            const tab = window.open('about:blank', '_blank')
+            if (!tab || tab.closed) {
+              speakText('The browser blocked the new tab. Allow pop-ups for Visionary Nexus and try again.')
+              return
+            }
+            tab.opener = null
+            tab.location.replace(browserGameUrls[name])
+            rememberAppKnowledge({ app: name, category: 'games', action: 'open_browser_game_tab', outcome: 'launched' })
+            speakText('Opened ' + name + ' in a new tab. I can explain the rules, but I cannot click or inspect controls inside that separate website.')
+          }
+
+          if (awaitingGameChoiceRef.current) {
+            const choice = spoken.trim().toLowerCase().replace(/[.!?]+$/, '')
+            if (/\b(?:yes|you choose|you decide|pick one|choose one|choose for me|i want you to choose|surprise me)\b/i.test(choice)) {
+              awaitingGameChoiceRef.current = false
+              openBrowserGame('chess')
+            } else if (/\b(?:no|show(?: me)? options|let me choose|i want to choose)\b/i.test(choice)) {
+              awaitingGameChoiceRef.current = true
+              speakText('You can choose chess, sudoku, snake, solitaire, checkers, Wordle, or Tetris. Say the game name.')
+            } else if (browserGameUrls[choice]) {
+              awaitingGameChoiceRef.current = false
+              openBrowserGame(choice)
+            } else {
+              awaitingGameChoiceRef.current = true
+              speakText('Would you like me to choose a game, or would you like to pick chess, sudoku, snake, solitaire, checkers, Wordle, or Tetris?')
+            }
+            return
+          }
+
+          const namedBrowserGame = spoken.match(/^(?:please\s+)?(?:play|open|launch|start)\s+(?:the\s+)?(?:a\s+)?(chess|sudoku|snake|solitaire|checkers|wordle|tetris)(?:\s+game)?[.!?]*$/i)
+          if (namedBrowserGame) {
+            openBrowserGame(namedBrowserGame[1].toLowerCase())
+            return
+          }
+          if (/^(?:please\s+)?(?:open|find|play|launch)\s+(?:(?:me\s+)?(?:a|some|any)\s+)?games?[.!?]*$/i.test(spoken.trim())) {
+            awaitingGameChoiceRef.current = true
+            speakText('I can choose an age-appropriate browser game, or show you options. Would you like me to choose?')
+            return
+          }
+          if (/^(?:new game|(?:pause|resume|continue|restart|start|level|score|settings)\s+(?:the\s+)?game)\b/i.test(spoken.trim())) {
+            const recentGame = getMostRecentApp('games')
+            if (recentGame) {
+              speakText('Your recent browser game is ' + recentGame + '. I cannot send clicks or keyboard input into its separate tab from this website. Use the game controls, and I can guide you if you describe the screen.')
+              return
+            }
+          }
+
           const callIntent = parseCallIntent(spoken)
           if (callIntent) {
             setPendingCallRequest(callIntent)
@@ -410,6 +497,71 @@ export default function App() {
             }))
             return;
           }
+          if (isRestrictedWebDestinationRequest(spoken)) {
+            speakText("I can't help access gambling, adult-content, weapons, drug, alcohol, or nicotine services. I can help with safe, age-appropriate information about the topic instead.")
+            return
+          }
+          // Voice website commands use the same DNS-first safety rule as typed commands.
+          const voiceDomainMatch = spoken.trim().match(/^(?:please\s+)?(?:open|visit|go to|launch)\s+(https?:\/\/[^\s]+|(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/[^\s]*)?)[.!?]*$/i)
+          if (voiceDomainMatch) {
+            const rawAddress = voiceDomainMatch[1].replace(/[.!?]+$/, '')
+            let targetUrl: URL
+            try {
+              targetUrl = new URL(/^https?:\/\//i.test(rawAddress) ? rawAddress : 'https://' + rawAddress)
+              if (targetUrl.protocol !== 'https:' || targetUrl.username || targetUrl.password) throw new Error('Unsafe website URL')
+            } catch {
+              speakText('That website address does not look valid. Please check its spelling.')
+              return
+            }
+            const domainTab = window.open('about:blank', '_blank')
+            if (!domainTab || domainTab.closed) {
+              speakText('The browser blocked the new tab. Allow pop-ups for Visionary Nexus and try again.')
+              return
+            }
+            try {
+              const dnsResponses = await Promise.all([
+                fetch('https://dns.google/resolve?name=' + encodeURIComponent(targetUrl.hostname) + '&type=A', { headers: { Accept: 'application/dns-json' } }),
+                fetch('https://dns.google/resolve?name=' + encodeURIComponent(targetUrl.hostname) + '&type=AAAA', { headers: { Accept: 'application/dns-json' } }),
+              ])
+              if (dnsResponses.some(response => !response.ok)) throw new Error('DNS lookup unavailable')
+              const dnsResults = await Promise.all(dnsResponses.map(response => response.json()))
+              const hasAddress = dnsResults.some(dnsData =>
+                Number(dnsData?.Status) === 0 &&
+                Array.isArray(dnsData?.Answer) &&
+                dnsData.Answer.some((answer: any) => [1, 5, 28].includes(Number(answer?.type))),
+              )
+              if (!hasAddress) {
+                let candidates: string[] = []
+                try {
+                  const suggestions = await fetch('https://suggestqueries.google.com/complete/search?client=firefox&q=' + encodeURIComponent(targetUrl.hostname))
+                  if (suggestions.ok) {
+                    const data = await suggestions.json()
+                    candidates = (Array.isArray(data?.[1]) ? data[1] : [])
+                      .filter((value: unknown): value is string =>
+                        typeof value === 'string' && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value) && value.toLowerCase() !== targetUrl.hostname.toLowerCase(),
+                      )
+                      .slice(0, 3)
+                  }
+                } catch {
+                  // The user can still provide the intended spelling manually.
+                }
+                domainTab.close()
+                speakText(candidates.length
+                  ? 'That domain does not resolve. Possible spelling matches are ' + candidates.join(', ') + '. Say open followed by the exact address you intended.'
+                  : 'That domain does not resolve. I did not open a guessed replacement. Please check the spelling and tell me the intended address.')
+                return
+              }
+              domainTab.opener = null
+              domainTab.location.replace(targetUrl.href)
+              speakText('The domain has DNS records. I opened the exact address you gave. DNS does not prove that the site is trustworthy or the one you intended.')
+            } catch {
+              domainTab.opener = null
+              domainTab.location.replace(targetUrl.href)
+              speakText('I could not verify the domain because the DNS lookup was unavailable. I opened only the exact address you gave; check it before entering information.')
+            }
+            return
+          }
+
           // Reserve a browser tab synchronously so a later AI-planned app
           // action can navigate it without popup blocking.
           const appActionWindow = /\b(?:send|message|email|mail|write|compose|schedule|create|find|search|open|launch|book|add)\b/i.test(spoken)
@@ -422,13 +574,20 @@ export default function App() {
               method: 'POST',
               body: JSON.stringify({
                 message: spoken,
-                context: { active_tab: activeTab },
+                context: {
+                  active_tab: activeTab,
+                  client_platform: 'web',
+                  web_app_capabilities: getWebAppCapabilityContext(),
+                  app_knowledge: getAppKnowledgeContext(readMusicPreferenceConfig().service),
+                },
               }),
             })
             const intent = await readJson<{
               intent?: string
               action?: string
               destination?: string
+              destination_url?: string
+              app_name?: string
               query?: string
               polished_text?: string
               recipient?: string
@@ -439,19 +598,25 @@ export default function App() {
             if (routedIntent === 'music') {
               speakText(intent?.query ? 'Opening music for ' + intent.query + '.' : 'Opening YouTube Music.')
               setActiveTab('music')
-              publishMusicCommand({
-                activeTab: 'music', provider: 'youtube', source: 'voice', intent: 'music',
-                action: (['play', 'search', 'open', 'pause', 'stop', 'resume', 'next', 'previous'].includes(String(intent?.action))
-                  ? intent?.action as MusicCommandAction
-                  : 'play'),
-                query: intent?.query || '', text: polished,
-              })
+              window.dispatchEvent(new CustomEvent('visionary:voice-command', {
+                detail: {
+                  activeTab: 'music',
+                  intent: 'music',
+                  action: (['play', 'search', 'open', 'pause', 'stop', 'resume', 'next', 'previous'].includes(String(intent?.action))
+                    ? String(intent?.action)
+                    : 'play'),
+                  query: intent?.query || '',
+                  text: polished,
+                },
+              }))
               return
             }
             if (routedIntent === 'app_action') {
               // Begin the spoken confirmation before the new app tab takes focus.
               const result = executeAppAction({
                 destination: String(intent?.destination || ''),
+                app_name: String(intent?.app_name || intent?.destination || ''),
+                destination_url: String(intent?.destination_url || ''),
                 action: String(intent?.action || 'open'),
                 recipient: String(intent?.recipient || ''),
                 message_text: String(intent?.message_text || ''),

@@ -243,6 +243,20 @@ export default function Settings({ onSignOut }: { onSignOut?: () => void } = {})
   const [preferencesSaveStatus, setPreferencesSaveStatus] = useState('Loading saved preferences...')
 
   useEffect(() => {
+    const syncPreferences = () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem('visionary-preferences') || 'null')
+        if (Array.isArray(saved?.rows)) setPreferences(saved.rows)
+        setPlayerDestination(localStorage.getItem('visionary-player-destination') === 'website' ? 'website' : 'internal')
+      } catch {
+        // Keep the current settings if browser storage is unavailable.
+      }
+    }
+    window.addEventListener('visionary:preferences-updated', syncPreferences)
+    return () => window.removeEventListener('visionary:preferences-updated', syncPreferences)
+  }, [])
+
+  useEffect(() => {
     try {
       const serialized = JSON.stringify({ rows: preferences })
       localStorage.setItem('visionary-preferences', serialized)

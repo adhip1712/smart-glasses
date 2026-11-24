@@ -1,0 +1,33 @@
+name: Web application build
+
+on:
+  pull_request:
+    paths:
+      - 'Frontend/**'
+      - '.github/workflows/web-build.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'Frontend/**'
+      - '.github/workflows/web-build.yml'
+
+jobs:
+  web-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install web dependencies
+        working-directory: Frontend
+        run: npm install --include=dev --no-audit --no-fund
+      - name: Build web application
+        working-directory: Frontend
+        run: npm run build
+      - name: Type-check web application
+        working-directory: Frontend
+        run: node ./node_modules/typescript/bin/tsc --noEmit

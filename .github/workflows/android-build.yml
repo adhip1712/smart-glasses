@@ -2,16 +2,12 @@ name: Build Visionary Nexus Android APK
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - 'Frontend/**'
-      - '.github/workflows/android-build.yml'
   push:
     branches:
       - main
     paths:
-      - 'Frontend/**'
-      - '.github/workflows/android-build.yml'
+      - 'Frontend/android/**'
+      - 'Frontend/capacitor.config.*'
 
 permissions:
   contents: write

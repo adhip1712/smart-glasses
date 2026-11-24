@@ -12,7 +12,9 @@ import { answerBirthdayQuestion, executeAppAction } from "../services/universalA
 import { discoverDesktopWindows, inspectDesktopWindow, launchDesktopApp, openDesktopUrl, openSpotifyDesktopSearch, controlSpotifyDesktop, performDesktopAction, planDesktopTask, executeDesktopTask } from "../services/desktopCompanion"
 import { primeSpeechOutput, speakText } from "../services/speech"
 import { parseMusicCommand, openNamedYouTubeWindow, navigateNamedYouTubeWindow, youtubeSearchUrl, isValidYouTubeVideoId } from "../services/voiceMusic"
-import { readMusicPreferenceConfig, resolveMusicServiceFromCommand } from "../services/preferences"
+import { readMusicPreferenceConfig, resolveMusicServiceFromCommand, saveMusicPreferenceConfig } from "../services/preferences"
+import { getAppKnowledgeContext, getMostRecentApp, getPreferredApp, inferAppCategory, rememberAppKnowledge, setPreferredApp } from "../services/appKnowledgeMemory"
+import { buildWebAppUrl, openWebDestination, parseWebAppCommand, getWebAppDefinition, getWebAppNextStep, getWebAppCapabilityContext, isRestrictedWebDestinationRequest } from "../services/webAppControl"
 
 // =========================================================
 // BROWSER SPEECH RECOGNITION TYPES
@@ -114,28 +116,68 @@ function resolveExplicitWebsiteUrl(command: string): string | null {
 
   // Google's I'm Feeling Lucky endpoint navigates to its highest-ranked
   // result instead of leaving the user on a search-results page.
-  return "https://www.google.com/search?btnI=I&q=" + encodeURIComponent(target + " official website");
+  return "https://www.google.com/search?q=" + encodeURIComponent(target + " official website");
 }
 
-async function openRequestedWebsite(command: string): Promise<"desktop" | "tab" | false | null> {
+async function openRequestedWebsite(command: string): Promise<"tab" | "unverified" | false | null | { kind: "suggestions"; candidates: string[] }> {
+  const target = getWebsiteTarget(command);
   const url = resolveExplicitWebsiteUrl(command);
-  if (!url) return null;
+  if (!url || !target) return null;
 
-  // Reserve a browser tab during the user's gesture as a fallback. The
-  // companion can still use Windows' default browser when popup policy blocks it.
-  const fallbackWindow = window.open("about:blank", "_blank");
-  try {
-    const result = await openDesktopUrl(url);
-    if (result.success) {
-      if (fallbackWindow && !fallbackWindow.closed) fallbackWindow.close();
-      return "desktop";
+  // Reserve the tab before DNS lookup so browser popup rules are respected.
+  const destinationTab = window.open("about:blank", "_blank");
+  if (!destinationTab || destinationTab.closed) return false;
+
+  // DNS existence is a basic spelling check, not a trust or ownership check.
+  const isDomainInput = target.includes(".") && !/\s/.test(target);
+  if (isDomainInput) {
+    try {
+      const hostname = new URL(url).hostname;
+      const dnsResponses = await Promise.all([
+        fetch("https://dns.google/resolve?name=" + encodeURIComponent(hostname) + "&type=A", {
+          headers: { Accept: "application/dns-json" },
+        }),
+        fetch("https://dns.google/resolve?name=" + encodeURIComponent(hostname) + "&type=AAAA", {
+          headers: { Accept: "application/dns-json" },
+        }),
+      ]);
+      if (dnsResponses.some(response => !response.ok)) throw new Error("DNS lookup unavailable");
+      const dnsResults = await Promise.all(dnsResponses.map(response => response.json()));
+      const hasAddress = dnsResults.some(dnsData =>
+        Number(dnsData?.Status) === 0 &&
+        Array.isArray(dnsData?.Answer) &&
+        dnsData.Answer.some((answer: any) => [1, 5, 28].includes(Number(answer?.type))),
+      );
+      if (!hasAddress) {
+        let candidates: string[] = [];
+        try {
+          const suggestionResponse = await fetch(
+            "https://suggestqueries.google.com/complete/search?client=firefox&q=" + encodeURIComponent(hostname),
+          );
+          if (suggestionResponse.ok) {
+            const suggestionData = await suggestionResponse.json();
+            candidates = (Array.isArray(suggestionData?.[1]) ? suggestionData[1] : [])
+              .filter((value: unknown): value is string =>
+                typeof value === "string" && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value) && value.toLowerCase() !== hostname.toLowerCase(),
+              )
+              .slice(0, 3);
+          }
+        } catch {
+          // Suggestions are optional; never guess a replacement domain.
+        }
+        destinationTab.close();
+        return { kind: "suggestions", candidates };
+      }
+    } catch {
+      // If DNS cannot be checked, open only the exact supplied address.
+      destinationTab.opener = null;
+      destinationTab.location.replace(url);
+      return "unverified";
     }
-  } catch {
-    // Older companions do not expose /open-url; fall back to the browser tab.
   }
 
-  if (!fallbackWindow || fallbackWindow.closed) return false;
-  fallbackWindow.location.replace(url);
+  destinationTab.opener = null;
+  destinationTab.location.replace(url);
   return "tab";
 }
 
@@ -144,21 +186,12 @@ async function openPreferredMusicWebsite(query: string, commandText: string): Pr
   const service = resolveMusicServiceFromCommand(commandText, preference.service)
 
   if (service === "Spotify") {
-    // Reserve the browser fallback synchronously so popup blockers do not
-    // prevent the web search if the local Windows companion is unavailable.
+    // Web-only routing: open Spotify's web search. A tab handoff does not
+    // prove that a track started, so playback is left to the user in Spotify.
     const fallbackWindow = window.open("about:blank", "_blank")
-    try {
-      const result = await openSpotifyDesktopSearch(query)
-      if (fallbackWindow && !fallbackWindow.closed) fallbackWindow.close()
-      return { service, opened: result.success === true }
-    } catch (error) {
-      console.warn("Spotify desktop handoff unavailable; using Spotify web search.", error)
-      if (fallbackWindow && !fallbackWindow.closed) {
-        fallbackWindow.location.replace(`https://open.spotify.com/search/${encodeURIComponent(query)}`)
-        return { service, opened: true }
-      }
-      return { service, opened: false }
-    }
+    if (!fallbackWindow || fallbackWindow.closed) return { service, opened: false }
+    fallbackWindow.location.replace(`https://open.spotify.com/search/${encodeURIComponent(query)}`)
+    return { service, opened: true }
   }
 
   if (service === "YouTube" && preference.destination === "website") {
@@ -182,16 +215,8 @@ async function openPreferredMusicWebsite(query: string, commandText: string): Pr
     return { service, opened: true }
   }
 
-  // Custom Music preferences (such as Zplay) launch the named desktop app.
-  if (!["YouTube", "Spotify"].includes(service)) {
-    try {
-      const launched = await launchDesktopApp(service)
-      return { service, opened: Boolean(launched?.success) }
-    } catch (error) {
-      console.warn("Could not launch the preferred music app.", error)
-      return { service, opened: false }
-    }
-  }
+  // Other providers continue through the existing in-site Music experience;
+  // this web-only router never launches a native desktop application.
   return null
 }
 
@@ -243,6 +268,7 @@ const AIAssistant: React.FC<{
 
   const inputRef = useRef<HTMLInputElement>(null)
   const awaitingTypedMusicChoiceRef = useRef(false)
+  const awaitingGameChoiceRef = useRef(false)
   const awaitingAlarmTimeRef = useRef(false)
   const pendingDesktopActionRef = useRef<{
     window_id: string; action: "click"; control_name?: string; automation_id?: string; control_type?: string; app_title: string
@@ -2011,7 +2037,145 @@ const AIAssistant: React.FC<{
 
     // Treat the common accidental leading "z" in "zplay" as a typo,
     // so short music commands stay on the local music-intent path.
-    message = message.replace(/^z(?=play(?:\\s|$))/i, "")
+    message = message.replace(/^z(?=play(?:\s|$))/i, "")
+
+    if (isRestrictedWebDestinationRequest(message)) {
+      setInput("");
+      setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
+      const response = "I can't help access gambling, adult-content, weapons, drug, alcohol, or nicotine services. I can help with safe, age-appropriate information about the topic instead.";
+      addLocalMessage(response);
+      speakResponse(response);
+      return;
+    }
+
+    // Save general app preferences from natural language. Music's existing
+    // Personal Preferences setting remains authoritative for the music category.
+    const preferenceMatch =
+      message.match(/^(?:please\s+)?(?:remember|use|set)\s+(.+?)\s+as\s+my\s+(music|video|browser|navigation|email|social|messaging|games)\s+app[.!?]*$/i) ||
+      message.match(/^i\s+prefer\s+(.+?)\s+for\s+(music|video|browser|navigation|email|social|messaging|games)[.!?]*$/i) ||
+      message.match(/^my\s+(music|video|browser|navigation|email|social|messaging|games)\s+app\s+is\s+(.+?)[.!?]*$/i);
+    if (preferenceMatch) {
+      const reversed = /^my\s+/i.test(message);
+      const app = (reversed ? preferenceMatch[2] : preferenceMatch[1]).trim();
+      const category = (reversed ? preferenceMatch[1] : preferenceMatch[2]).trim().toLowerCase();
+      const musicPreferenceSaved = category === "music" ? saveMusicPreferenceConfig(app) : false;
+      if (category !== "music") setPreferredApp(category, app);
+      rememberAppKnowledge({ app, category, action: "preference_set", outcome: "intent" });
+      setInput("");
+      setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
+      const response = category === "music"
+        ? musicPreferenceSaved
+          ? "Saved **" + app + "** as your preferred music service in this browser."
+          : "I couldn't save that music preference in this browser. You can set it in Personal Preferences."
+        : "Saved **" + app + "** as your preferred " + category + " app.";
+      addLocalMessage(response);
+      speakResponse(response);
+      return;
+    }
+
+    const preferredBrowserRequest = /^(?:please\s+)?(?:open|launch|use)\s+(?:my\s+)?(?:preferred\s+)?browser[.!?]*$/i.test(message);
+    if (preferredBrowserRequest) {
+      const preferredBrowser = getPreferredApp("browser");
+      const response = preferredBrowser
+        ? "Your saved browser preference is **" + preferredBrowser + "**. Visionary Nexus is already running in a browser, and a website cannot launch a different browser application."
+        : "Visionary Nexus is already running in a browser. A website cannot launch a different browser application.";
+      setInput("");
+      setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
+      addLocalMessage(response);
+      speakResponse(response);
+      return;
+    }
+
+    // Continue the lightweight browser-game discovery conversation.
+    if (awaitingGameChoiceRef.current) {
+      awaitingGameChoiceRef.current = false;
+      setInput("");
+      setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
+      const wantsVisionToChoose = /\b(?:yes|you choose|you decide|pick one|choose for me|surprise me)\b/i.test(message);
+      const wantsOptions = /\b(?:no|i(?:'| a)m choosing|show options|let me choose)\b/i.test(message);
+      if (wantsVisionToChoose) {
+        const gameTab = window.open("about:blank", "_blank");
+        if (gameTab && !gameTab.closed) {
+          gameTab.opener = null;
+          gameTab.location.replace("https://www.chess.com/play/computer");
+          rememberAppKnowledge({ app: "Chess.com", category: "games", action: "open_browser_game", outcome: "launched" });
+          const response = "I chose a browser chess game and opened it in a new tab. I can explain the rules and help you understand the controls, but I can't click or inspect controls inside that separate website.";
+          addLocalMessage(response);
+          speakResponse(response);
+        } else {
+          const response = "The browser blocked the new tab. Allow pop-ups for Visionary Nexus and try again.";
+          addLocalMessage(response);
+          speakResponse(response);
+        }
+      } else if (wantsOptions) {
+        const response = "Here are a few browser games you can choose from:\n\n- [Chess against the computer](https://www.chess.com/play/computer)\n- [Lichess practice](https://lichess.org/practice)\n- [Google Snake](https://www.google.com/fbx?fbx=snake_arcade)\n\nTell me which one you want to open.";
+        addLocalMessage(response);
+        speakResponse("Here are three browser games. Tell me which one you want to open.");
+      } else {
+        const response = "I didn't catch your choice. Would you like me to choose a game, or would you rather pick one?";
+        awaitingGameChoiceRef.current = true;
+        addLocalMessage(response);
+        speakResponse(response);
+      }
+      return;
+    }
+
+    // A request for an unspecified game starts discovery rather than guessing
+    // a random site or launching a native game.
+    if (/^(?:please\s+)?(?:open|find|play|launch)\s+(?:(?:me\s+)?(?:a|some|any)\s+)?games?[.!?]*$/i.test(message)) {
+      awaitingGameChoiceRef.current = true;
+      setInput("");
+      setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
+      const response = "I can choose an age-appropriate browser game for you, or show you a few options. Would you like me to choose?";
+      addLocalMessage(response);
+      speakResponse(response);
+      return;
+    }
+
+    // Named, age-appropriate browser games can be opened directly.
+    const namedBrowserGame = message.match(/^(?:please\s+)?(?:play|open|launch|start)\s+(?:the\s+)?(?:a\s+)?(chess|sudoku|snake|solitaire|checkers|wordle|tetris)(?:\s+game)?[.!?]*$/i);
+    if (namedBrowserGame) {
+      const gameName = namedBrowserGame[1].toLowerCase();
+      const gameUrls: Record<string, string> = {
+        chess: "https://www.chess.com/play/computer",
+        sudoku: "https://sudoku.com/",
+        snake: "https://www.google.com/fbx?fbx=snake_arcade",
+        solitaire: "https://www.solitr.com/",
+        checkers: "https://www.playok.com/en/checkers/",
+        wordle: "https://www.nytimes.com/games/wordle/index.html",
+        tetris: "https://tetris.com/play-tetris",
+      };
+      const gameTab = window.open("about:blank", "_blank");
+      if (gameTab && !gameTab.closed) {
+        gameTab.opener = null;
+        gameTab.location.replace(gameUrls[gameName]);
+        rememberAppKnowledge({ app: gameName, category: "games", action: "open_browser_game_tab", outcome: "launched" });
+        const response = "Opened " + gameName + " in a new tab. I can explain its rules, but browser security prevents me from clicking or inspecting controls inside that separate site.";
+        setInput("");
+        setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
+        addLocalMessage(response);
+        speakResponse(response);
+      } else {
+        const response = "The browser blocked the new tab. Allow pop-ups for Visionary Nexus and try again.";
+        addLocalMessage(response);
+        speakResponse(response);
+      }
+      return;
+    }
+
+    // For a previously opened browser game, explain the control boundary
+    // instead of pretending that this page can send input to another tab.
+    if (/^(?:new game|(?:pause|resume|continue|restart|start|level|score|settings)\s+(?:the\s+)?game)\b/i.test(message)) {
+      const recentGame = getMostRecentApp("games");
+      if (recentGame) {
+        const response = "Your recent browser game is **" + recentGame + "**. I can't send clicks or keyboard input into its separate tab from this website. Use the game's visible controls; if you describe the screen, I can guide you.";
+        setInput("");
+        setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
+        addLocalMessage(response);
+        speakResponse(response);
+        return;
+      }
+    }
 
     // Ask for the missing target instead of treating an incomplete
     // "open the" command as a website or passing it to the general assistant.
@@ -2029,16 +2193,63 @@ const AIAssistant: React.FC<{
     // resolver, not be mistaken for a website search.
     const explicitDesktopTarget = /\b(?:desktop app|windows app|desktop|remote desktop)\b/i.test(message)
 
+    // Browser-native app routing for the web release. This opens the
+    // requested service or its own search page; it does not claim to click
+    // controls inside another origin (the browser same-origin policy blocks that).
+    const preferredAppRequest = message.match(/^(?:please\s+)?(?:open|launch|go to|visit)\s+(?:my\s+)?(?:preferred\s+)?(video|social|email|navigation|messaging)\s+app(?:\s+(?:and\s+)?(?:search|find)\s+(?:for\s+)?(.+?))?[.!?]*$/i);
+    const preferredAppName = preferredAppRequest ? getPreferredApp(preferredAppRequest[1].toLowerCase()) : "";
+    const preferredWebCommand = preferredAppName
+      ? parseWebAppCommand("open " + preferredAppName + (preferredAppRequest?.[2] ? " and search for " + preferredAppRequest[2] : ""))
+      : null;
+    const webAppCommand = explicitDesktopTarget ? null : (preferredWebCommand || parseWebAppCommand(message));
+    if (webAppCommand) {
+      const reservedWebTab = window.open("about:blank", "_blank");
+      const webUrl = buildWebAppUrl(webAppCommand);
+      const opened = openWebDestination(webUrl, reservedWebTab);
+      const definition = getWebAppDefinition(webAppCommand.app);
+      rememberAppKnowledge({
+        app: definition.label,
+        category: inferAppCategory(message, webAppCommand.action),
+        aliases: definition.aliases,
+        action: opened
+          ? (webAppCommand.action === "search" ? "open_search_tab" : "open_tab")
+          : "open_tab",
+        outcome: opened ? "launched" : "launch_failed",
+      });
+      setInput("");
+      setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
+      const outcome = opened
+        ? (webAppCommand.action === "search" && definition.supportsSearch === false
+          ? "Opened " + definition.label + " in a new tab. Search for **" + webAppCommand.query + "** inside the app; Visionary Nexus cannot read its private contacts, chats, or content."
+          : webAppCommand.action === "search"
+            ? "Opened " + definition.label + " search results for **" + webAppCommand.query + "** in a new tab. I can navigate to the service, but this website cannot inspect or click controls inside another site's page."
+            : "Opened " + definition.label + " in a new tab. " + getWebAppNextStep(webAppCommand.app) + " I can navigate to the site, but I cannot inspect or click its controls from this tab.")
+        : "The browser blocked the new tab. Allow pop-ups for Visionary Nexus and try again.";
+      addLocalMessage(outcome);
+      speakResponse(outcome);
+      return;
+    }
+
     // Explicit website navigation takes priority for website-style requests.
     const requestedWebsite = explicitDesktopTarget ? null : await openRequestedWebsite(message);
     if (requestedWebsite !== null) {
       setInput("");
       setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
-      const outcome = requestedWebsite === "desktop"
-        ? "Opening the requested website in your default browser."
+      const requestedTarget = getWebsiteTarget(message) || "that website";
+      const suggestionResult = typeof requestedWebsite === "object" && requestedWebsite?.kind === "suggestions"
+        ? requestedWebsite
+        : null;
+      const outcome = suggestionResult
+        ? suggestionResult.candidates.length
+          ? "I couldn't find a DNS record for **" + requestedTarget + "**. Possible spelling matches are: " + suggestionResult.candidates.map(candidate => "[" + candidate + "](https://" + candidate + ")").join(", ") + ". Which one should I open?"
+          : "I couldn't find a DNS record for **" + requestedTarget + "**. I haven't opened a guessed alternative. Tell me the spelling you intended, or ask me to search for similar sites."
         : requestedWebsite === "tab"
-          ? "Opening the requested website in a new tab."
-          : "The browser blocked the new tab and the desktop companion could not open the website. Allow pop-ups or start the Visionary Nexus companion.";
+          ? requestedTarget.includes(".")
+            ? "The domain has a DNS record, so I opened the exact address you entered: **" + requestedTarget + "**. DNS does not prove that the site is trustworthy or the one you intended."
+            : "Opened search results for **" + requestedTarget + "**. Choose the official result; I won't silently guess which website you meant."
+          : requestedWebsite === "unverified"
+            ? "I couldn't verify the domain's DNS because the lookup service was unavailable. I opened only the exact address you typed; check it before entering information."
+            : "The browser blocked the new tab. Allow pop-ups for Visionary Nexus and try again.";
       addLocalMessage(outcome)
       speakResponse(outcome)
       return;
@@ -2379,7 +2590,10 @@ const AIAssistant: React.FC<{
     const intentPromise = apiFetch(`/api/intent/classify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({
+        message,
+        context: { client_platform: "web", web_app_capabilities: getWebAppCapabilityContext(), app_knowledge: getAppKnowledgeContext(readMusicPreferenceConfig().service) },
+      }),
     }).catch(error => {
       console.warn("AI feature intent routing unavailable; using normal command handling.", error)
       return null
@@ -2507,6 +2721,7 @@ const AIAssistant: React.FC<{
         addLocalMessage(notice); speakResponse(notice); return
       }
       const appName = String(featureIntent.app_name || featureIntent.destination || "the requested app")
+      rememberAppKnowledge({ app: appName, category: inferAppCategory(message, actionName), action: actionName, outcome: "intent" })
       // Do not silently replace a user's named app with a different app
       // suggested by semantic classification. Ask before using a near-match.
       const requestedAppMatch = message.match(/^(?:please\s+)?(?:open|launch|start|run)\s+(?:the\s+)?(.+?)\s*[.!?]*$/i)
@@ -2532,7 +2747,7 @@ const AIAssistant: React.FC<{
             const launched = await launchDesktopApp(appName).catch(() => ({ success: false }))
             let expectedHost = ""
             if (launched.success) {
-              openedApp = launched.app || appName
+              openedApp = ("app" in launched && launched.app) ? launched.app : appName
             } else {
               // For browser services, use the existing verified HTTPS resolver
               // and the reserved browser tab; native apps still use the launcher.
@@ -2618,6 +2833,7 @@ const AIAssistant: React.FC<{
           const notice = actionResult.success
             ? "Completed " + actionName.replace(/_/g, " ") + " in " + inspection.title + "."
             : actionResult.message || "The desktop action was not completed."
+          if (actionResult.success) rememberAppKnowledge({ app: inspection.title, category: inferAppCategory(message, actionName), action: actionName, outcome: "action_completed" })
           addLocalMessage(notice); speakResponse(notice); return
         } catch (error) {
           const notice = "I couldn't complete the desktop action: " + (error instanceof Error ? error.message : "the companion is unavailable")
@@ -2663,6 +2879,7 @@ const AIAssistant: React.FC<{
       try {
         const launched = await launchDesktopApp(appName)
         if (launched.success) {
+          rememberAppKnowledge({ app: launched.app || appName, category: inferAppCategory(message, actionName), action: actionName, outcome: "launched" })
           const nativeMessage = actionName === "open"
             ? "Opened " + (launched.app || appName) + " on this Windows laptop."
             : "Opened " + (launched.app || appName) + ". I still need an authorised integration to " + actionName.replace(/_/g, " ") + "; I have not performed that action."
