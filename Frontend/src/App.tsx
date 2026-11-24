@@ -439,13 +439,17 @@ export default function App() {
             if (routedIntent === 'music') {
               speakText(intent?.query ? 'Opening music for ' + intent.query + '.' : 'Opening YouTube Music.')
               setActiveTab('music')
-              publishMusicCommand({
-                activeTab: 'music', provider: 'youtube', source: 'voice', intent: 'music',
-                action: (['play', 'search', 'open', 'pause', 'stop', 'resume', 'next', 'previous'].includes(String(intent?.action))
-                  ? intent?.action as MusicCommandAction
-                  : 'play'),
-                query: intent?.query || '', text: polished,
-              })
+              window.dispatchEvent(new CustomEvent('visionary:voice-command', {
+                detail: {
+                  activeTab: 'music',
+                  intent: 'music',
+                  action: (['play', 'search', 'open', 'pause', 'stop', 'resume', 'next', 'previous'].includes(String(intent?.action))
+                    ? String(intent?.action)
+                    : 'play'),
+                  query: intent?.query || '',
+                  text: polished,
+                },
+              }))
               return
             }
             if (routedIntent === 'app_action') {
