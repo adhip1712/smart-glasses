@@ -18,6 +18,8 @@ permissions:
 
 jobs:
   android:
+    # Web-only pull requests must not build or publish Android preview APKs.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
