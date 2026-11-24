@@ -2723,7 +2723,7 @@ const AIAssistant: React.FC<{
             const launched = await launchDesktopApp(appName).catch(() => ({ success: false }))
             let expectedHost = ""
             if (launched.success) {
-              openedApp = launched.app || appName
+              openedApp = ("app" in launched && launched.app) ? launched.app : appName
             } else {
               // For browser services, use the existing verified HTTPS resolver
               // and the reserved browser tab; native apps still use the launcher.
