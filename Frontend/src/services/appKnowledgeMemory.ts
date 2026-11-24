@@ -129,6 +129,12 @@ export function getPreferredApp(category: string): string {
   return readSnapshot().preferredApps[normalize(category).toLowerCase()] || ""
 }
 
+export function getMostRecentApp(category: string): string {
+  if (typeof window === "undefined") return ""
+  const normalizedCategory = normalize(category).toLowerCase()
+  return readSnapshot().records.find(item => item.category.toLowerCase() === normalizedCategory)?.app || ""
+}
+
 export function getAppKnowledgeContext(preferredMusicApp = ""): string {
   if (typeof window === "undefined") return ""
   const snapshot = readSnapshot()
