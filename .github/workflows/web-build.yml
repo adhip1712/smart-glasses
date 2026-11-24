@@ -30,4 +30,4 @@ jobs:
         run: npm run build
       - name: Type-check web application
         working-directory: Frontend
-        run: npx tsc --noEmit
+        run: node ./node_modules/typescript/bin/tsc --noEmit
