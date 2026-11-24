@@ -2069,8 +2069,8 @@ const AIAssistant: React.FC<{
       awaitingGameChoiceRef.current = false;
       setInput("");
       setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
-      const wantsVisionToChoose = /\\b(?:yes|you choose|you decide|pick one|choose for me|surprise me)\\b/i.test(message);
-      const wantsOptions = /\\b(?:no|i(?:'| a)m choosing|show options|let me choose)\\b/i.test(message);
+      const wantsVisionToChoose = /\b(?:yes|you choose|you decide|pick one|choose for me|surprise me)\b/i.test(message);
+      const wantsOptions = /\b(?:no|i(?:'| a)m choosing|show options|let me choose)\b/i.test(message);
       if (wantsVisionToChoose) {
         const gameTab = window.open("about:blank", "_blank");
         if (gameTab && !gameTab.closed) {
@@ -2100,7 +2100,7 @@ const AIAssistant: React.FC<{
 
     // A request for an unspecified game starts discovery rather than guessing
     // a random site or launching a native game.
-    if (/^(?:please\\s+)?(?:open|find|play|launch)\\s+(?:me\\s+)?(?:a|some|any)\\s+games?[.!?]*$/i.test(message)) {
+    if (/^(?:please\s+)?(?:open|find|play|launch)\s+(?:me\s+)?(?:a|some|any)\s+games?[.!?]*$/i.test(message)) {
       awaitingGameChoiceRef.current = true;
       setInput("");
       setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
@@ -2129,7 +2129,7 @@ const AIAssistant: React.FC<{
     // Browser-native app routing for the web release. This opens the
     // requested service or its own search page; it does not claim to click
     // controls inside another origin (the browser same-origin policy blocks that).
-    const preferredAppRequest = message.match(/^(?:please\\s+)?(?:open|launch|go to|visit)\\s+(?:my\\s+)?(?:preferred\\s+)?(video|social|email|navigation)\\s+app(?:\\s+(?:and\\s+)?(?:search|find)\\s+(?:for\\s+)?(.+?))?[.!?]*$/i);
+    const preferredAppRequest = message.match(/^(?:please\s+)?(?:open|launch|go to|visit)\s+(?:my\s+)?(?:preferred\s+)?(video|social|email|navigation)\s+app(?:\s+(?:and\s+)?(?:search|find)\s+(?:for\s+)?(.+?))?[.!?]*$/i);
     const preferredAppName = preferredAppRequest ? getPreferredApp(preferredAppRequest[1].toLowerCase()) : "";
     const preferredWebCommand = preferredAppName
       ? parseWebAppCommand("open " + preferredAppName + (preferredAppRequest?.[2] ? " and search for " + preferredAppRequest[2] : ""))
