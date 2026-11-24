@@ -2041,8 +2041,8 @@ const AIAssistant: React.FC<{
 
     // Do not route requests to inherently age-restricted or dangerous services.
     const restrictedSiteRequest =
-      /\\b(?:porn|pornography|adult videos?|xxx|onlyfans|xvideos|xhamster|redtube|brazzers|casino|gambling sites?|betting sites?|sportsbook|online betting|gun shop|firearm store|buy guns|ammunition|ammo store|vape shop|vaping|nicotine products|cigarette shop|tobacco shop|liquor store|buy alcohol|drug marketplace|buy drugs|weed shop|marijuana dispensary)\\b/i.test(message);
-    if (restrictedSiteRequest && /\\b(?:open|visit|launch|search|find|go to|browse)\\b/i.test(message)) {
+      /\b(?:porn|pornography|adult videos?|xxx|onlyfans|xvideos|xhamster|redtube|brazzers|casino|gambling sites?|betting sites?|sportsbook|online betting|gun shop|firearm store|buy guns|ammunition|ammo store|vape shop|vaping|nicotine products|cigarette shop|tobacco shop|liquor store|buy alcohol|drug marketplace|buy drugs|weed shop|marijuana dispensary)\b/i.test(message);
+    if (restrictedSiteRequest && /\b(?:open|visit|launch|search|find|go to|browse)\b/i.test(message)) {
       setInput("");
       setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
       const response = "I can't help access gambling, adult-content, weapons, drug, alcohol, or nicotine services. I can help with safe, age-appropriate information about the topic instead.";
