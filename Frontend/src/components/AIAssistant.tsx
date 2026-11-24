@@ -158,7 +158,7 @@ async function openRequestedWebsite(command: string): Promise<"tab" | "unverifie
             const suggestionData = await suggestionResponse.json();
             candidates = (Array.isArray(suggestionData?.[1]) ? suggestionData[1] : [])
               .filter((value: unknown): value is string =>
-                typeof value === "string" && /^[a-z0-9.-]+\\.[a-z]{2,}$/i.test(value) && value.toLowerCase() !== hostname.toLowerCase(),
+                typeof value === "string" && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value) && value.toLowerCase() !== hostname.toLowerCase(),
               )
               .slice(0, 3);
           }
