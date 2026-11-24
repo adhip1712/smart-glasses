@@ -13,6 +13,7 @@ import { discoverDesktopWindows, inspectDesktopWindow, launchDesktopApp, openDes
 import { primeSpeechOutput, speakText } from "../services/speech"
 import { parseMusicCommand, openNamedYouTubeWindow, navigateNamedYouTubeWindow, youtubeSearchUrl, isValidYouTubeVideoId } from "../services/voiceMusic"
 import { readMusicPreferenceConfig, resolveMusicServiceFromCommand } from "../services/preferences"
+import { getAppKnowledgeContext, inferAppCategory, rememberAppKnowledge } from "../services/appKnowledgeMemory"
 
 // =========================================================
 // BROWSER SPEECH RECOGNITION TYPES
@@ -2379,7 +2380,10 @@ const AIAssistant: React.FC<{
     const intentPromise = apiFetch(`/api/intent/classify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({
+        message,
+        context: { app_knowledge: getAppKnowledgeContext(readMusicPreferenceConfig().service) },
+      }),
     }).catch(error => {
       console.warn("AI feature intent routing unavailable; using normal command handling.", error)
       return null
@@ -2507,6 +2511,7 @@ const AIAssistant: React.FC<{
         addLocalMessage(notice); speakResponse(notice); return
       }
       const appName = String(featureIntent.app_name || featureIntent.destination || "the requested app")
+      rememberAppKnowledge({ app: appName, category: inferAppCategory(message, actionName), action: actionName, outcome: "intent" })
       // Do not silently replace a user's named app with a different app
       // suggested by semantic classification. Ask before using a near-match.
       const requestedAppMatch = message.match(/^(?:please\s+)?(?:open|launch|start|run)\s+(?:the\s+)?(.+?)\s*[.!?]*$/i)
@@ -2618,6 +2623,7 @@ const AIAssistant: React.FC<{
           const notice = actionResult.success
             ? "Completed " + actionName.replace(/_/g, " ") + " in " + inspection.title + "."
             : actionResult.message || "The desktop action was not completed."
+          if (actionResult.success) rememberAppKnowledge({ app: inspection.title, category: inferAppCategory(message, actionName), action: actionName, outcome: "action_completed" })
           addLocalMessage(notice); speakResponse(notice); return
         } catch (error) {
           const notice = "I couldn't complete the desktop action: " + (error instanceof Error ? error.message : "the companion is unavailable")
@@ -2663,6 +2669,7 @@ const AIAssistant: React.FC<{
       try {
         const launched = await launchDesktopApp(appName)
         if (launched.success) {
+          rememberAppKnowledge({ app: launched.app || appName, category: inferAppCategory(message, actionName), action: actionName, outcome: "launched" })
           const nativeMessage = actionName === "open"
             ? "Opened " + (launched.app || appName) + " on this Windows laptop."
             : "Opened " + (launched.app || appName) + ". I still need an authorised integration to " + actionName.replace(/_/g, " ") + "; I have not performed that action."
