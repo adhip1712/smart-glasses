@@ -58,7 +58,7 @@ export function inferAppCategory(message: string, action = ""): string {
   const text = (message + " " + action).toLowerCase()
   if (/music|song|playlist|artist|phonk|spotify|youtube music/.test(text)) return "music"
   if (/game|gaming|play a game|chess/.test(text)) return "games"
-  if (/tweet|repost|social|post|reply|timeline|instagram|linkedin|pinterest|reddit|\\bx\\b/.test(text)) return "social"
+  if (/tweet|repost|social|post|reply|timeline|instagram|linkedin|pinterest|reddit|\bx\b/.test(text)) return "social"
   if (/mail|email|inbox|gmail|outlook/.test(text)) return "email"
   if (/message|chat|whatsapp|text|discord/.test(text)) return "messaging"
   if (/map|route|navigation|directions/.test(text)) return "navigation"
