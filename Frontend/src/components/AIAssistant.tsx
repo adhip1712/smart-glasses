@@ -2073,6 +2073,19 @@ const AIAssistant: React.FC<{
       return;
     }
 
+    const preferredBrowserRequest = /^(?:please\\s+)?(?:open|launch|use)\\s+(?:my\\s+)?(?:preferred\\s+)?browser[.!?]*$/i.test(message);
+    if (preferredBrowserRequest) {
+      const preferredBrowser = getPreferredApp("browser");
+      const response = preferredBrowser
+        ? "Your saved browser preference is **" + preferredBrowser + "**. Visionary Nexus is already running in a browser, and a website cannot launch a different browser application."
+        : "Visionary Nexus is already running in a browser. A website cannot launch a different browser application.";
+      setInput("");
+      setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
+      addLocalMessage(response);
+      speakResponse(response);
+      return;
+    }
+
     // Continue the lightweight browser-game discovery conversation.
     if (awaitingGameChoiceRef.current) {
       awaitingGameChoiceRef.current = false;
