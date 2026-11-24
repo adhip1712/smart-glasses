@@ -410,10 +410,10 @@ export default function App() {
 
           if (awaitingGameChoiceRef.current) {
             const choice = spoken.trim().toLowerCase().replace(/[.!?]+$/, '')
-            if (/\\b(?:yes|you choose|you decide|pick one|choose one|choose for me|i want you to choose|surprise me)\\b/i.test(choice)) {
+            if (/\b(?:yes|you choose|you decide|pick one|choose one|choose for me|i want you to choose|surprise me)\b/i.test(choice)) {
               awaitingGameChoiceRef.current = false
               openBrowserGame('chess')
-            } else if (/\\b(?:no|show(?: me)? options|let me choose|i want to choose)\\b/i.test(choice)) {
+            } else if (/\b(?:no|show(?: me)? options|let me choose|i want to choose)\b/i.test(choice)) {
               awaitingGameChoiceRef.current = true
               speakText('You can choose chess, sudoku, snake, solitaire, checkers, Wordle, or Tetris. Say the game name.')
             } else if (browserGameUrls[choice]) {
@@ -426,17 +426,17 @@ export default function App() {
             return
           }
 
-          const namedBrowserGame = spoken.match(/^(?:please\\s+)?(?:play|open|launch|start)\\s+(?:the\\s+)?(?:a\\s+)?(chess|sudoku|snake|solitaire|checkers|wordle|tetris)(?:\\s+game)?[.!?]*$/i)
+          const namedBrowserGame = spoken.match(/^(?:please\s+)?(?:play|open|launch|start)\s+(?:the\s+)?(?:a\s+)?(chess|sudoku|snake|solitaire|checkers|wordle|tetris)(?:\s+game)?[.!?]*$/i)
           if (namedBrowserGame) {
             openBrowserGame(namedBrowserGame[1].toLowerCase())
             return
           }
-          if (/^(?:please\\s+)?(?:open|find|play|launch)\\s+(?:(?:me\\s+)?(?:a|some|any)\\s+)?games?[.!?]*$/i.test(spoken.trim())) {
+          if (/^(?:please\s+)?(?:open|find|play|launch)\s+(?:(?:me\s+)?(?:a|some|any)\s+)?games?[.!?]*$/i.test(spoken.trim())) {
             awaitingGameChoiceRef.current = true
             speakText('I can choose an age-appropriate browser game, or show you options. Would you like me to choose?')
             return
           }
-          if (/^(?:new game|(?:pause|resume|continue|restart|start|level|score|settings)\\s+(?:the\\s+)?game)\\b/i.test(spoken.trim())) {
+          if (/^(?:new game|(?:pause|resume|continue|restart|start|level|score|settings)\s+(?:the\s+)?game)\b/i.test(spoken.trim())) {
             const recentGame = getMostRecentApp('games')
             if (recentGame) {
               speakText('Your recent browser game is ' + recentGame + '. I cannot send clicks or keyboard input into its separate tab from this website. Use the game controls, and I can guide you if you describe the screen.')
