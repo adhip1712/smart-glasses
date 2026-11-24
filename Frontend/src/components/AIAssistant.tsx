@@ -2112,7 +2112,7 @@ const AIAssistant: React.FC<{
 
     // A request for an unspecified game starts discovery rather than guessing
     // a random site or launching a native game.
-    if (/^(?:please\s+)?(?:open|find|play|launch)\s+(?:me\s+)?(?:a|some|any)\s+games?[.!?]*$/i.test(message)) {
+    if (/^(?:please\s+)?(?:open|find|play|launch)\s+(?:(?:me\s+)?(?:a|some|any)\s+)?games?[.!?]*$/i.test(message)) {
       awaitingGameChoiceRef.current = true;
       setInput("");
       setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
@@ -2155,7 +2155,7 @@ const AIAssistant: React.FC<{
 
     // For a previously opened browser game, explain the control boundary
     // instead of pretending that this page can send input to another tab.
-    if (/^(?:pause|resume|continue|restart|start|new game|level|score|settings)(?:\s+(?:the\s+)?game)?\b/i.test(message)) {
+    if (/^(?:new game|(?:pause|resume|continue|restart|start|level|score|settings)\s+(?:the\s+)?game)\b/i.test(message)) {
       const recentGame = getMostRecentApp("games");
       if (recentGame) {
         const response = "Your recent browser game is **" + recentGame + "**. I can't send clicks or keyboard input into its separate tab from this website. Use the game's visible controls; if you describe the screen, I can guide you.";
