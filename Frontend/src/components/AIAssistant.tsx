@@ -13,7 +13,7 @@ import { discoverDesktopWindows, inspectDesktopWindow, launchDesktopApp, openDes
 import { primeSpeechOutput, speakText } from "../services/speech"
 import { parseMusicCommand, openNamedYouTubeWindow, navigateNamedYouTubeWindow, youtubeSearchUrl, isValidYouTubeVideoId } from "../services/voiceMusic"
 import { readMusicPreferenceConfig, resolveMusicServiceFromCommand } from "../services/preferences"
-import { getAppKnowledgeContext, inferAppCategory, rememberAppKnowledge } from "../services/appKnowledgeMemory"
+import { getAppKnowledgeContext, inferAppCategory, rememberAppKnowledge, setPreferredApp } from "../services/appKnowledgeMemory"
 import { buildWebAppUrl, openWebDestination, parseWebAppCommand, getWebAppDefinition, getWebAppCapabilityContext } from "../services/webAppControl"
 
 // =========================================================
@@ -2004,6 +2004,28 @@ const AIAssistant: React.FC<{
     // Treat the common accidental leading "z" in "zplay" as a typo,
     // so short music commands stay on the local music-intent path.
     message = message.replace(/^z(?=play(?:\\s|$))/i, "")
+
+    // Save general app preferences from natural language. Music's existing
+    // Personal Preferences setting remains authoritative for the music category.
+    const preferenceMatch =
+      message.match(/^(?:please\\s+)?(?:remember|use|set)\\s+(.+?)\\s+as\\s+my\\s+(music|video|browser|navigation|email|social|messaging|games)\\s+app[.!?]*$/i) ||
+      message.match(/^i\\s+prefer\\s+(.+?)\\s+for\\s+(music|video|browser|navigation|email|social|messaging|games)[.!?]*$/i) ||
+      message.match(/^my\\s+(music|video|browser|navigation|email|social|messaging|games)\\s+app\\s+is\\s+(.+?)[.!?]*$/i);
+    if (preferenceMatch) {
+      const reversed = /^my\\s+/i.test(message);
+      const app = (reversed ? preferenceMatch[2] : preferenceMatch[1]).trim();
+      const category = (reversed ? preferenceMatch[1] : preferenceMatch[2]).trim().toLowerCase();
+      if (category !== "music") setPreferredApp(category, app);
+      rememberAppKnowledge({ app, category, action: "preference_set", outcome: "intent" });
+      setInput("");
+      setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
+      const response = category === "music"
+        ? "Your music app preference is managed in Personal Preferences. I won't override that setting here."
+        : "Saved **" + app + "** as your preferred " + category + " app.";
+      addLocalMessage(response);
+      speakResponse(response);
+      return;
+    }
 
     // Ask for the missing target instead of treating an incomplete
     // "open the" command as a website or passing it to the general assistant.
