@@ -18,6 +18,9 @@ import IntroSplash from './components/IntroSplash'
 import AuthScreen from './components/AuthScreen'
 import { getToken, getStoredUser, setSession } from './services/api'
 import { executeAppAction } from './services/universalApps'
+import { getAppKnowledgeContext } from './services/appKnowledgeMemory'
+import { getWebAppCapabilityContext } from './services/webAppControl'
+import { readMusicPreferenceConfig } from './services/preferences'
 
 // Share the one-time ticket exchange across React StrictMode effect replays.
 let oauthExchangeTicket: string | null = null
@@ -422,7 +425,12 @@ export default function App() {
               method: 'POST',
               body: JSON.stringify({
                 message: spoken,
-                context: { active_tab: activeTab },
+                context: {
+                  active_tab: activeTab,
+                  client_platform: 'web',
+                  web_app_capabilities: getWebAppCapabilityContext(),
+                  app_knowledge: getAppKnowledgeContext(readMusicPreferenceConfig().service),
+                },
               }),
             })
             const intent = await readJson<{
