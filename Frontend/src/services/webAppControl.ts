@@ -3,7 +3,7 @@ export type WebAppId =
   | "google" | "wikipedia" | "reddit" | "github" | "twitch"
   | "google-drive" | "google-calendar" | "outlook" | "notion"
   | "linkedin" | "instagram" | "pinterest" | "stack-overflow"
-  | "khan-academy" | "canva"
+  | "khan-academy" | "canva" | "whatsapp" | "discord"
 
 type WebAppDefinition = {
   label: string
@@ -11,6 +11,7 @@ type WebAppDefinition = {
   home: string
   search: (query: string) => string
   vocabulary: string[]
+  supportsSearch?: boolean
 }
 
 const WEB_APPS: Record<WebAppId, WebAppDefinition> = {
@@ -134,6 +135,20 @@ const WEB_APPS: Record<WebAppId, WebAppDefinition> = {
     search: q => `https://www.canva.com/search?q=${encodeURIComponent(q)}`,
     vocabulary: ["designs", "presentations", "templates", "projects"],
   },
+  whatsapp: {
+    label: "WhatsApp", aliases: ["whatsapp", "whats app"],
+    home: "https://web.whatsapp.com/",
+    search: () => "https://web.whatsapp.com/",
+    supportsSearch: false,
+    vocabulary: ["contacts", "chats", "messages", "calls", "status"],
+  },
+  discord: {
+    label: "Discord", aliases: ["discord"],
+    home: "https://discord.com/channels/@me",
+    search: () => "https://discord.com/channels/@me",
+    supportsSearch: false,
+    vocabulary: ["servers", "channels", "direct messages", "voice channels"],
+  },
 }
 
 export type WebAppCommand = {
@@ -182,13 +197,15 @@ export function getWebAppNextStep(app: WebAppId): string {
     "stack-overflow": "What programming question should I search for?",
     "khan-academy": "Which subject would you like to study?",
     canva: "What would you like to design?",
+    whatsapp: "Which contact or chat are you looking for? Use WhatsApp Web search; I cannot read your contacts from here.",
+    discord: "Which server or direct message are you looking for? Use Discord search; I cannot inspect its private content from here.",
   }
   return prompts[app]
 }
 
 export function buildWebAppUrl(command: WebAppCommand): string {
   const definition = WEB_APPS[command.app]
-  return command.query ? definition.search(command.query) : definition.home
+  return command.query && definition.supportsSearch !== false ? definition.search(command.query) : definition.home
 }
 
 /**
@@ -212,7 +229,7 @@ export function openWebDestination(url: string, reservedWindow?: Window | null):
 
 export function getWebAppCapabilityContext(): string {
   return Object.entries(WEB_APPS).map(([id, app]) =>
-    `${id}: ${app.label}; aliases: ${app.aliases.join(", ")}; vocabulary: ${app.vocabulary.join(", ")}`
+    `${id}: ${app.label}; aliases: ${app.aliases.join(", ")}; search: ${app.supportsSearch === false ? "manual in app" : "URL search"}; vocabulary: ${app.vocabulary.join(", ")}`
   ).join("\n")
 }
 
