@@ -475,6 +475,67 @@ export default function App() {
             speakText("I can't help access gambling, adult-content, weapons, drug, alcohol, or nicotine services. I can help with safe, age-appropriate information about the topic instead.")
             return
           }
+          // Voice website commands use the same DNS-first safety rule as typed commands.
+          const voiceDomainMatch = spoken.trim().match(/^(?:please\s+)?(?:open|visit|go to|launch)\s+(https?:\/\/[^\s]+|(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/[^\s]*)?)[.!?]*$/i)
+          if (voiceDomainMatch) {
+            const rawAddress = voiceDomainMatch[1].replace(/[.!?]+$/, '')
+            let targetUrl: URL
+            try {
+              targetUrl = new URL(/^https?:\/\//i.test(rawAddress) ? rawAddress : 'https://' + rawAddress)
+              if (targetUrl.protocol !== 'https:' || targetUrl.username || targetUrl.password) throw new Error('Unsafe website URL')
+            } catch {
+              speakText('That website address does not look valid. Please check its spelling.')
+              return
+            }
+            const domainTab = window.open('about:blank', '_blank')
+            if (!domainTab || domainTab.closed) {
+              speakText('The browser blocked the new tab. Allow pop-ups for Visionary Nexus and try again.')
+              return
+            }
+            try {
+              const dnsResponses = await Promise.all([
+                fetch('https://dns.google/resolve?name=' + encodeURIComponent(targetUrl.hostname) + '&type=A', { headers: { Accept: 'application/dns-json' } }),
+                fetch('https://dns.google/resolve?name=' + encodeURIComponent(targetUrl.hostname) + '&type=AAAA', { headers: { Accept: 'application/dns-json' } }),
+              ])
+              if (dnsResponses.some(response => !response.ok)) throw new Error('DNS lookup unavailable')
+              const dnsResults = await Promise.all(dnsResponses.map(response => response.json()))
+              const hasAddress = dnsResults.some(dnsData =>
+                Number(dnsData?.Status) === 0 &&
+                Array.isArray(dnsData?.Answer) &&
+                dnsData.Answer.some((answer: any) => [1, 5, 28].includes(Number(answer?.type))),
+              )
+              if (!hasAddress) {
+                let candidates: string[] = []
+                try {
+                  const suggestions = await fetch('https://suggestqueries.google.com/complete/search?client=firefox&q=' + encodeURIComponent(targetUrl.hostname))
+                  if (suggestions.ok) {
+                    const data = await suggestions.json()
+                    candidates = (Array.isArray(data?.[1]) ? data[1] : [])
+                      .filter((value: unknown): value is string =>
+                        typeof value === 'string' && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value) && value.toLowerCase() !== targetUrl.hostname.toLowerCase(),
+                      )
+                      .slice(0, 3)
+                  }
+                } catch {
+                  // The user can still provide the intended spelling manually.
+                }
+                domainTab.close()
+                speakText(candidates.length
+                  ? 'That domain does not resolve. Possible spelling matches are ' + candidates.join(', ') + '. Say open followed by the exact address you intended.'
+                  : 'That domain does not resolve. I did not open a guessed replacement. Please check the spelling and tell me the intended address.')
+                return
+              }
+              domainTab.opener = null
+              domainTab.location.replace(targetUrl.href)
+              speakText('The domain has DNS records. I opened the exact address you gave. DNS does not prove that the site is trustworthy or the one you intended.')
+            } catch {
+              domainTab.opener = null
+              domainTab.location.replace(targetUrl.href)
+              speakText('I could not verify the domain because the DNS lookup was unavailable. I opened only the exact address you gave; check it before entering information.')
+            }
+            return
+          }
+
           // Reserve a browser tab synchronously so a later AI-planned app
           // action can navigate it without popup blocking.
           const appActionWindow = /\b(?:send|message|email|mail|write|compose|schedule|create|find|search|open|launch|book|add)\b/i.test(spoken)
