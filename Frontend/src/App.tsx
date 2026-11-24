@@ -18,7 +18,7 @@ import IntroSplash from './components/IntroSplash'
 import AuthScreen from './components/AuthScreen'
 import { getToken, getStoredUser, setSession } from './services/api'
 import { executeAppAction } from './services/universalApps'
-import { getAppKnowledgeContext } from './services/appKnowledgeMemory'
+import { getAppKnowledgeContext, getMostRecentApp, rememberAppKnowledge } from './services/appKnowledgeMemory'
 import { getWebAppCapabilityContext, isRestrictedWebDestinationRequest } from './services/webAppControl'
 import { readMusicPreferenceConfig } from './services/preferences'
 
@@ -122,6 +122,7 @@ export default function App() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [pendingVoiceCommand, setPendingVoiceCommand] = useState('')
   const awaitingMusicChoiceRef = useRef(false)
+  const awaitingGameChoiceRef = useRef(false)
   const [pendingWhatsAppDraft, setPendingWhatsAppDraft] = useState<{ recipient: string; message: string } | null>(null)
   const consumeWhatsAppDraft = useCallback(() => setPendingWhatsAppDraft(null), [])
   const [pendingCallRequest, setPendingCallRequest] = useState<{ recipient: string; channel: 'phone' | 'whatsapp' } | null>(null)
@@ -384,6 +385,63 @@ export default function App() {
               detail: { activeTab: 'music', intent: 'music', action: 'play', query, text: choice },
             }))
             return
+          }
+
+          const browserGameUrls: Record<string, string> = {
+            chess: 'https://www.chess.com/play/computer',
+            sudoku: 'https://sudoku.com/',
+            snake: 'https://www.google.com/fbx?fbx=snake_arcade',
+            solitaire: 'https://www.solitr.com/',
+            checkers: 'https://www.playok.com/en/checkers/',
+            wordle: 'https://www.nytimes.com/games/wordle/index.html',
+            tetris: 'https://tetris.com/play-tetris',
+          }
+          const openBrowserGame = (name: string) => {
+            const tab = window.open('about:blank', '_blank')
+            if (!tab || tab.closed) {
+              speakText('The browser blocked the new tab. Allow pop-ups for Visionary Nexus and try again.')
+              return
+            }
+            tab.opener = null
+            tab.location.replace(browserGameUrls[name])
+            rememberAppKnowledge({ app: name, category: 'games', action: 'open_browser_game_tab', outcome: 'launched' })
+            speakText('Opened ' + name + ' in a new tab. I can explain the rules, but I cannot click or inspect controls inside that separate website.')
+          }
+
+          if (awaitingGameChoiceRef.current) {
+            const choice = spoken.trim().toLowerCase().replace(/[.!?]+$/, '')
+            if (/\\b(?:yes|you choose|you decide|pick one|choose one|choose for me|i want you to choose|surprise me)\\b/i.test(choice)) {
+              awaitingGameChoiceRef.current = false
+              openBrowserGame('chess')
+            } else if (/\\b(?:no|show(?: me)? options|let me choose|i want to choose)\\b/i.test(choice)) {
+              awaitingGameChoiceRef.current = true
+              speakText('You can choose chess, sudoku, snake, solitaire, checkers, Wordle, or Tetris. Say the game name.')
+            } else if (browserGameUrls[choice]) {
+              awaitingGameChoiceRef.current = false
+              openBrowserGame(choice)
+            } else {
+              awaitingGameChoiceRef.current = true
+              speakText('Would you like me to choose a game, or would you like to pick chess, sudoku, snake, solitaire, checkers, Wordle, or Tetris?')
+            }
+            return
+          }
+
+          const namedBrowserGame = spoken.match(/^(?:please\\s+)?(?:play|open|launch|start)\\s+(?:the\\s+)?(?:a\\s+)?(chess|sudoku|snake|solitaire|checkers|wordle|tetris)(?:\\s+game)?[.!?]*$/i)
+          if (namedBrowserGame) {
+            openBrowserGame(namedBrowserGame[1].toLowerCase())
+            return
+          }
+          if (/^(?:please\\s+)?(?:open|find|play|launch)\\s+(?:(?:me\\s+)?(?:a|some|any)\\s+)?games?[.!?]*$/i.test(spoken.trim())) {
+            awaitingGameChoiceRef.current = true
+            speakText('I can choose an age-appropriate browser game, or show you options. Would you like me to choose?')
+            return
+          }
+          if (/^(?:new game|(?:pause|resume|continue|restart|start|level|score|settings)\\s+(?:the\\s+)?game)\\b/i.test(spoken.trim())) {
+            const recentGame = getMostRecentApp('games')
+            if (recentGame) {
+              speakText('Your recent browser game is ' + recentGame + '. I cannot send clicks or keyboard input into its separate tab from this website. Use the game controls, and I can guide you if you describe the screen.')
+              return
+            }
           }
 
           const callIntent = parseCallIntent(spoken)
