@@ -212,6 +212,6 @@ export function openWebDestination(url: string, reservedWindow?: Window | null):
 
 export function getWebAppCapabilityContext(): string {
   return Object.entries(WEB_APPS).map(([id, app]) =>
-    `${id}: ${app.label}; vocabulary: ${app.vocabulary.join(", ")}`
+    `${id}: ${app.label}; aliases: ${app.aliases.join(", ")}; vocabulary: ${app.vocabulary.join(", ")}`
   ).join("\n")
 }
