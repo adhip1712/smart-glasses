@@ -18,9 +18,9 @@ import IntroSplash from './components/IntroSplash'
 import AuthScreen from './components/AuthScreen'
 import { getToken, getStoredUser, setSession } from './services/api'
 import { executeAppAction } from './services/universalApps'
-import { getAppKnowledgeContext, getMostRecentApp, rememberAppKnowledge } from './services/appKnowledgeMemory'
+import { getAppKnowledgeContext, getMostRecentApp, rememberAppKnowledge, setPreferredApp } from './services/appKnowledgeMemory'
 import { getWebAppCapabilityContext, isRestrictedWebDestinationRequest } from './services/webAppControl'
-import { readMusicPreferenceConfig } from './services/preferences'
+import { readMusicPreferenceConfig, saveMusicPreferenceConfig } from './services/preferences'
 
 // Share the one-time ticket exchange across React StrictMode effect replays.
 let oauthExchangeTicket: string | null = null
@@ -384,6 +384,24 @@ export default function App() {
             window.dispatchEvent(new CustomEvent('visionary:voice-command', {
               detail: { activeTab: 'music', intent: 'music', action: 'play', query, text: choice },
             }))
+            return
+          }
+
+          const voicePreferenceMatch =
+            spoken.match(/^(?:please\s+)?(?:remember|use|set)\s+(.+?)\s+as\s+my\s+(music|video|browser|navigation|email|social|messaging|games)\s+app[.!?]*$/i) ||
+            spoken.match(/^i\s+prefer\s+(.+?)\s+for\s+(music|video|browser|navigation|email|social|messaging|games)[.!?]*$/i) ||
+            spoken.match(/^my\s+(music|video|browser|navigation|email|social|messaging|games)\s+app\s+is\s+(.+?)[.!?]*$/i)
+          if (voicePreferenceMatch) {
+            const reversed = /^my\s+/i.test(spoken)
+            const preferredApp = (reversed ? voicePreferenceMatch[2] : voicePreferenceMatch[1]).trim()
+            const category = (reversed ? voicePreferenceMatch[1] : voicePreferenceMatch[2]).trim().toLowerCase()
+            const saved = category === 'music'
+              ? saveMusicPreferenceConfig(preferredApp)
+              : (setPreferredApp(category, preferredApp), true)
+            rememberAppKnowledge({ app: preferredApp, category, action: 'preference_set', outcome: 'intent' })
+            speakText(saved
+              ? 'Saved ' + preferredApp + ' as your preferred ' + category + ' app.'
+              : 'I could not save that preference in this browser. You can set it in Personal Preferences.')
             return
           }
 
