@@ -2111,7 +2111,7 @@ const AIAssistant: React.FC<{
     }
 
     // Named, age-appropriate browser games can be opened directly.
-    const namedBrowserGame = message.match(/^(?:please\\s+)?(?:play|open|launch|start)\\s+(?:the\\s+)?(?:a\\s+)?(chess|sudoku|snake|solitaire|checkers|wordle|tetris)(?:\\s+game)?[.!?]*$/i);
+    const namedBrowserGame = message.match(/^(?:please\s+)?(?:play|open|launch|start)\s+(?:the\s+)?(?:a\s+)?(chess|sudoku|snake|solitaire|checkers|wordle|tetris)(?:\s+game)?[.!?]*$/i);
     if (namedBrowserGame) {
       const gameName = namedBrowserGame[1].toLowerCase();
       const gameUrls: Record<string, string> = {
@@ -2143,7 +2143,7 @@ const AIAssistant: React.FC<{
 
     // For a previously opened browser game, explain the control boundary
     // instead of pretending that this page can send input to another tab.
-    if (/^(?:pause|resume|continue|restart|start|new game|level|score|settings)\\b.*\\bgame\\b/i.test(message)) {
+    if (/^(?:pause|resume|continue|restart|start|new game|level|score|settings)(?:\s+(?:the\s+)?game)?\b/i.test(message)) {
       const recentGame = getMostRecentApp("games");
       if (recentGame) {
         const response = "Your recent browser game is **" + recentGame + "**. I can't send clicks or keyboard input into its separate tab from this website. Use the game's visible controls; if you describe the screen, I can guide you.";
