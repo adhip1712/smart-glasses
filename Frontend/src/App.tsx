@@ -437,6 +437,8 @@ export default function App() {
               intent?: string
               action?: string
               destination?: string
+              destination_url?: string
+              app_name?: string
               query?: string
               polished_text?: string
               recipient?: string
@@ -464,6 +466,8 @@ export default function App() {
               // Begin the spoken confirmation before the new app tab takes focus.
               const result = executeAppAction({
                 destination: String(intent?.destination || ''),
+                app_name: String(intent?.app_name || intent?.destination || ''),
+                destination_url: String(intent?.destination_url || ''),
                 action: String(intent?.action || 'open'),
                 recipient: String(intent?.recipient || ''),
                 message_text: String(intent?.message_text || ''),
