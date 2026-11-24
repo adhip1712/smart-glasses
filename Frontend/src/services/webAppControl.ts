@@ -81,8 +81,8 @@ export type WebAppCommand = {
 
 export function parseWebAppCommand(command: string): WebAppCommand | null {
   const clean = command.trim()
-  const searchFirst = clean.match(/^(?:please\\s+)?(?:search|find)\\s+(.+?)\\s+(?:on|in)\\s+(.+?)\\s*[.!?]*$/i)
-  const appFirst = clean.match(/^(?:please\\s+)?(?:open|launch|go to|visit)\\s+(?:the\\s+)?(.+?)(?:\\s+(?:and\\s+)?(?:search|find)\\s+(?:for\\s+)?(.+?))?\\s*[.!?]*$/i)
+  const searchFirst = clean.match(/^(?:please\s+)?(?:search|find)\s+(.+?)\s+(?:on|in)\s+(.+?)\s*[.!?]*$/i)
+  const appFirst = clean.match(/^(?:please\s+)?(?:open|launch|go to|visit)\s+(?:the\s+)?(.+?)(?:\s+(?:and\s+)?(?:search|find)\s+(?:for\s+)?(.+?))?\s*[.!?]*$/i)
   const rawApp = (searchFirst?.[2] || appFirst?.[1] || "").trim().toLowerCase()
   if (!rawApp) return null
   const app = (Object.entries(WEB_APPS).find(([, definition]) =>
@@ -126,5 +126,5 @@ export function openWebDestination(url: string, reservedWindow?: Window | null):
 export function getWebAppCapabilityContext(): string {
   return Object.entries(WEB_APPS).map(([id, app]) =>
     `${id}: ${app.label}; vocabulary: ${app.vocabulary.join(", ")}`
-  ).join("\\n")
+  ).join("\n")
 }
