@@ -19,7 +19,7 @@ import AuthScreen from './components/AuthScreen'
 import { getToken, getStoredUser, setSession } from './services/api'
 import { executeAppAction } from './services/universalApps'
 import { getAppKnowledgeContext } from './services/appKnowledgeMemory'
-import { getWebAppCapabilityContext } from './services/webAppControl'
+import { getWebAppCapabilityContext, isRestrictedWebDestinationRequest } from './services/webAppControl'
 import { readMusicPreferenceConfig } from './services/preferences'
 
 // Share the one-time ticket exchange across React StrictMode effect replays.
@@ -412,6 +412,10 @@ export default function App() {
               },
             }))
             return;
+          }
+          if (isRestrictedWebDestinationRequest(spoken)) {
+            speakText("I can't help access gambling, adult-content, weapons, drug, alcohol, or nicotine services. I can help with safe, age-appropriate information about the topic instead.")
+            return
           }
           // Reserve a browser tab synchronously so a later AI-planned app
           // action can navigate it without popup blocking.
