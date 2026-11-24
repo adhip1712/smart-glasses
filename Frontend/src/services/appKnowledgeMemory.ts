@@ -57,14 +57,15 @@ function writeSnapshot(snapshot: AppKnowledgeSnapshot): void {
 export function inferAppCategory(message: string, action = ""): string {
   const text = (message + " " + action).toLowerCase()
   if (/music|song|playlist|artist|phonk|spotify|youtube music/.test(text)) return "music"
-  if (/game|gaming|play a game/.test(text)) return "games"
-  if (/tweet|repost|social|post|reply|timeline/.test(text)) return "social"
-  if (/video|youtube|stream|watch/.test(text)) return "video"
-  if (/mail|email|inbox/.test(text)) return "email"
-  if (/message|chat|whatsapp|text/.test(text)) return "messaging"
+  if (/game|gaming|play a game|chess/.test(text)) return "games"
+  if (/tweet|repost|social|post|reply|timeline|instagram|linkedin|pinterest|reddit|\\bx\\b/.test(text)) return "social"
+  if (/mail|email|inbox|gmail|outlook/.test(text)) return "email"
+  if (/message|chat|whatsapp|text|discord/.test(text)) return "messaging"
   if (/map|route|navigation|directions/.test(text)) return "navigation"
+  if (/video|youtube|stream|watch|twitch/.test(text)) return "video"
   if (/browser|website|web page|site/.test(text)) return "web"
-  if (/document|write|note|file|spreadsheet/.test(text)) return "productivity"
+  if (/document|write|note|file|spreadsheet|drive|notion|canva/.test(text)) return "productivity"
+  if (/khan academy|stack overflow|lesson|course|tutorial/.test(text)) return "learning"
   return "general"
 }
 
