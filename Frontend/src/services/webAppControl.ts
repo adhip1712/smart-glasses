@@ -1,6 +1,9 @@
 export type WebAppId =
   | "youtube" | "spotify" | "x" | "gmail" | "google-maps"
   | "google" | "wikipedia" | "reddit" | "github" | "twitch"
+  | "google-drive" | "google-calendar" | "outlook" | "notion"
+  | "linkedin" | "instagram" | "pinterest" | "stack-overflow"
+  | "khan-academy" | "canva"
 
 type WebAppDefinition = {
   label: string
@@ -70,6 +73,66 @@ const WEB_APPS: Record<WebAppId, WebAppDefinition> = {
     home: "https://www.twitch.tv/",
     search: q => `https://www.twitch.tv/search?term=${encodeURIComponent(q)}`,
     vocabulary: ["streams", "channels", "categories"],
+  },
+  "google-drive": {
+    label: "Google Drive", aliases: ["google drive", "drive"],
+    home: "https://drive.google.com/drive/u/0/my-drive",
+    search: q => `https://drive.google.com/drive/search?q=${encodeURIComponent(q)}`,
+    vocabulary: ["files", "folders", "documents", "shared drives"],
+  },
+  "google-calendar": {
+    label: "Google Calendar", aliases: ["google calendar", "calendar"],
+    home: "https://calendar.google.com/calendar/u/0/r",
+    search: q => `https://calendar.google.com/calendar/u/0/r/search?q=${encodeURIComponent(q)}`,
+    vocabulary: ["events", "meetings", "schedules", "reminders"],
+  },
+  outlook: {
+    label: "Outlook", aliases: ["outlook", "microsoft outlook"],
+    home: "https://outlook.live.com/mail/",
+    search: q => `https://outlook.live.com/mail/0/search?q=${encodeURIComponent(q)}`,
+    vocabulary: ["emails", "inbox", "calendar", "contacts"],
+  },
+  notion: {
+    label: "Notion", aliases: ["notion"],
+    home: "https://www.notion.so/",
+    search: q => `https://www.notion.so/search?query=${encodeURIComponent(q)}`,
+    vocabulary: ["pages", "databases", "notes", "workspaces"],
+  },
+  linkedin: {
+    label: "LinkedIn", aliases: ["linkedin", "linked in"],
+    home: "https://www.linkedin.com/",
+    search: q => `https://www.linkedin.com/search/results/all/?keywords=${encodeURIComponent(q)}`,
+    vocabulary: ["profiles", "posts", "jobs", "connections"],
+  },
+  instagram: {
+    label: "Instagram", aliases: ["instagram", "insta"],
+    home: "https://www.instagram.com/",
+    search: q => `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(q)}`,
+    vocabulary: ["posts", "reels", "profiles", "stories"],
+  },
+  pinterest: {
+    label: "Pinterest", aliases: ["pinterest"],
+    home: "https://www.pinterest.com/",
+    search: q => `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(q)}`,
+    vocabulary: ["pins", "boards", "ideas", "collections"],
+  },
+  "stack-overflow": {
+    label: "Stack Overflow", aliases: ["stack overflow", "stackoverflow"],
+    home: "https://stackoverflow.com/",
+    search: q => `https://stackoverflow.com/search?q=${encodeURIComponent(q)}`,
+    vocabulary: ["questions", "answers", "tags", "code examples"],
+  },
+  "khan-academy": {
+    label: "Khan Academy", aliases: ["khan academy"],
+    home: "https://www.khanacademy.org/",
+    search: q => `https://www.khanacademy.org/search?page_search_query=${encodeURIComponent(q)}`,
+    vocabulary: ["lessons", "courses", "practice", "subjects"],
+  },
+  canva: {
+    label: "Canva", aliases: ["canva"],
+    home: "https://www.canva.com/",
+    search: q => `https://www.canva.com/search?q=${encodeURIComponent(q)}`,
+    vocabulary: ["designs", "presentations", "templates", "projects"],
   },
 }
 
