@@ -133,15 +133,21 @@ async function openRequestedWebsite(command: string): Promise<"tab" | "unverifie
   if (isDomainInput) {
     try {
       const hostname = new URL(url).hostname;
-      const dnsResponse = await fetch(
-        "https://dns.google/resolve?name=" + encodeURIComponent(hostname) + "&type=A",
-        { headers: { Accept: "application/dns-json" } },
-      );
-      if (!dnsResponse.ok) throw new Error("DNS lookup unavailable");
-      const dnsData = await dnsResponse.json();
-      const hasAddress = Number(dnsData?.Status) === 0 &&
+      const dnsResponses = await Promise.all([
+        fetch("https://dns.google/resolve?name=" + encodeURIComponent(hostname) + "&type=A", {
+          headers: { Accept: "application/dns-json" },
+        }),
+        fetch("https://dns.google/resolve?name=" + encodeURIComponent(hostname) + "&type=AAAA", {
+          headers: { Accept: "application/dns-json" },
+        }),
+      ]);
+      if (dnsResponses.some(response => !response.ok)) throw new Error("DNS lookup unavailable");
+      const dnsResults = await Promise.all(dnsResponses.map(response => response.json()));
+      const hasAddress = dnsResults.some(dnsData =>
+        Number(dnsData?.Status) === 0 &&
         Array.isArray(dnsData?.Answer) &&
-        dnsData.Answer.some((answer: any) => [1, 5, 28].includes(Number(answer?.type)));
+        dnsData.Answer.some((answer: any) => [1, 5, 28].includes(Number(answer?.type))),
+      );
       if (!hasAddress) {
         let candidates: string[] = [];
         try {
@@ -152,7 +158,7 @@ async function openRequestedWebsite(command: string): Promise<"tab" | "unverifie
             const suggestionData = await suggestionResponse.json();
             candidates = (Array.isArray(suggestionData?.[1]) ? suggestionData[1] : [])
               .filter((value: unknown): value is string =>
-                typeof value === "string" && value.includes(".") && value.toLowerCase() !== hostname.toLowerCase(),
+                typeof value === "string" && /^[a-z0-9.-]+\\.[a-z]{2,}$/i.test(value) && value.toLowerCase() !== hostname.toLowerCase(),
               )
               .slice(0, 3);
           }
