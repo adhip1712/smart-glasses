@@ -107,3 +107,26 @@ export function resolveMusicServiceFromCommand(
   if (/\b(?:yt|ytb|youtub|youtube|you[- ]tube)\b/.test(normalized)) return 'YouTube'
   return normalizePreference(preferredService, 'value') || 'YouTube'
 }
+
+/**
+ * Persist the music service through the same browser preference store used by
+ * Settings. The web client keeps this preference local to the current browser.
+ */
+export function saveMusicPreferenceConfig(service: string): boolean {
+  const normalizedService = normalizePreference(service, "value")
+  if (!normalizedService) return false
+  try {
+    const saved = JSON.parse(localStorage.getItem("visionary-preferences") || "null")
+    const rows: UserPreferenceRow[] = Array.isArray(saved?.rows) ? saved.rows : []
+    const musicRow = rows.find(row =>
+      normalizePreference(String(row?.category || ""), "category") === "Music",
+    )
+    if (musicRow) musicRow.value = normalizedService
+    else rows.push({ id: "music-default", category: "Music", value: normalizedService })
+    localStorage.setItem("visionary-preferences", JSON.stringify({ rows }))
+    window.dispatchEvent(new CustomEvent("visionary:preferences-updated"))
+    return true
+  } catch {
+    return false
+  }
+}
