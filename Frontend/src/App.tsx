@@ -18,7 +18,7 @@ import IntroSplash from './components/IntroSplash'
 import AuthScreen from './components/AuthScreen'
 import { getToken, getStoredUser, setSession } from './services/api'
 import { executeAppAction } from './services/universalApps'
-import { getAppKnowledgeContext, getMostRecentApp, rememberAppKnowledge, setPreferredApp } from './services/appKnowledgeMemory'
+import { getAppKnowledgeContext, getMostRecentApp, getPreferredApp, rememberAppKnowledge, setPreferredApp } from './services/appKnowledgeMemory'
 import { getWebAppCapabilityContext, isRestrictedWebDestinationRequest } from './services/webAppControl'
 import { readMusicPreferenceConfig, saveMusicPreferenceConfig } from './services/preferences'
 
@@ -402,6 +402,14 @@ export default function App() {
             speakText(saved
               ? 'Saved ' + preferredApp + ' as your preferred ' + category + ' app.'
               : 'I could not save that preference in this browser. You can set it in Personal Preferences.')
+            return
+          }
+
+          if (/^(?:please\s+)?(?:open|launch|use)\s+(?:my\s+)?(?:preferred\s+)?browser[.!?]*$/i.test(spoken.trim())) {
+            const preferredBrowser = getPreferredApp('browser')
+            speakText(preferredBrowser
+              ? 'Your saved browser preference is ' + preferredBrowser + '. Visionary Nexus is already running in a browser, and a website cannot launch a different browser application.'
+              : 'Visionary Nexus is already running in a browser. A website cannot launch a different browser application.')
             return
           }
 
