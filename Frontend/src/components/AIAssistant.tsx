@@ -2073,7 +2073,7 @@ const AIAssistant: React.FC<{
       return;
     }
 
-    const preferredBrowserRequest = /^(?:please\\s+)?(?:open|launch|use)\\s+(?:my\\s+)?(?:preferred\\s+)?browser[.!?]*$/i.test(message);
+    const preferredBrowserRequest = /^(?:please\s+)?(?:open|launch|use)\s+(?:my\s+)?(?:preferred\s+)?browser[.!?]*$/i.test(message);
     if (preferredBrowserRequest) {
       const preferredBrowser = getPreferredApp("browser");
       const response = preferredBrowser
