@@ -115,12 +115,10 @@ export function openWebDestination(url: string, reservedWindow?: Window | null):
     return false
   }
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false
-  if (reservedWindow && !reservedWindow.closed) {
-    reservedWindow.location.replace(parsed.href)
-    return true
-  }
-  const opened = window.open(parsed.href, "_blank", "noopener,noreferrer")
-  return Boolean(opened)
+  if (!reservedWindow || reservedWindow.closed) return false
+  reservedWindow.opener = null
+  reservedWindow.location.replace(parsed.href)
+  return true
 }
 
 export function getWebAppCapabilityContext(): string {
