@@ -2143,8 +2143,11 @@ const AIAssistant: React.FC<{
       rememberAppKnowledge({
         app: definition.label,
         category: inferAppCategory(message, webAppCommand.action),
-        action: webAppCommand.action,
-        outcome: "intent",
+        aliases: definition.aliases,
+        action: opened
+          ? (webAppCommand.action === "search" ? "open_search_tab" : "open_tab")
+          : "open_tab",
+        outcome: opened ? "launched" : "launch_failed",
       });
       setInput("");
       setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
