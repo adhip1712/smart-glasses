@@ -358,7 +358,7 @@ const AIAssistant: React.FC<{
           .replace(/\\neq\b/g, "\u2260")
           .replace(/\\approx\b/g, "\u2248")
           .replace(/\\infty\b/g, "\u221E")
-          .replace(/\\sqrt\s*\{([^{}]+)\}/g, "\u221A($1)")
+          .replace(/\sqrt\s*\{([^{}]+)\}/g, "\u221A($1)")
           .replace(/\\left\b/g, "")
           .replace(/\\right\b/g, "")
           .replace(/\\[([]/g, "")
@@ -2003,16 +2003,16 @@ const AIAssistant: React.FC<{
 
     // Treat the common accidental leading "z" in "zplay" as a typo,
     // so short music commands stay on the local music-intent path.
-    message = message.replace(/^z(?=play(?:\\s|$))/i, "")
+    message = message.replace(/^z(?=play(?:\s|$))/i, "")
 
     // Save general app preferences from natural language. Music's existing
     // Personal Preferences setting remains authoritative for the music category.
     const preferenceMatch =
-      message.match(/^(?:please\\s+)?(?:remember|use|set)\\s+(.+?)\\s+as\\s+my\\s+(music|video|browser|navigation|email|social|messaging|games)\\s+app[.!?]*$/i) ||
-      message.match(/^i\\s+prefer\\s+(.+?)\\s+for\\s+(music|video|browser|navigation|email|social|messaging|games)[.!?]*$/i) ||
-      message.match(/^my\\s+(music|video|browser|navigation|email|social|messaging|games)\\s+app\\s+is\\s+(.+?)[.!?]*$/i);
+      message.match(/^(?:please\s+)?(?:remember|use|set)\s+(.+?)\s+as\s+my\s+(music|video|browser|navigation|email|social|messaging|games)\s+app[.!?]*$/i) ||
+      message.match(/^i\s+prefer\s+(.+?)\s+for\s+(music|video|browser|navigation|email|social|messaging|games)[.!?]*$/i) ||
+      message.match(/^my\s+(music|video|browser|navigation|email|social|messaging|games)\s+app\s+is\s+(.+?)[.!?]*$/i);
     if (preferenceMatch) {
-      const reversed = /^my\\s+/i.test(message);
+      const reversed = /^my\s+/i.test(message);
       const app = (reversed ? preferenceMatch[2] : preferenceMatch[1]).trim();
       const category = (reversed ? preferenceMatch[1] : preferenceMatch[2]).trim().toLowerCase();
       if (category !== "music") setPreferredApp(category, app);
