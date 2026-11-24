@@ -13,7 +13,7 @@ import { discoverDesktopWindows, inspectDesktopWindow, launchDesktopApp, openDes
 import { primeSpeechOutput, speakText } from "../services/speech"
 import { parseMusicCommand, openNamedYouTubeWindow, navigateNamedYouTubeWindow, youtubeSearchUrl, isValidYouTubeVideoId } from "../services/voiceMusic"
 import { readMusicPreferenceConfig, resolveMusicServiceFromCommand } from "../services/preferences"
-import { getAppKnowledgeContext, inferAppCategory, rememberAppKnowledge, setPreferredApp } from "../services/appKnowledgeMemory"
+import { getAppKnowledgeContext, getPreferredApp, inferAppCategory, rememberAppKnowledge, setPreferredApp } from "../services/appKnowledgeMemory"
 import { buildWebAppUrl, openWebDestination, parseWebAppCommand, getWebAppDefinition, getWebAppCapabilityContext } from "../services/webAppControl"
 
 // =========================================================
@@ -218,6 +218,7 @@ const AIAssistant: React.FC<{
 
   const inputRef = useRef<HTMLInputElement>(null)
   const awaitingTypedMusicChoiceRef = useRef(false)
+  const awaitingGameChoiceRef = useRef(false)
   const awaitingAlarmTimeRef = useRef(false)
   const pendingDesktopActionRef = useRef<{
     window_id: string; action: "click"; control_name?: string; automation_id?: string; control_type?: string; app_title: string
@@ -2010,6 +2011,52 @@ const AIAssistant: React.FC<{
       return;
     }
 
+    // Continue the lightweight browser-game discovery conversation.
+    if (awaitingGameChoiceRef.current) {
+      awaitingGameChoiceRef.current = false;
+      setInput("");
+      setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
+      const wantsVisionToChoose = /\\b(?:yes|you choose|you decide|pick one|choose for me|surprise me)\\b/i.test(message);
+      const wantsOptions = /\\b(?:no|i(?:'| a)m choosing|show options|let me choose)\\b/i.test(message);
+      if (wantsVisionToChoose) {
+        const gameTab = window.open("about:blank", "_blank");
+        if (gameTab && !gameTab.closed) {
+          gameTab.opener = null;
+          gameTab.location.replace("https://www.chess.com/play/computer");
+          rememberAppKnowledge({ app: "Chess.com", category: "games", action: "open_browser_game", outcome: "intent" });
+          const response = "I chose a browser chess game and opened it in a new tab. I can explain the rules and help you understand the controls, but I can't click or inspect controls inside that separate website.";
+          addLocalMessage(response);
+          speakResponse(response);
+        } else {
+          const response = "The browser blocked the new tab. Allow pop-ups for Visionary Nexus and try again.";
+          addLocalMessage(response);
+          speakResponse(response);
+        }
+      } else if (wantsOptions) {
+        const response = "Here are a few browser games you can choose from:\n\n- [Chess against the computer](https://www.chess.com/play/computer)\n- [Lichess practice](https://lichess.org/practice)\n- [Google Snake](https://www.google.com/fbx?fbx=snake_arcade)\n\nTell me which one you want to open.";
+        addLocalMessage(response);
+        speakResponse("Here are three browser games. Tell me which one you want to open.");
+      } else {
+        const response = "I didn't catch your choice. Would you like me to choose a game, or would you rather pick one?";
+        awaitingGameChoiceRef.current = true;
+        addLocalMessage(response);
+        speakResponse(response);
+      }
+      return;
+    }
+
+    // A request for an unspecified game starts discovery rather than guessing
+    // a random site or launching a native game.
+    if (/^(?:please\\s+)?(?:open|find|play|launch)\\s+(?:me\\s+)?(?:a|some|any)\\s+games?[.!?]*$/i.test(message)) {
+      awaitingGameChoiceRef.current = true;
+      setInput("");
+      setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
+      const response = "I can choose an age-appropriate browser game for you, or show you a few options. Would you like me to choose?";
+      addLocalMessage(response);
+      speakResponse(response);
+      return;
+    }
+
     // Ask for the missing target instead of treating an incomplete
     // "open the" command as a website or passing it to the general assistant.
     if (isIncompleteWebsiteCommand(message)) {
@@ -2029,7 +2076,12 @@ const AIAssistant: React.FC<{
     // Browser-native app routing for the web release. This opens the
     // requested service or its own search page; it does not claim to click
     // controls inside another origin (the browser same-origin policy blocks that).
-    const webAppCommand = explicitDesktopTarget ? null : parseWebAppCommand(message);
+    const preferredAppRequest = message.match(/^(?:please\\s+)?(?:open|launch|go to|visit)\\s+(?:my\\s+)?(?:preferred\\s+)?(video|social|email|navigation)\\s+app(?:\\s+(?:and\\s+)?(?:search|find)\\s+(?:for\\s+)?(.+?))?[.!?]*$/i);
+    const preferredAppName = preferredAppRequest ? getPreferredApp(preferredAppRequest[1].toLowerCase()) : "";
+    const preferredWebCommand = preferredAppName
+      ? parseWebAppCommand("open " + preferredAppName + (preferredAppRequest?.[2] ? " and search for " + preferredAppRequest[2] : ""))
+      : null;
+    const webAppCommand = explicitDesktopTarget ? null : (preferredWebCommand || parseWebAppCommand(message));
     if (webAppCommand) {
       const reservedWebTab = window.open("about:blank", "_blank");
       const webUrl = buildWebAppUrl(webAppCommand);
