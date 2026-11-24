@@ -119,15 +119,59 @@ function resolveExplicitWebsiteUrl(command: string): string | null {
   return "https://www.google.com/search?q=" + encodeURIComponent(target + " official website");
 }
 
-async function openRequestedWebsite(command: string): Promise<"tab" | false | null> {
+async function openRequestedWebsite(command: string): Promise<"tab" | "unverified" | false | null | { kind: "suggestions"; candidates: string[] }> {
+  const target = getWebsiteTarget(command);
   const url = resolveExplicitWebsiteUrl(command);
-  if (!url) return null;
+  if (!url || !target) return null;
 
-  // This is the web client: website navigation stays in the browser and does
-  // not invoke the Windows companion or attempt cross-origin page automation.
-  const fallbackWindow = window.open("about:blank", "_blank");
-  if (!fallbackWindow || fallbackWindow.closed) return false;
-  fallbackWindow.location.replace(url);
+  // Reserve the tab before DNS lookup so browser popup rules are respected.
+  const destinationTab = window.open("about:blank", "_blank");
+  if (!destinationTab || destinationTab.closed) return false;
+
+  // DNS existence is a basic spelling check, not a trust or ownership check.
+  const isDomainInput = target.includes(".") && !/\s/.test(target);
+  if (isDomainInput) {
+    try {
+      const hostname = new URL(url).hostname;
+      const dnsResponse = await fetch(
+        "https://dns.google/resolve?name=" + encodeURIComponent(hostname) + "&type=A",
+        { headers: { Accept: "application/dns-json" } },
+      );
+      if (!dnsResponse.ok) throw new Error("DNS lookup unavailable");
+      const dnsData = await dnsResponse.json();
+      const hasAddress = Number(dnsData?.Status) === 0 &&
+        Array.isArray(dnsData?.Answer) &&
+        dnsData.Answer.some((answer: any) => [1, 5, 28].includes(Number(answer?.type)));
+      if (!hasAddress) {
+        let candidates: string[] = [];
+        try {
+          const suggestionResponse = await fetch(
+            "https://suggestqueries.google.com/complete/search?client=firefox&q=" + encodeURIComponent(hostname),
+          );
+          if (suggestionResponse.ok) {
+            const suggestionData = await suggestionResponse.json();
+            candidates = (Array.isArray(suggestionData?.[1]) ? suggestionData[1] : [])
+              .filter((value: unknown): value is string =>
+                typeof value === "string" && value.includes(".") && value.toLowerCase() !== hostname.toLowerCase(),
+              )
+              .slice(0, 3);
+          }
+        } catch {
+          // Suggestions are optional; never guess a replacement domain.
+        }
+        destinationTab.close();
+        return { kind: "suggestions", candidates };
+      }
+    } catch {
+      // If DNS cannot be checked, open only the exact supplied address.
+      destinationTab.opener = null;
+      destinationTab.location.replace(url);
+      return "unverified";
+    }
+  }
+
+  destinationTab.opener = null;
+  destinationTab.location.replace(url);
   return "tab";
 }
 
@@ -2111,12 +2155,20 @@ const AIAssistant: React.FC<{
       setInput("");
       setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
       const requestedTarget = getWebsiteTarget(message) || "that website";
-      const explicitDomain = requestedTarget.includes(".") && !/\s/.test(requestedTarget);
-      const outcome = requestedWebsite === "tab"
-        ? explicitDomain
-          ? "Opened the exact address you entered: **" + requestedTarget + "**. I have not independently verified that the domain belongs to the intended site."
-          : "Opened search results for **" + requestedTarget + "**. Choose the official result; I won't silently guess which website you meant."
-        : "The browser blocked the new tab. Allow pop-ups for Visionary Nexus and try again.";
+      const suggestionResult = typeof requestedWebsite === "object" && requestedWebsite?.kind === "suggestions"
+        ? requestedWebsite
+        : null;
+      const outcome = suggestionResult
+        ? suggestionResult.candidates.length
+          ? "I couldn't find a DNS record for **" + requestedTarget + "**. Possible spelling matches are: " + suggestionResult.candidates.map(candidate => "[" + candidate + "](https://" + candidate + ")").join(", ") + ". Which one should I open?"
+          : "I couldn't find a DNS record for **" + requestedTarget + "**. I haven't opened a guessed alternative. Tell me the spelling you intended, or ask me to search for similar sites."
+        : requestedWebsite === "tab"
+          ? requestedTarget.includes(".")
+            ? "The domain has a DNS record, so I opened the exact address you entered: **" + requestedTarget + "**. DNS does not prove that the site is trustworthy or the one you intended."
+            : "Opened search results for **" + requestedTarget + "**. Choose the official result; I won't silently guess which website you meant."
+          : requestedWebsite === "unverified"
+            ? "I couldn't verify the domain's DNS because the lookup service was unavailable. I opened only the exact address you typed; check it before entering information."
+            : "The browser blocked the new tab. Allow pop-ups for Visionary Nexus and try again.";
       addLocalMessage(outcome)
       speakResponse(outcome)
       return;
