@@ -13,7 +13,7 @@ import { discoverDesktopWindows, inspectDesktopWindow, launchDesktopApp, openDes
 import { primeSpeechOutput, speakText } from "../services/speech"
 import { parseMusicCommand, openNamedYouTubeWindow, navigateNamedYouTubeWindow, youtubeSearchUrl, isValidYouTubeVideoId } from "../services/voiceMusic"
 import { readMusicPreferenceConfig, resolveMusicServiceFromCommand, saveMusicPreferenceConfig } from "../services/preferences"
-import { getAppKnowledgeContext, getPreferredApp, inferAppCategory, rememberAppKnowledge, setPreferredApp } from "../services/appKnowledgeMemory"
+import { getAppKnowledgeContext, getMostRecentApp, getPreferredApp, inferAppCategory, rememberAppKnowledge, setPreferredApp } from "../services/appKnowledgeMemory"
 import { buildWebAppUrl, openWebDestination, parseWebAppCommand, getWebAppDefinition, getWebAppNextStep, getWebAppCapabilityContext } from "../services/webAppControl"
 
 // =========================================================
@@ -2076,7 +2076,7 @@ const AIAssistant: React.FC<{
         if (gameTab && !gameTab.closed) {
           gameTab.opener = null;
           gameTab.location.replace("https://www.chess.com/play/computer");
-          rememberAppKnowledge({ app: "Chess.com", category: "games", action: "open_browser_game", outcome: "intent" });
+          rememberAppKnowledge({ app: "Chess.com", category: "games", action: "open_browser_game", outcome: "launched" });
           const response = "I chose a browser chess game and opened it in a new tab. I can explain the rules and help you understand the controls, but I can't click or inspect controls inside that separate website.";
           addLocalMessage(response);
           speakResponse(response);
@@ -2108,6 +2108,51 @@ const AIAssistant: React.FC<{
       addLocalMessage(response);
       speakResponse(response);
       return;
+    }
+
+    // Named, age-appropriate browser games can be opened directly.
+    const namedBrowserGame = message.match(/^(?:please\\s+)?(?:play|open|launch|start)\\s+(?:the\\s+)?(?:a\\s+)?(chess|sudoku|snake|solitaire|checkers|wordle|tetris)(?:\\s+game)?[.!?]*$/i);
+    if (namedBrowserGame) {
+      const gameName = namedBrowserGame[1].toLowerCase();
+      const gameUrls: Record<string, string> = {
+        chess: "https://www.chess.com/play/computer",
+        sudoku: "https://sudoku.com/",
+        snake: "https://www.google.com/fbx?fbx=snake_arcade",
+        solitaire: "https://www.solitr.com/",
+        checkers: "https://www.playok.com/en/checkers/",
+        wordle: "https://www.nytimes.com/games/wordle/index.html",
+        tetris: "https://tetris.com/play-tetris",
+      };
+      const gameTab = window.open("about:blank", "_blank");
+      if (gameTab && !gameTab.closed) {
+        gameTab.opener = null;
+        gameTab.location.replace(gameUrls[gameName]);
+        rememberAppKnowledge({ app: gameName, category: "games", action: "open_browser_game_tab", outcome: "launched" });
+        const response = "Opened " + gameName + " in a new tab. I can explain its rules, but browser security prevents me from clicking or inspecting controls inside that separate site.";
+        setInput("");
+        setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
+        addLocalMessage(response);
+        speakResponse(response);
+      } else {
+        const response = "The browser blocked the new tab. Allow pop-ups for Visionary Nexus and try again.";
+        addLocalMessage(response);
+        speakResponse(response);
+      }
+      return;
+    }
+
+    // For a previously opened browser game, explain the control boundary
+    // instead of pretending that this page can send input to another tab.
+    if (/^(?:pause|resume|continue|restart|start|new game|level|score|settings)\\b.*\\bgame\\b/i.test(message)) {
+      const recentGame = getMostRecentApp("games");
+      if (recentGame) {
+        const response = "Your recent browser game is **" + recentGame + "**. I can't send clicks or keyboard input into its separate tab from this website. Use the game's visible controls; if you describe the screen, I can guide you.";
+        setInput("");
+        setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
+        addLocalMessage(response);
+        speakResponse(response);
+        return;
+      }
     }
 
     // Ask for the missing target instead of treating an incomplete
