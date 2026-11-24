@@ -2196,7 +2196,7 @@ const AIAssistant: React.FC<{
     // Browser-native app routing for the web release. This opens the
     // requested service or its own search page; it does not claim to click
     // controls inside another origin (the browser same-origin policy blocks that).
-    const preferredAppRequest = message.match(/^(?:please\s+)?(?:open|launch|go to|visit)\s+(?:my\s+)?(?:preferred\s+)?(video|social|email|navigation)\s+app(?:\s+(?:and\s+)?(?:search|find)\s+(?:for\s+)?(.+?))?[.!?]*$/i);
+    const preferredAppRequest = message.match(/^(?:please\s+)?(?:open|launch|go to|visit)\s+(?:my\s+)?(?:preferred\s+)?(video|social|email|navigation|messaging)\s+app(?:\s+(?:and\s+)?(?:search|find)\s+(?:for\s+)?(.+?))?[.!?]*$/i);
     const preferredAppName = preferredAppRequest ? getPreferredApp(preferredAppRequest[1].toLowerCase()) : "";
     const preferredWebCommand = preferredAppName
       ? parseWebAppCommand("open " + preferredAppName + (preferredAppRequest?.[2] ? " and search for " + preferredAppRequest[2] : ""))
@@ -2219,9 +2219,11 @@ const AIAssistant: React.FC<{
       setInput("");
       setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
       const outcome = opened
-        ? (webAppCommand.action === "search"
-          ? "Opened " + definition.label + " search results for **" + webAppCommand.query + "** in a new tab. I can navigate to the service, but this website cannot inspect or click controls inside another site's page."
-          : "Opened " + definition.label + " in a new tab. " + getWebAppNextStep(webAppCommand.app) + " I can navigate to the site, but I cannot inspect or click its controls from this tab.")
+        ? (webAppCommand.action === "search" && definition.supportsSearch === false
+          ? "Opened " + definition.label + " in a new tab. Search for **" + webAppCommand.query + "** inside the app; Visionary Nexus cannot read its private contacts, chats, or content."
+          : webAppCommand.action === "search"
+            ? "Opened " + definition.label + " search results for **" + webAppCommand.query + "** in a new tab. I can navigate to the service, but this website cannot inspect or click controls inside another site's page."
+            : "Opened " + definition.label + " in a new tab. " + getWebAppNextStep(webAppCommand.app) + " I can navigate to the site, but I cannot inspect or click its controls from this tab.")
         : "The browser blocked the new tab. Allow pop-ups for Visionary Nexus and try again.";
       addLocalMessage(outcome);
       speakResponse(outcome);
