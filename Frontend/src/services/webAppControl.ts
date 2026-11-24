@@ -160,6 +160,32 @@ export function getWebAppDefinition(app: WebAppId): WebAppDefinition {
   return WEB_APPS[app]
 }
 
+export function getWebAppNextStep(app: WebAppId): string {
+  const prompts: Record<WebAppId, string> = {
+    youtube: "What would you like to watch?",
+    spotify: "What would you like to listen to?",
+    x: "What would you like to search for?",
+    gmail: "Would you like to search for an email?",
+    "google-maps": "What destination should I look up?",
+    google: "What would you like to search for?",
+    wikipedia: "Which topic should I look up?",
+    reddit: "Which topic or community are you interested in?",
+    github: "Which repository or project should I find?",
+    twitch: "Which streamer or category should I look for?",
+    "google-drive": "Which file or folder are you looking for?",
+    "google-calendar": "Would you like to look up an event?",
+    outlook: "Would you like to search for an email?",
+    notion: "Which page or workspace are you looking for?",
+    linkedin: "Would you like to search for a person, post, or job?",
+    instagram: "Which account or topic are you looking for?",
+    pinterest: "What kind of ideas or pins should I find?",
+    "stack-overflow": "What programming question should I search for?",
+    "khan-academy": "Which subject would you like to study?",
+    canva: "What would you like to design?",
+  }
+  return prompts[app]
+}
+
 export function buildWebAppUrl(command: WebAppCommand): string {
   const definition = WEB_APPS[command.app]
   return command.query ? definition.search(command.query) : definition.home
