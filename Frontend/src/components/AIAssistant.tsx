@@ -136,21 +136,12 @@ async function openPreferredMusicWebsite(query: string, commandText: string): Pr
   const service = resolveMusicServiceFromCommand(commandText, preference.service)
 
   if (service === "Spotify") {
-    // Reserve the browser fallback synchronously so popup blockers do not
-    // prevent the web search if the local Windows companion is unavailable.
+    // Web-only routing: open Spotify's web search. A tab handoff does not
+    // prove that a track started, so playback is left to the user in Spotify.
     const fallbackWindow = window.open("about:blank", "_blank")
-    try {
-      const result = await openSpotifyDesktopSearch(query)
-      if (fallbackWindow && !fallbackWindow.closed) fallbackWindow.close()
-      return { service, opened: result.success === true }
-    } catch (error) {
-      console.warn("Spotify desktop handoff unavailable; using Spotify web search.", error)
-      if (fallbackWindow && !fallbackWindow.closed) {
-        fallbackWindow.location.replace(`https://open.spotify.com/search/${encodeURIComponent(query)}`)
-        return { service, opened: true }
-      }
-      return { service, opened: false }
-    }
+    if (!fallbackWindow || fallbackWindow.closed) return { service, opened: false }
+    fallbackWindow.location.replace(`https://open.spotify.com/search/${encodeURIComponent(query)}`)
+    return { service, opened: true }
   }
 
   if (service === "YouTube" && preference.destination === "website") {
@@ -174,16 +165,8 @@ async function openPreferredMusicWebsite(query: string, commandText: string): Pr
     return { service, opened: true }
   }
 
-  // Custom Music preferences (such as Zplay) launch the named desktop app.
-  if (!["YouTube", "Spotify"].includes(service)) {
-    try {
-      const launched = await launchDesktopApp(service)
-      return { service, opened: Boolean(launched?.success) }
-    } catch (error) {
-      console.warn("Could not launch the preferred music app.", error)
-      return { service, opened: false }
-    }
-  }
+  // Other providers continue through the existing in-site Music experience;
+  // this web-only router never launches a native desktop application.
   return null
 }
 
@@ -2075,11 +2058,13 @@ const AIAssistant: React.FC<{
     if (requestedWebsite !== null) {
       setInput("");
       setMessages(previous => [...previous, { id: Date.now() + Math.random(), role: "user", content: message }]);
-      const outcome = requestedWebsite === "desktop"
-        ? "Opening the requested website in your default browser."
-        : requestedWebsite === "tab"
-          ? "Opening the requested website in a new tab."
-          : "The browser blocked the new tab and the desktop companion could not open the website. Allow pop-ups or start the Visionary Nexus companion.";
+      const requestedTarget = getWebsiteTarget(message) || "that website";
+      const explicitDomain = /^(?:https?:\\/\\/)?(?:www\\.)?[a-z0-9-]+(?:\\.[a-z0-9-]+)+(?:[/:?#].*)?$/i.test(requestedTarget);
+      const outcome = requestedWebsite === "tab"
+        ? explicitDomain
+          ? "Opened the exact address you entered: **" + requestedTarget + "**. I have not independently verified that the domain belongs to the intended site."
+          : "Opened search results for **" + requestedTarget + "**. Choose the official result; I won't silently guess which website you meant."
+        : "The browser blocked the new tab. Allow pop-ups for Visionary Nexus and try again.";
       addLocalMessage(outcome)
       speakResponse(outcome)
       return;
